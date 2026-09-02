@@ -3,20 +3,19 @@
  *
  * Every per-game difference in MintPlaza lives here as data, never as a branch
  * inside a component. The shape mirrors the `games` table this will be read
- * from once the database lands, so moving it is a swap of the loader and not a
- * rewrite of anything that consumes it.
+ * from once the database lands.
  *
- * Adding a seventh game is an entry here plus an item catalogue. It is never a
- * new route tree. (Master spec §2, §5, §36.)
+ * The contents are researched, not assumed — item attributes match how each
+ * game's community actually describes and values things, and `wants` are the
+ * requests players genuinely post, taken from the trading and recruitment
+ * communities for each game. Sources are noted per game.
+ *
+ * All of it is mutable. These games change monthly, so nothing here should
+ * ever be treated as permanently true; once the admin surface exists this
+ * becomes editable content rather than code (§17, §45).
  */
 
-/** Feature areas a game can switch on. Explore renders only what is enabled. */
-export type ModuleId =
-  | "trades"
-  | "inventory"
-  | "activities"
-  | "help"
-  | "services";
+export type ModuleId = "trades" | "inventory" | "activities" | "help" | "services";
 
 /** How a game's items vary. Drives the inventory form and the match keys. */
 export interface ItemAttribute {
@@ -26,30 +25,44 @@ export interface ItemAttribute {
   options?: readonly string[];
 }
 
+/**
+ * What players in this game actually ask for.
+ *
+ * Four shapes cover every request seen across all six communities:
+ *   trade — I have X, I want Y
+ *   group — this needs N people and I have fewer
+ *   help  — I am stuck and someone who is not stuck could unstick me
+ *   check — is this fair? what is this worth?
+ *
+ * The fourth is the one no Discord solves well, and every one of these games
+ * has a community that does it by hand all day.
+ */
+export type WantKind = "trade" | "group" | "help" | "check";
+
+export interface Want {
+  /** Phrased the way a player would type it. */
+  label: string;
+  kind: WantKind;
+  /** The real constraint, where the activity has one. */
+  detail?: string;
+}
+
 export interface Game {
   slug: string;
   name: string;
-  /** Used where the full name will not fit — switcher, breadcrumbs, chips. */
   shortName: string;
-  /** One line, descriptive. Never a claim about live game state (§17). */
   blurb: string;
-  /** What players actually come here to coordinate. Shown on the game home. */
-  coordinates: readonly string[];
   modules: readonly ModuleId[];
-  /** The vocabulary this game's activities use. Data, not an enum in code. */
+  wants: readonly Want[];
   activityKinds: readonly string[];
   itemCategories: readonly string[];
   itemAttributes: readonly ItemAttribute[];
-  /** Per-game identity hue, sampled from the artwork. Used for soft glows. */
+  /** In-game gate on trading at all, where one exists. Shown, not enforced. */
+  tradeGate?: string;
   hue: string;
-  /**
-   * Cover art, served from /public/games. One field per game so any image can
-   * be swapped without touching a component.
-   *
-   * These are the games' own promotional images. MintPlaza claims no rights in
-   * them and no affiliation with their creators or with Roblox (§30).
-   */
   art: string;
+  /** Where the above came from, and when. Shown in admin, not to players. */
+  sourceNote: string;
 }
 
 export const GAMES: readonly Game[] = [
@@ -57,98 +70,188 @@ export const GAMES: readonly Game[] = [
     slug: "blox-fruits",
     name: "Blox Fruits",
     shortName: "Blox Fruits",
-    blurb: "Fruit trading, raid teams, and sea hunts that need more players than you have friends online.",
-    coordinates: ["Fruit trades", "Raid teams", "Sea hunts", "Progression help"],
+    blurb:
+      "Raid teams, sea hunts and fruit trades — the things that need more players than you have friends online.",
     modules: ["trades", "inventory", "activities", "help"],
-    activityKinds: ["Raid", "Sea event", "Boss hunt", "Grind session"],
-    itemCategories: ["Fruit", "Sword", "Gun", "Accessory", "Material"],
+    wants: [
+      { label: "Need 2 more for Dough King", kind: "group", detail: "2–4 players · 7.5 minute timer" },
+      { label: "Leviathan hunt forming", kind: "group", detail: "10% damage per segment to get drops" },
+      { label: "3 for Race V4 — all different races", kind: "group", detail: "Third Sea · V3 or above" },
+      { label: "Terrorshark hunt, who's in?", kind: "group" },
+      { label: "Anyone got Mirage Island up?", kind: "help" },
+      { label: "Bounty hunting partner", kind: "group" },
+      { label: "Perm Kitsune for Perm Dragon", kind: "trade" },
+      { label: "Is this W/F/L?", kind: "check" },
+      { label: "Third Sea level grind help", kind: "help" },
+    ],
+    activityKinds: ["Raid", "Sea event", "Boss hunt", "Race awakening", "Grind session"],
+    itemCategories: ["Fruit", "Sword", "Gun", "Fighting style", "Accessory", "Material"],
     itemAttributes: [
       { key: "form", label: "Form", options: ["Physical", "Permanent"] },
-      { key: "condition", label: "Condition", options: ["Untouched", "Used"] },
     ],
     hue: "#D9542B",
     art: "/games/blox-fruits.jpg",
+    sourceNote:
+      "Raid and sea-event requirements from Blox Fruits community documentation; requests from active Blox Fruits trading and raid Discord communities. Checked September 2026.",
   },
+
   {
     slug: "grow-a-garden",
     name: "Grow a Garden",
     shortName: "Garden",
-    blurb: "Crop and pet trades, plus coordinating around the weather and mutation windows worth showing up for.",
-    coordinates: ["Crop trades", "Mutation windows", "Weather groups", "Garden help"],
+    blurb:
+      "Pet, seed and sheckle trades, plus getting a shout when the weather worth planting for actually arrives.",
     modules: ["trades", "inventory", "activities", "help"],
+    wants: [
+      { label: "Ping me on the next weather event", kind: "group" },
+      { label: "Mutation run — who's in?", kind: "group" },
+      { label: "Trading pets for sheckles", kind: "trade" },
+      { label: "Pet weight check", kind: "check" },
+      { label: "W/F/L on this?", kind: "check" },
+      { label: "Help finishing an event set", kind: "help" },
+    ],
     activityKinds: ["Weather window", "Mutation run", "Event", "Group session"],
-    itemCategories: ["Crop", "Seed", "Pet", "Gear"],
+    itemCategories: ["Crop", "Seed", "Pet", "Gear", "Cosmetic"],
     itemAttributes: [
       { key: "mutation", label: "Mutation", options: ["None", "Mutated"] },
-      { key: "weight", label: "Weight", options: [] },
+      { key: "weight", label: "Weight (kg)" },
     ],
     hue: "#5BAE3A",
     art: "/games/grow-a-garden.jpg",
+    sourceNote:
+      "Weather, mutation and event mechanics from Grow a Garden community documentation; requests from Grow a Garden trading communities. Checked September 2026.",
   },
+
   {
     slug: "adopt-me",
     name: "Adopt Me!",
     shortName: "Adopt Me",
-    blurb: "Pet trades, and finding the people who will actually sit through a neon or mega project with you.",
-    coordinates: ["Pet trades", "Neon projects", "Mega projects", "Task help"],
+    blurb:
+      "Pet trades, and finding people who will actually sit through a neon or mega project with you.",
     modules: ["trades", "inventory", "help", "activities"],
-    activityKinds: ["Neon project", "Mega project", "Task run", "Event"],
-    itemCategories: ["Pet", "Egg", "Vehicle", "Toy", "Food"],
+    wants: [
+      { label: "Need 3 more Full Grown for a neon", kind: "group", detail: "4 Full Grown of the same pet" },
+      { label: "Mega project — 16 pets deep", kind: "group", detail: "4 Luminous neons" },
+      { label: "Can someone help age my pets?", kind: "help" },
+      { label: "MFR Frost for NFR Shadow", kind: "trade" },
+      { label: "Is this W/F/L?", kind: "check" },
+      { label: "Task help, I keep missing them", kind: "help" },
+    ],
+    activityKinds: ["Neon project", "Mega project", "Aging help", "Task run", "Event"],
+    itemCategories: ["Pet", "Egg", "Vehicle", "Toy", "Stroller", "Food"],
     itemAttributes: [
-      { key: "tier", label: "Tier", options: ["Normal", "Neon", "Mega Neon"] },
-      { key: "age", label: "Age", options: ["Newborn", "Junior", "Pre-Teen", "Teen", "Post-Teen", "Full Grown"] },
-      { key: "potion", label: "Potion", options: ["None", "Fly", "Ride", "Fly & Ride"] },
+      { key: "tier", label: "Tier", options: ["Regular", "Neon", "Mega Neon"] },
+      {
+        key: "age",
+        label: "Age",
+        options: ["Newborn", "Junior", "Pre-Teen", "Teen", "Post-Teen", "Full Grown"],
+      },
+      { key: "potion", label: "Potion", options: ["No Potion", "Fly", "Ride", "Fly & Ride"] },
     ],
     hue: "#E8B23A",
     art: "/games/adopt-me.jpg",
+    sourceNote:
+      "Neon and mega requirements, age ladder and potion combinations from Adopt Me community documentation; requests from Adopt Me trading communities. Checked September 2026.",
   },
+
   {
-    slug: "murder-mystery-2",
-    name: "Murder Mystery 2",
-    shortName: "MM2",
-    blurb: "Collectible trades and finding a group when an event is genuinely running, not months after it ended.",
-    coordinates: ["Knife trades", "Collection goals", "Event groups", "Value checks"],
-    modules: ["trades", "inventory", "activities"],
-    activityKinds: ["Event grind", "Collection goal", "Group session"],
-    itemCategories: ["Knife", "Gun", "Pet", "Bundle"],
+    slug: "pet-simulator-99",
+    name: "Pet Simulator 99",
+    shortName: "PS99",
+    blurb:
+      "Huge, Titanic and Exclusive trades, value checks before you accept, and people to run a clan with.",
+    modules: ["trades", "inventory", "help", "activities"],
+    wants: [
+      { label: "Trading a Huge for a Titanic", kind: "trade" },
+      { label: "Rainbow Huge — what's it worth?", kind: "check" },
+      { label: "Looking for Exclusives", kind: "trade" },
+      { label: "Clan mates wanted", kind: "group" },
+      { label: "Which enchants should I run?", kind: "help" },
+      { label: "Check this before I accept", kind: "check" },
+    ],
+    activityKinds: ["Clan", "Event", "Group session"],
+    itemCategories: ["Pet", "Egg", "Enchant", "Charm", "Item"],
     itemAttributes: [
-      { key: "tier", label: "Tier", options: ["Common", "Uncommon", "Rare", "Legendary", "Godly", "Ancient", "Unique"] },
-      { key: "chroma", label: "Chroma", options: ["No", "Yes"] },
+      {
+        key: "rarity",
+        label: "Rarity",
+        options: [
+          "Basic", "Rare", "Epic", "Legendary", "Mythical", "Exotic",
+          "Divine", "Superior", "Celestial", "Secret", "Exclusive",
+        ],
+      },
+      // Huge, Titanic and Gargantuan are subgroups of the Exclusive rarity,
+      // not rarities of their own.
+      { key: "class", label: "Exclusive class", options: ["None", "Huge", "Titanic", "Gargantuan"] },
+      // Variants are damage enhancements layered on a pet, not rarities.
+      { key: "variant", label: "Variant", options: ["Normal", "Golden", "Rainbow", "Shiny"] },
+      { key: "level", label: "Level" },
     ],
     hue: "#D9538F",
-    art: "/games/murder-mystery-2.jpg",
+    art: "/games/pet-simulator-99.jpg",
+    sourceNote:
+      "Rarity ladder, Exclusive subgroups and variant enhancements from Pet Simulator community documentation; requests from PS99 trading communities. Checked September 2026.",
   },
+
   {
     slug: "royale-high",
     name: "Royale High",
     shortName: "Royale High",
-    blurb: "Halo and set trades, campus quest partners, and groups for the activities nobody wants to do alone.",
-    coordinates: ["Halo trades", "Set trades", "Quest partners", "Campus activities"],
+    blurb:
+      "Halo and set trades, diamond grinding company, and partners for the quests nobody wants to do alone.",
     modules: ["trades", "inventory", "activities", "help"],
-    activityKinds: ["Quest run", "Campus activity", "Pageant", "Event"],
+    wants: [
+      { label: "Trading a Winter halo", kind: "trade" },
+      { label: "Halo value check", kind: "check" },
+      { label: "Diamond farming partner", kind: "help" },
+      { label: "Campus quest help", kind: "help" },
+      { label: "Grinding to level 75 so I can trade", kind: "help", detail: "Trading unlocks at level 75" },
+      { label: "Anyone doing the seasonal set?", kind: "group" },
+    ],
+    activityKinds: ["Quest run", "Campus activity", "Diamond grind", "Seasonal event"],
     itemCategories: ["Halo", "Set", "Accessory", "Skirt", "Heels", "Wings"],
     itemAttributes: [
       { key: "kind", label: "Kind", options: ["Halo", "Set piece", "Accessory"] },
-      { key: "season", label: "Season", options: [] },
+      {
+        key: "series",
+        label: "Series",
+        options: ["Everfriend", "Flowering", "Tidalglow", "Eveningfall", "Glitterfrost", "Other"],
+      },
     ],
+    tradeGate: "Trading in Royale High unlocks at level 75.",
     hue: "#D98BC4",
     art: "/games/royale-high.jpg",
+    sourceNote:
+      "Halo series, the level 75 trading gate and diamond sources from Royale High community documentation; requests from Royale High trading communities. Checked September 2026.",
   },
+
   {
     slug: "creatures-of-sonaria",
     name: "Creatures of Sonaria",
     shortName: "Sonaria",
-    blurb: "Creature trades and pack recruitment for the missions that are built to need a group.",
-    coordinates: ["Creature trades", "Pack missions", "Daily & weekly runs", "Survival groups"],
+    blurb:
+      "Creature trades where the details decide the value, and packs for the missions built to need a group.",
     modules: ["trades", "inventory", "activities", "help"],
-    activityKinds: ["Pack mission", "Daily mission", "Weekly mission", "Event mission"],
-    itemCategories: ["Creature", "Skin", "Item"],
+    wants: [
+      { label: "Pack mission group forming", kind: "group" },
+      { label: "Trading an Adult creature", kind: "trade" },
+      { label: "W/F/L on this trade?", kind: "check" },
+      { label: "Mush grinding help", kind: "help" },
+      { label: "Looking for a specific palette", kind: "trade" },
+      { label: "Anyone running dailies?", kind: "group" },
+    ],
+    activityKinds: ["Pack mission", "Daily mission", "Weekly mission", "Monthly mission", "Event mission"],
+    itemCategories: ["Creature", "Plushie", "Token", "Palette", "Material", "Skin"],
     itemAttributes: [
       { key: "stage", label: "Stage", options: ["Child", "Juvenile", "Adult", "Elder"] },
-      { key: "variant", label: "Variant", options: ["Standard", "Variant"] },
+      { key: "gender", label: "Gender", options: ["Male", "Female"] },
+      { key: "mutation", label: "Mutation" },
+      { key: "palette", label: "Palette" },
     ],
     hue: "#4E8FB5",
     art: "/games/creatures-of-sonaria.jpg",
+    sourceNote:
+      "Trading factors (species, mutation, traits, age, gender, palette) and pack mission structure from Creatures of Sonaria community documentation. Checked September 2026.",
   },
 ] as const;
 
@@ -162,7 +265,6 @@ export function hasModule(game: Game, id: ModuleId): boolean {
   return game.modules.includes(id);
 }
 
-/** Human labels for module ids, kept beside the type so they cannot drift. */
 export const MODULE_LABELS: Record<ModuleId, string> = {
   trades: "Trades",
   inventory: "Inventory",
@@ -170,3 +272,29 @@ export const MODULE_LABELS: Record<ModuleId, string> = {
   help: "Help",
   services: "Services",
 };
+
+const KIND_SUMMARY: Record<WantKind, string> = {
+  trade: "Trades",
+  group: "Groups",
+  help: "Help",
+  check: "Value checks",
+};
+
+/** A short line naming what this game is used for here, derived from its wants. */
+export function wantSummary(game: Game): string {
+  const seen: string[] = [];
+  for (const w of game.wants) {
+    const label = KIND_SUMMARY[w.kind];
+    if (!seen.includes(label)) seen.push(label);
+  }
+  return seen.join(" · ");
+}
+
+/**
+ * Every want across every game, tagged with where it came from.
+ * The homepage draws on this, so the promises it makes are the same data the
+ * product runs on rather than marketing copy written separately.
+ */
+export function allWants(): readonly (Want & { game: Game })[] {
+  return GAMES.flatMap((game) => game.wants.map((w) => ({ ...w, game })));
+}

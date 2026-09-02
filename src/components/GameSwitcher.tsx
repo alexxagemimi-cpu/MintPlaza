@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GAMES, type Game } from "@/lib/games";
+import { GAMES, wantSummary, type Game } from "@/lib/games";
 import { GameArt } from "./GameArt";
 
 /**
@@ -149,7 +149,7 @@ export function GameSwitcher({ current }: { current: Game }) {
           </span>
         </span>
         <span className="relative mt-3 block text-[0.8125rem] leading-relaxed text-ink-mute">
-          {current.coordinates.join(" · ")}
+          {wantSummary(current)}
         </span>
       </button>
 
@@ -195,7 +195,7 @@ export function GameSwitcher({ current }: { current: Game }) {
                   {g.name}
                 </span>
                 <span className="mt-0.5 block truncate text-[0.75rem] text-ink-mute">
-                  {g.coordinates.slice(0, 3).join(" · ")}
+                  {wantSummary(g)}
                 </span>
               </span>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0 text-ink-faint" strokeLinecap="round" strokeLinejoin="round">

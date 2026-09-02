@@ -265,3 +265,10 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Marquee for the homepage want cards. Halted by the reduced-motion block
+   above, which leaves the row still and readable rather than blank. */
+@keyframes marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}

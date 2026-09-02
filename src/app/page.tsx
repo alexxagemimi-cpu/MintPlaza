@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { GAMES, MODULE_LABELS } from "@/lib/games";
 import { GameCover } from "@/components/GameArt";
+import { WantMarquee } from "@/components/WantMarquee";
 
 /* ------------------------------------------------------------------ */
 
@@ -97,22 +98,36 @@ function HeroMatch() {
 
 /* ------------------------------------------------------------------ */
 
-const PRINCIPLES = [
+const FEATURES = [
   {
-    title: "Matching, not browsing",
-    body: "Say what you have and what you want. MintPlaza looks for people whose lists point back at yours, and shows the reason it matched you — never a shuffled grid dressed up as a recommendation.",
+    title: "Two-way matching",
+    icon: "M2.8 6.6h10.6M10.6 3.8 13.4 6.6l-2.8 2.8M17.2 13.4H6.6M9.4 10.6 6.6 13.4l2.8 2.8",
+    body: "It looks for people whose wants point back at yours — they have what you are after and want what you have — and tells you which of the two it is.",
   },
   {
-    title: "Limits that keep it readable",
-    body: "Three listings every three hours. Not a punishment — the reason the board is worth reading at all. Repeat posting stops working, so finding beats shouting.",
+    title: "Messages",
+    icon: "M17.5 9.6c0 3.3-3.4 6-7.5 6a8.7 8.7 0 0 1-2.3-.3L3.5 17l1.2-3A5.7 5.7 0 0 1 2.5 9.6c0-3.3 3.4-6 7.5-6s7.5 2.7 7.5 6Z",
+    body: "Free for everyone. A thread stays attached to the trade or the group it came from, so nobody has to ask what this is about. Block and report from day one.",
   },
   {
-    title: "Built per game, not once",
-    body: "A neon pet, a chroma knife and a permanent fruit are not the same kind of thing. Each game gets fields that fit its own economy instead of one shape forced onto six.",
+    title: "Ask before you accept",
+    icon: "M10 2.4 3.5 4.8v4c0 4.2 2.7 7.4 6.5 8.5 3.8-1.1 6.5-4.3 6.5-8.5v-4L10 2.4ZM7.3 9.6l1.9 2 3.6-3.8",
+    body: "Every one of these communities checks whether a trade is win, fair or lose before accepting. Here that is a thing you can ask on the listing itself.",
   },
   {
-    title: "Reputation you can trace",
-    body: "Standing comes from interactions that actually happened here, tied to the trade or the group they came from. Nothing calls itself verified without something real behind it.",
+    title: "Groups say what they need",
+    icon: "M12.6 16.5v-1.3a3 3 0 0 0-3-3H5.2a3 3 0 0 0-3 3v1.3M7.4 9a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6M17.8 16.5v-1.3a3 3 0 0 0-2.3-2.9M12.6 3.6a3 3 0 0 1 0 5.4",
+    body: "\u201cThree players, all different races, V3 or above\u201d is a filter you can match on, not a sentence somebody has to read twice and then ask about.",
+  },
+  {
+    title: "Standing you can trace",
+    icon: "M10 2.5 4 5v4.3c0 3.6 2.4 6.9 6 8.2 3.6-1.3 6-4.6 6-8.2V5l-6-2.5ZM10 7.6v2.9M10 13.2h.01",
+    body: "Reputation comes from interactions that actually happened here, tied to the trade or group they came from. Nothing is called verified without something real behind it.",
+  },
+  {
+    title: "A board worth reading",
+    icon: "M10 5.4v4.8l3 1.8M17.5 10a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z",
+    body: "Three listings every three hours, enforced by the database rather than the page. Reposting stops working, so the board stays worth scrolling.",
   },
 ];
 
@@ -151,65 +166,66 @@ export default function HomePage() {
       </header>
 
       <main>
-        {/* ---- hero ---- */}
-        <section className="mx-auto max-w-6xl px-5 pb-20 pt-14 sm:px-8 sm:pb-28 sm:pt-20">
-          <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
-            <div>
-              <p className="label mb-6">Player discovery · six games</p>
-              <h1 className="display max-w-[13ch] text-[2.6rem] leading-[0.98] sm:text-[3.4rem] lg:text-[3.75rem]">
-                The trade you want is{" "}
-                <span className="text-mint">already posted.</span> You just
-                can&rsquo;t find it.
-              </h1>
+        {/* ---- hero: the question, then what people are actually asking ---- */}
+        <section className="pb-16 pt-14 sm:pb-20 sm:pt-20">
+          <div className="mx-auto max-w-6xl px-5 text-center sm:px-8">
+            <p className="label mb-6">Player discovery · six games</p>
+            <h1 className="display mx-auto max-w-[15ch] text-[3rem] leading-[0.95] sm:text-[4.25rem] lg:text-[4.75rem]">
+              What do you <span className="text-mint">want?</span>
+            </h1>
+            <p className="measure mx-auto mt-7 text-[1.0625rem] leading-relaxed text-ink-soft">
+              Somebody in your game is asking for the other half of it right now.
+              MintPlaza puts every one of these requests in one searchable place
+              and tells you which ones fit you — instead of a Discord channel
+              that scrolls past faster than you can read.
+            </p>
+          </div>
 
-              <p className="measure mt-7 text-[1.0625rem] leading-relaxed text-ink-soft">
-                Discord channels move faster than anyone can read, so the same
-                requests get posted over and over by people who would have
-                matched an hour ago. MintPlaza organises what players are
-                already looking for into something you can search — and tells
-                you who fits you, and why.
-              </p>
+          {/* Full-bleed, because the promise is the point of this screen. */}
+          <div className="mt-12 sm:mt-14">
+            <WantMarquee />
+          </div>
 
-              <div className="mt-9 flex flex-wrap items-center gap-3">
-                <Link href="/app" className="pill pill-mint px-6 py-3.5 text-sm">
-                  Continue with Roblox
-                </Link>
-                <a href="#how" className="pill pill-ghost px-6 py-3.5 text-sm">
-                  See how matching works
-                </a>
-              </div>
-
-              <p className="mt-6 flex items-start gap-2.5 text-[0.8125rem] leading-relaxed text-ink-mute">
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-px shrink-0 text-mint" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1.8 3 3.9v3.4c0 2.9 2 5.6 5 6.9 3-1.3 5-4 5-6.9V3.9L8 1.8Z" />
-                  <path d="m5.9 7.9 1.5 1.5 2.8-2.9" />
-                </svg>
-                Free to use. Sign-in goes through Roblox — MintPlaza never asks
-                for your password, cookie or session token.
-              </p>
+          <div className="mx-auto mt-12 max-w-6xl px-5 text-center sm:px-8">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link href="/app" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
+                Try MintPlaza now
+              </Link>
+              <a href="#how" className="pill pill-ghost px-6 py-4 text-[0.9375rem]">
+                See how it works
+              </a>
             </div>
-
-            <HeroMatch />
+            <p className="mx-auto mt-6 flex max-w-[52ch] items-start justify-center gap-2.5 text-[0.8125rem] leading-relaxed text-ink-mute">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-px shrink-0 text-mint" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 1.8 3 3.9v3.4c0 2.9 2 5.6 5 6.9 3-1.3 5-4 5-6.9V3.9L8 1.8Z" />
+                <path d="m5.9 7.9 1.5 1.5 2.8-2.9" />
+              </svg>
+              Free to use. Sign-in goes through Roblox — MintPlaza never asks for
+              your password, cookie or session token.
+            </p>
           </div>
         </section>
 
-        {/* ---- principles ---- */}
+        {/* ---- what you get, with the messaging system among it ---- */}
         <section className="border-t border-line-soft py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <SectionLabel>Why it works</SectionLabel>
+            <SectionLabel>What is here</SectionLabel>
             <h2 className="display measure text-[1.9rem] sm:text-[2.4rem]">
-              Posting louder was never the problem.
+              Everything the request needed, in one place.
             </h2>
-            <p className="measure mt-4 text-[1rem] leading-relaxed text-ink-soft">
-              Every one of these games has the same bottleneck: the person you
-              need is online right now and neither of you can see the other.
-            </p>
 
-            <div className="mt-12 grid gap-4 sm:grid-cols-2">
-              {PRINCIPLES.map((p) => (
-                <div key={p.title} className="glass rounded-[var(--radius-panel)] p-6 sm:p-7">
-                  <h3 className="text-[1.0625rem] font-bold tracking-[-0.02em] text-ink">{p.title}</h3>
-                  <p className="mt-2.5 text-[0.9375rem] leading-relaxed text-ink-soft">{p.body}</p>
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {FEATURES.map((f) => (
+                <div key={f.title} className="glass rounded-[var(--radius-panel)] p-6">
+                  <span className="grid h-10 w-10 place-items-center rounded-[13px] bg-mint-wash text-mint">
+                    <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d={f.icon} />
+                    </svg>
+                  </span>
+                  <h3 className="mt-4 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                    {f.title}
+                  </h3>
+                  <p className="mt-2 text-[0.9375rem] leading-relaxed text-ink-soft">{f.body}</p>
                 </div>
               ))}
             </div>

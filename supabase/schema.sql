@@ -681,46 +681,51 @@ end $$;
 
 insert into public.games (slug, name, short_name, blurb, modules, activity_kinds, item_categories, hue, art, sort_order) values
   ('blox-fruits', 'Blox Fruits', 'Blox Fruits',
-   'Fruit trading, raid teams, and sea hunts that need more players than you have friends online.',
-   '{trades,inventory,activities,help}', '{Raid,"Sea event","Boss hunt","Grind session"}',
-   '{Fruit,Sword,Gun,Accessory,Material}', '#D9542B', '/games/blox-fruits.jpg', 1),
+   'Raid teams, sea hunts and fruit trades — the things that need more players than you have friends online.',
+   '{trades,inventory,activities,help}',
+   '{Raid,"Sea event","Boss hunt","Race awakening","Grind session"}',
+   '{Fruit,Sword,Gun,"Fighting style",Accessory,Material}',
+   '#D9542B', '/games/blox-fruits.jpg', 1),
+
   ('grow-a-garden', 'Grow a Garden', 'Garden',
-   'Crop and pet trades, plus coordinating around the weather and mutation windows worth showing up for.',
-   '{trades,inventory,activities,help}', '{"Weather window","Mutation run",Event,"Group session"}',
-   '{Crop,Seed,Pet,Gear}', '#5BAE3A', '/games/grow-a-garden.jpg', 2),
+   'Pet, seed and sheckle trades, plus getting a shout when the weather worth planting for actually arrives.',
+   '{trades,inventory,activities,help}',
+   '{"Weather window","Mutation run",Event,"Group session"}',
+   '{Crop,Seed,Pet,Gear,Cosmetic}',
+   '#5BAE3A', '/games/grow-a-garden.jpg', 2),
+
   ('adopt-me', 'Adopt Me!', 'Adopt Me',
-   'Pet trades, and finding the people who will actually sit through a neon or mega project with you.',
-   '{trades,inventory,help,activities}', '{"Neon project","Mega project","Task run",Event}',
-   '{Pet,Egg,Vehicle,Toy,Food}', '#E8B23A', '/games/adopt-me.jpg', 3),
-  ('murder-mystery-2', 'Murder Mystery 2', 'MM2',
-   'Collectible trades and finding a group when an event is genuinely running, not months after it ended.',
-   '{trades,inventory,activities}', '{"Event grind","Collection goal","Group session"}',
-   '{Knife,Gun,Pet,Bundle}', '#D9538F', '/games/murder-mystery-2.jpg', 4),
+   'Pet trades, and finding people who will actually sit through a neon or mega project with you.',
+   '{trades,inventory,help,activities}',
+   '{"Neon project","Mega project","Aging help","Task run",Event}',
+   '{Pet,Egg,Vehicle,Toy,Stroller,Food}',
+   '#E8B23A', '/games/adopt-me.jpg', 3),
+
+  ('pet-simulator-99', 'Pet Simulator 99', 'PS99',
+   'Huge, Titanic and Exclusive trades, value checks before you accept, and people to run a clan with.',
+   '{trades,inventory,help,activities}',
+   '{Clan,Event,"Group session"}',
+   '{Pet,Egg,Enchant,Charm,Item}',
+   '#D9538F', '/games/pet-simulator-99.jpg', 4),
+
   ('royale-high', 'Royale High', 'Royale High',
-   'Halo and set trades, campus quest partners, and groups for the activities nobody wants to do alone.',
-   '{trades,inventory,activities,help}', '{"Quest run","Campus activity",Pageant,Event}',
-   '{Halo,Set,Accessory,Skirt,Heels,Wings}', '#D98BC4', '/games/royale-high.jpg', 5),
+   'Halo and set trades, diamond grinding company, and partners for the quests nobody wants to do alone.',
+   '{trades,inventory,activities,help}',
+   '{"Quest run","Campus activity","Diamond grind","Seasonal event"}',
+   '{Halo,Set,Accessory,Skirt,Heels,Wings}',
+   '#D98BC4', '/games/royale-high.jpg', 5),
+
   ('creatures-of-sonaria', 'Creatures of Sonaria', 'Sonaria',
-   'Creature trades and pack recruitment for the missions that are built to need a group.',
-   '{trades,inventory,activities,help}', '{"Pack mission","Daily mission","Weekly mission","Event mission"}',
-   '{Creature,Skin,Item}', '#4E8FB5', '/games/creatures-of-sonaria.jpg', 6)
+   'Creature trades where the details decide the value, and packs for the missions built to need a group.',
+   '{trades,inventory,activities,help}',
+   '{"Pack mission","Daily mission","Weekly mission","Monthly mission","Event mission"}',
+   '{Creature,Plushie,Token,Palette,Material,Skin}',
+   '#4E8FB5', '/games/creatures-of-sonaria.jpg', 6)
 on conflict (slug) do update set
   name = excluded.name, short_name = excluded.short_name, blurb = excluded.blurb,
   modules = excluded.modules, activity_kinds = excluded.activity_kinds,
   item_categories = excluded.item_categories, hue = excluded.hue,
   art = excluded.art, sort_order = excluded.sort_order;
 
-
--- ===========================================================================
--- Verified against PostgreSQL 16 before shipping. The rules that were proven,
--- not just written:
---
---   three listings succeed, the fourth is rejected with the reset time
---   cancelling a listing does NOT return a slot
---   slots return once the three-hour window rolls past
---   client-supplied created_at / expires_at are overwritten by the server
---   a seven-day lifetime is applied on insert
---   a reciprocal match outranks a one-directional one (70 vs 6)
---   a block removes the other player from matching entirely
---   is_moderator() is false without the app_metadata role claim
--- ===========================================================================
+-- Murder Mystery 2 was in an earlier draft by mistake and is not a launch game.
+delete from public.games where slug = 'murder-mystery-2';
