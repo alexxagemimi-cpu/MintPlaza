@@ -47,6 +47,19 @@ export interface Want {
   detail?: string;
 }
 
+/**
+ * A section inside Explore. Every game gets three, and the shape is always the
+ * same: what you can trade, what you can ask other players to do with you, and
+ * where the community organises itself. Only the middle one changes name and
+ * meaning between games.
+ */
+export interface ExploreTab {
+  id: string;
+  label: string;
+  blurb: string;
+  kind: "trades" | "services" | "community";
+}
+
 export interface Game {
   slug: string;
   name: string;
@@ -54,6 +67,10 @@ export interface Game {
   blurb: string;
   modules: readonly ModuleId[];
   wants: readonly Want[];
+  /** The three sections inside Explore for this game. */
+  exploreTabs: readonly ExploreTab[];
+  /** What the Explore card on the dashboard advertises. Changes per game. */
+  exploreHighlights: readonly string[];
   activityKinds: readonly string[];
   itemCategories: readonly string[];
   itemAttributes: readonly ItemAttribute[];
@@ -84,6 +101,15 @@ export const GAMES: readonly Game[] = [
       { label: "Is this W/F/L?", kind: "check" },
       { label: "Third Sea level grind help", kind: "help" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Every fruit, sword, gun and material on offer, with what each trader wants back." },
+      { id: "raids", label: "Raids & Services", kind: "services",
+        blurb: "Raid teams, boss hunts, V4 trials and the players offering to run them with you." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Crews recruiting, grind partners, and anyone stuck who could use a hand." },
+    ],
+    exploreHighlights: ["Trades", "Raid help", "Leviathan hunt", "Dough King recruit", "V4 trials"],
     activityKinds: ["Raid", "Sea event", "Boss hunt", "Race awakening", "Grind session"],
     itemCategories: ["Fruit", "Sword", "Gun", "Fighting style", "Accessory", "Material"],
     itemAttributes: [
@@ -110,6 +136,15 @@ export const GAMES: readonly Game[] = [
       { label: "W/F/L on this?", kind: "check" },
       { label: "Help finishing an event set", kind: "help" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Pets, seeds, gear and sheckles, with weights and mutations stated up front." },
+      { id: "weather", label: "Weather & Server Help", kind: "services",
+        blurb: "Weather windows worth joining, restock watches, and people sharing a server." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Mutation runs, event sets, and gardeners looking for company." },
+    ],
+    exploreHighlights: ["Trades", "Weather pings", "Server help", "Mutation runs"],
     activityKinds: ["Weather window", "Mutation run", "Event", "Group session"],
     itemCategories: ["Crop", "Seed", "Pet", "Gear", "Cosmetic"],
     itemAttributes: [
@@ -137,6 +172,15 @@ export const GAMES: readonly Game[] = [
       { label: "Is this W/F/L?", kind: "check" },
       { label: "Task help, I keep missing them", kind: "help" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Pets with tier, age and potion stated, so nobody has to ask twice." },
+      { id: "projects", label: "Projects & Services", kind: "services",
+        blurb: "Neon and mega projects looking for parts, and players offering aging and task help." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Trade licence help, new players finding their feet, and general company." },
+    ],
+    exploreHighlights: ["Trades", "Neon projects", "Aging help", "Task runs"],
     activityKinds: ["Neon project", "Mega project", "Aging help", "Task run", "Event"],
     itemCategories: ["Pet", "Egg", "Vehicle", "Toy", "Stroller", "Food"],
     itemAttributes: [
@@ -169,6 +213,15 @@ export const GAMES: readonly Game[] = [
       { label: "Which enchants should I run?", kind: "help" },
       { label: "Check this before I accept", kind: "check" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Huges, Titanics and Exclusives with variant and level shown before you open a trade." },
+      { id: "clans", label: "Clans & Services", kind: "services",
+        blurb: "Clans recruiting for the level bonuses, plus enchant and farming route advice." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Value questions, rebirth pushes, and people to grind alongside." },
+    ],
+    exploreHighlights: ["Trades", "Value checks", "Clan recruit", "Enchant advice"],
     activityKinds: ["Clan", "Event", "Group session"],
     itemCategories: ["Pet", "Egg", "Enchant", "Charm", "Item"],
     itemAttributes: [
@@ -208,6 +261,15 @@ export const GAMES: readonly Game[] = [
       { label: "Grinding to level 75 so I can trade", kind: "help", detail: "Trading unlocks at level 75" },
       { label: "Anyone doing the seasonal set?", kind: "group" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Halos and sets by series, with diamond expectations stated openly." },
+      { id: "quests", label: "Quests & Services", kind: "services",
+        blurb: "Campus quest partners, class runs, and diamond grinding company." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Getting to level 75, seasonal sets, and players to do it with." },
+    ],
+    exploreHighlights: ["Trades", "Halo checks", "Quest partners", "Diamond grinding"],
     activityKinds: ["Quest run", "Campus activity", "Diamond grind", "Seasonal event"],
     itemCategories: ["Halo", "Set", "Accessory", "Skirt", "Heels", "Wings"],
     itemAttributes: [
@@ -240,6 +302,15 @@ export const GAMES: readonly Game[] = [
       { label: "Looking for a specific palette", kind: "trade" },
       { label: "Anyone running dailies?", kind: "group" },
     ],
+    exploreTabs: [
+      { id: "trades", label: "Trade & Offers", kind: "trades",
+        blurb: "Creatures with stage, gender, mutation and palette, because all four move the value." },
+      { id: "missions", label: "Missions & Packs", kind: "services",
+        blurb: "Pack missions forming, daily and weekly runs, and escorts through kill-on-sight ground." },
+      { id: "community", label: "Help & Recruitment", kind: "community",
+        blurb: "Growing partners, mush grinding, and packs taking new members." },
+    ],
+    exploreHighlights: ["Trades", "Pack missions", "Daily runs", "Growing escort"],
     activityKinds: ["Pack mission", "Daily mission", "Weekly mission", "Monthly mission", "Event mission"],
     itemCategories: ["Creature", "Plushie", "Token", "Palette", "Material", "Skin"],
     itemAttributes: [

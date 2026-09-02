@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { GAMES, MODULE_LABELS, getGame, type Game } from "@/lib/games";
+import { GAMES, getGame, type Game } from "@/lib/games";
 import { GameSwitcher } from "@/components/GameSwitcher";
 import { DEMO_ENABLED, REASON_COPY, demoListings, type DemoListing } from "@/lib/demo";
 
@@ -226,46 +226,58 @@ function NoMatchesYet({ game }: { game: Game }) {
 
 /* ------------------------------------------------------------------ */
 
-function ExploreGrid({ game }: { game: Game }) {
-  const blurbs: Record<string, string> = {
-    trades: "Browse everything on offer, filtered the way this game trades.",
-    inventory: "What you have and what you want, with optional proof.",
-    activities: game.activityKinds.slice(0, 3).join(", ") + " and more.",
-    help: "Ask for a hand, or offer one to somebody else.",
-    services: "Structured offers, kept separate from ordinary trades.",
-  };
-
+/**
+ * The Explore card.
+ *
+ * One entry point whose description changes with the game — Blox Fruits
+ * advertises raid help and Leviathan hunts, Garden advertises weather pings
+ * and server help. Same card, same place, different promise, all read from the
+ * registry rather than written per game.
+ */
+function ExploreCard({ game }: { game: Game }) {
   return (
-    <section className="mt-10">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
-          Explore {game.shortName}
-        </h2>
-        <span className="label">{game.modules.length} areas</span>
-      </div>
+    <Link
+      href={`/app/${game.slug}/explore`}
+      className="glass-lift group relative block overflow-hidden rounded-[var(--radius-panel)] p-6 transition-transform duration-200 ease-[var(--ease-out-soft)] hover:-translate-y-px sm:p-7"
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: `radial-gradient(26rem 14rem at 92% -30%, ${game.hue}1F, transparent 70%)` }}
+      />
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {game.modules.map((m) => (
-          <Link
-            key={m}
-            href={`/app/${game.slug}/${m === "activities" || m === "help" || m === "services" ? "explore" : m}`}
-            className="glass-quiet group flex items-center gap-4 rounded-[var(--radius-inner)] p-5 transition-colors hover:border-line"
+      <span className="relative flex items-start justify-between gap-4">
+        <span className="min-w-0">
+          <span className="label block">Explore</span>
+          <span className="mt-1.5 block text-[1.375rem] font-extrabold tracking-[-0.035em] text-ink">
+            {game.shortName}
+          </span>
+        </span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-fill text-ink-soft transition-all duration-200 group-hover:border-mint group-hover:text-mint">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 3.5 10.5 8 6 12.5" />
+          </svg>
+        </span>
+      </span>
+
+      <span className="relative mt-4 flex flex-wrap gap-1.5">
+        {game.exploreHighlights.map((h) => (
+          <span
+            key={h}
+            className="rounded-full border border-line bg-surface px-2.5 py-1 text-[0.75rem] font-semibold text-ink-soft"
           >
-            <span className="min-w-0 flex-1">
-              <span className="block text-[0.9375rem] font-bold tracking-[-0.02em] text-ink">
-                {MODULE_LABELS[m]}
-              </span>
-              <span className="mt-1 block text-[0.8125rem] leading-relaxed text-ink-mute">
-                {blurbs[m]}
-              </span>
-            </span>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0 text-ink-faint transition-transform duration-200 group-hover:translate-x-0.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 3.5 10.5 8 6 12.5" />
-            </svg>
-          </Link>
+            {h}
+          </span>
         ))}
-      </div>
-    </section>
+        <span className="rounded-full px-1.5 py-1 text-[0.75rem] font-semibold text-ink-faint">
+          and more
+        </span>
+      </span>
+
+      <span className="relative mt-4 block text-[0.8125rem] leading-relaxed text-ink-mute">
+        {game.exploreTabs.map((t) => t.label).join(" · ")}
+      </span>
+    </Link>
   );
 }
 
@@ -296,6 +308,10 @@ export default async function GameDashboard({
 
         {/* ---- main column ---- */}
         <div className="min-w-0">
+          <div className="mb-4">
+            <ExploreCard game={game} />
+          </div>
+
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
               <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
@@ -323,7 +339,7 @@ export default async function GameDashboard({
             <NoMatchesYet game={game} />
           )}
 
-          <ExploreGrid game={game} />
+          
         </div>
       </div>
     </div>
