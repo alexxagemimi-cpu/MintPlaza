@@ -8,7 +8,7 @@ export default function NotFound() {
       <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink-soft">
         The link may be out of date, or the game may not be one MintPlaza covers.
       </p>
-      <Link href="/" className="pill pill-primary mt-8 py-3">Back to home</Link>
+      <Link href="/" className="pill pill-mint mt-8 py-3">Back to home</Link>
     </div>
   );
 }

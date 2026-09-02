@@ -1,43 +1,54 @@
 @import "tailwindcss";
 
 /* ==========================================================================
-   MintPlaza design tokens
+   MintPlaza design tokens — light
 
-   A deliberately single-theme (dark) product surface. Every colour is painted
-   explicitly rather than inherited, so the interface holds on any host ground.
-   Glass is used as depth, never as decoration: each translucent panel sits on
-   an opaque floor so text contrast survives whatever is behind it (§48).
+   A single, deliberately light surface: near-white grounds, white panels, and
+   glass used for depth rather than for legibility. Every colour is painted
+   explicitly so the interface never borrows a host background.
+
+   Contrast is checked, not assumed. --color-mint is dark enough to carry text
+   on white (4.9:1); --color-mint-vivid is a fill only, and always pairs with
+   ink-coloured text (10.8:1). Never swap the two.
    ========================================================================== */
 
 @theme {
-  /* Grounds — near-black, biased green-blue so neutrals read as chosen */
-  --color-void: #060D0B;
-  --color-abyss: #040908;
-  --color-deep: #0A1411;
-  --color-slate: #101C18;
+  /* Grounds */
+  --color-page: #F7F9F8;
+  --color-surface: #FFFFFF;
+  --color-sunk: #F1F4F3;
+  --color-veil: #FFFFFF;
 
-  /* Ink */
-  --color-ink: #E9F1ED;
-  --color-ink-soft: #A7B8B1;
-  --color-ink-mute: #6D807A;
-  --color-ink-faint: #4A5A55;
+  /* Ink — near-black with a green bias so neutrals read as chosen */
+  --color-ink: #0D1613;
+  --color-ink-soft: #465650;
+  --color-ink-mute: #66766F;
+  --color-ink-faint: #90A099;
 
-  /* Accent — mint, cooled and desaturated away from stock emerald */
-  --color-mint: #5FE3B5;
-  --color-mint-bright: #8DF2CE;
-  --color-mint-deep: #1E9C79;
-  --color-mint-ink: #04211A;
+  /* Lines and fills. Components use these instead of raw alpha values, so
+     the whole surface can be retuned from one place. */
+  --color-line: #0D16131F;
+  --color-line-soft: #0D161312;
+  --color-fill: #0D16130A;
+  --color-fill-strong: #0D161314;
+
+  /* Accent — mint. Two roles, never interchangeable. */
+  --color-mint: #07806A;        /* text, icons, borders on white */
+  --color-mint-strong: #056554; /* hover, active */
+  --color-mint-vivid: #4FDCAE;  /* fills, always with ink text */
+  --color-mint-wash: #E4F6F0;   /* tinted backgrounds */
 
   /* Semantic — separate from the accent, never decorative */
-  --color-warn: #F2B863;
-  --color-bad: #F2806D;
-  --color-info: #7CB8F2;
+  --color-warn: #8A5A12;
+  --color-warn-wash: #FDF4E4;
+  --color-bad: #A93226;
+  --color-info: #1B6FA8;
 
   /* Type */
   --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* Radii — generous, matching the reference's soft rectangles */
+  /* Radii */
   --radius-panel: 28px;
   --radius-inner: 18px;
   --radius-tile: 14px;
@@ -53,12 +64,12 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
     -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background-color: var(--color-abyss);
+    background-color: var(--color-page);
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv01";
@@ -67,8 +78,8 @@
     min-height: 100dvh;
   }
 
-  /* Ambient field. Glass needs something behind it to refract, or it is just
-     grey. Two very low-opacity pools give the panels something to pick up. */
+  /* Ambient field. Frosted panels need something behind them to pick up, or
+     they read as flat grey rectangles. Kept faint so the page stays white. */
   body::before {
     content: "";
     position: fixed;
@@ -76,14 +87,14 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(58rem 42rem at 12% -8%, rgba(95, 227, 181, 0.10), transparent 60%),
-      radial-gradient(46rem 38rem at 92% 8%, rgba(124, 184, 242, 0.055), transparent 62%),
-      radial-gradient(64rem 50rem at 68% 108%, rgba(95, 227, 181, 0.05), transparent 65%),
-      var(--color-abyss);
+      radial-gradient(56rem 40rem at 10% -10%, rgba(79, 220, 174, 0.20), transparent 62%),
+      radial-gradient(44rem 36rem at 94% 4%, rgba(126, 178, 232, 0.14), transparent 64%),
+      radial-gradient(62rem 48rem at 72% 106%, rgba(79, 220, 174, 0.12), transparent 66%),
+      var(--color-page);
   }
 
   ::selection {
-    background: rgba(95, 227, 181, 0.28);
+    background: rgba(79, 220, 174, 0.42);
     color: var(--color-ink);
   }
 
@@ -93,70 +104,67 @@
     border-radius: 4px;
   }
 
-  /* Scrollbars, quietly */
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-track { background: transparent; }
   *::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(13, 22, 19, 0.16);
     border-radius: 999px;
     border: 3px solid transparent;
     background-clip: content-box;
   }
-  *::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.16); background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(13, 22, 19, 0.3);
+    background-clip: content-box;
+  }
 }
 
 @layer components {
   /* ---- Glass -----------------------------------------------------------
-     One primitive, three elevations. The inset top hairline is what reads as
-     a real edge rather than a flat translucent rectangle. */
+     One primitive, three elevations. On a light ground the read comes from a
+     bright inner top edge and a soft, low shadow — not from heavy borders. */
 
   .glass {
     position: relative;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.022) 100%),
-      rgba(10, 20, 17, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.075);
-    backdrop-filter: blur(28px) saturate(1.5);
-    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.72) 100%);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(24px) saturate(1.25);
+    -webkit-backdrop-filter: blur(24px) saturate(1.25);
     box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
-      0 24px 60px -28px rgba(0, 0, 0, 0.85);
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+      0 18px 40px -26px rgba(13, 22, 19, 0.28);
   }
 
   .glass-quiet {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.014) 100%),
-      rgba(8, 16, 14, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.055);
-    backdrop-filter: blur(20px) saturate(1.3);
-    -webkit-backdrop-filter: blur(20px) saturate(1.3);
-    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.045);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.76) 0%, rgba(255, 255, 255, 0.55) 100%);
+    border: 1px solid var(--color-line-soft);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
   }
 
   .glass-lift {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0.03) 100%),
-      rgba(14, 26, 22, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.11);
-    backdrop-filter: blur(34px) saturate(1.6);
-    -webkit-backdrop-filter: blur(34px) saturate(1.6);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(255, 255, 255, 0.86) 100%);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(30px) saturate(1.35);
+    -webkit-backdrop-filter: blur(30px) saturate(1.35);
     box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
-      0 40px 90px -34px rgba(0, 0, 0, 0.92);
+      inset 0 1px 0 0 rgba(255, 255, 255, 1),
+      0 30px 60px -30px rgba(13, 22, 19, 0.35);
   }
 
   /* Anything that floats OVER page content — menus, the nav rail, the touch
      bar, sticky headers. Legibility here must not depend on backdrop-filter,
      which is silently dropped without GPU compositing and by the reduce-
-     transparency setting. So the floor is opaque and blur is enhancement. */
+     transparency setting. So the floor is opaque. */
   .glass-overlay {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.018) 100%),
-      rgb(12, 21, 18);
-    border: 1px solid rgba(255, 255, 255, 0.11);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
     box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
-      0 30px 80px -28px rgba(0, 0, 0, 0.95);
+      inset 0 1px 0 0 rgba(255, 255, 255, 1),
+      0 24px 60px -24px rgba(13, 22, 19, 0.30);
   }
 
   /* ---- Type helpers ---------------------------------------------------- */
@@ -197,37 +205,46 @@
     transition: background-color 160ms var(--ease-out-soft),
                 border-color 160ms var(--ease-out-soft),
                 transform 160ms var(--ease-out-soft),
+                box-shadow 160ms var(--ease-out-soft),
                 color 160ms var(--ease-out-soft);
   }
 
   .pill-primary {
-    background: var(--color-mint);
-    color: var(--color-mint-ink);
+    background: var(--color-ink);
+    color: #FFFFFF;
     border: 1px solid transparent;
-    box-shadow: 0 8px 26px -10px rgba(95, 227, 181, 0.6);
+    box-shadow: 0 10px 24px -12px rgba(13, 22, 19, 0.55);
   }
-  .pill-primary:hover { background: var(--color-mint-bright); transform: translateY(-1px); }
+  .pill-primary:hover { background: #1B2A25; transform: translateY(-1px); }
   .pill-primary:active { transform: translateY(0); }
 
+  .pill-mint {
+    background: var(--color-mint-vivid);
+    color: var(--color-ink);
+    border: 1px solid transparent;
+    box-shadow: 0 10px 26px -12px rgba(79, 220, 174, 0.85);
+  }
+  .pill-mint:hover { background: #6BE8BF; transform: translateY(-1px); }
+  .pill-mint:active { transform: translateY(0); }
+
   .pill-ghost {
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
     color: var(--color-ink);
   }
-  .pill-ghost:hover { background: rgba(255, 255, 255, 0.085); border-color: rgba(255, 255, 255, 0.16); }
+  .pill-ghost:hover { background: var(--color-sunk); border-color: rgba(13, 22, 19, 0.22); }
 
   /* ---- Hairline -------------------------------------------------------- */
 
   .hairline {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09) 18%, rgba(255, 255, 255, 0.09) 82%, transparent);
+    background: linear-gradient(90deg, transparent, var(--color-line) 18%, var(--color-line) 82%, transparent);
   }
 }
 
 @layer utilities {
   .measure { max-width: 62ch; }
 
-  /* Entrances resolve from a visible resting state, never parked at 0. */
   @keyframes rise {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: none; }

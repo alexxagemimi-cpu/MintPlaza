@@ -44,7 +44,7 @@ function TopBar({ game }: { game: Game }) {
         <Link
           href="/settings"
           aria-label="Your account"
-          className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/[0.05] text-[0.6875rem] font-bold text-ink-mute transition-colors hover:text-ink"
+          className="grid h-10 w-10 place-items-center rounded-full border border-line bg-fill text-[0.6875rem] font-bold text-ink-mute transition-colors hover:text-ink"
         >
           <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
             <circle cx="10" cy="7" r="3.2" />
@@ -60,7 +60,7 @@ function TopBar({ game }: { game: Game }) {
 function DemoBanner() {
   if (!DEMO_ENABLED) return null;
   return (
-    <div className="mb-6 flex items-start gap-3 rounded-[var(--radius-inner)] border border-warn/25 bg-warn/[0.07] px-4 py-3">
+    <div className="mb-6 flex items-start gap-3 rounded-[var(--radius-inner)] border border-warn/30 bg-warn-wash px-4 py-3">
       <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="mt-px shrink-0 text-warn" strokeLinecap="round">
         <path d="M10 3.2 2.8 16h14.4L10 3.2ZM10 8.2v3.4M10 13.9h.01" />
       </svg>
@@ -101,7 +101,7 @@ function SlotMeter() {
         {Array.from({ length: total }, (_, i) => (
           <span
             key={i}
-            className={`h-1.5 flex-1 rounded-full ${i < left ? "bg-mint" : "bg-white/10"}`}
+            className={`h-1.5 flex-1 rounded-full ${i < left ? "bg-mint-vivid" : "bg-line"}`}
           />
         ))}
       </div>
@@ -148,15 +148,15 @@ function MatchCard({ listing }: { listing: DemoListing }) {
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[0.625rem] font-medium tracking-[0.06em] ${
               reciprocal
-                ? "border border-mint/25 bg-mint/10 text-mint"
-                : "border border-white/[0.09] bg-white/[0.04] text-ink-mute"
+                ? "border border-mint/30 bg-mint-wash text-mint"
+                : "border border-line bg-fill text-ink-mute"
             }`}
           >
             {reciprocal && <span className="h-1 w-1 rounded-full bg-mint" />}
             {reciprocal ? "POTENTIAL MATCH" : "SEEMS RELEVANT"}
           </span>
         )}
-        <span className="rounded-full border border-warn/25 bg-warn/[0.08] px-2 py-1 font-mono text-[0.5625rem] font-medium tracking-[0.09em] text-warn">
+        <span className="rounded-full border border-warn/30 bg-warn-wash px-2 py-1 font-mono text-[0.5625rem] font-medium tracking-[0.09em] text-warn">
           DEMO
         </span>
         <span className="ml-auto font-mono text-[0.6875rem] text-ink-faint">
@@ -166,7 +166,7 @@ function MatchCard({ listing }: { listing: DemoListing }) {
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint/70">Offering</p>
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint">Offering</p>
           <ul className="mt-1.5 space-y-1">
             {listing.offering.map((o) => (
               <li key={o} className="text-[0.9375rem] font-semibold leading-snug text-ink">{o}</li>
@@ -187,7 +187,7 @@ function MatchCard({ listing }: { listing: DemoListing }) {
         <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">&ldquo;{listing.note}&rdquo;</p>
       )}
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+      <div className="mt-5 flex items-center justify-between gap-3 border-t border-line-soft pt-4">
         <p className="min-w-0 text-[0.75rem] leading-snug text-ink-faint">
           {listing.reason ? REASON_COPY[listing.reason] : "Recently posted"}
         </p>
@@ -203,7 +203,7 @@ function MatchCard({ listing }: { listing: DemoListing }) {
 function NoMatchesYet({ game }: { game: Game }) {
   return (
     <div className="glass-quiet flex flex-col items-center rounded-[var(--radius-panel)] px-6 py-16 text-center">
-      <span className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-ink-faint">
+      <span className="grid h-12 w-12 place-items-center rounded-full border border-line bg-fill text-ink-faint">
         <svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
           <circle cx="9" cy="9" r="6.5" />
           <path d="M17.5 17.5 13.7 13.7" />
@@ -217,7 +217,7 @@ function NoMatchesYet({ game }: { game: Game }) {
         anything that lines up with your lists shows up here with the reason it
         matched.
       </p>
-      <Link href={`/app/${game.slug}/inventory`} className="pill pill-primary mt-7 py-2.5">
+      <Link href={`/app/${game.slug}/inventory`} className="pill pill-mint mt-7 py-2.5">
         Add what you have
       </Link>
     </div>
@@ -249,7 +249,7 @@ function ExploreGrid({ game }: { game: Game }) {
           <Link
             key={m}
             href={`/app/${game.slug}/${m === "activities" || m === "help" || m === "services" ? "explore" : m}`}
-            className="glass-quiet group flex items-center gap-4 rounded-[var(--radius-inner)] p-5 transition-colors hover:border-white/[0.12]"
+            className="glass-quiet group flex items-center gap-4 rounded-[var(--radius-inner)] p-5 transition-colors hover:border-line"
           >
             <span className="min-w-0 flex-1">
               <span className="block text-[0.9375rem] font-bold tracking-[-0.02em] text-ink">

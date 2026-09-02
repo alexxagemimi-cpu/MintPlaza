@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { GAMES, MODULE_LABELS } from "@/lib/games";
-import { GameMark } from "@/components/GameMark";
+import { GameCover } from "@/components/GameArt";
 
 /* ------------------------------------------------------------------ */
 
@@ -44,7 +44,7 @@ function MatchSide({
       <p className="label mb-3">{who}</p>
       <div className="space-y-3">
         <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint/70">Has</p>
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint">Has</p>
           <p className="mt-1 text-[0.9375rem] font-semibold text-ink">{has}</p>
         </div>
         <div className="hairline" />
@@ -62,7 +62,7 @@ function HeroMatch() {
     <div className="glass-lift rounded-[var(--radius-panel)] p-5 sm:p-7">
       <div className="mb-5 flex items-center justify-between gap-4">
         <p className="label">Potential match</p>
-        <span className="rounded-full border border-mint/25 bg-mint/10 px-2.5 py-1 font-mono text-[0.625rem] font-medium tracking-[0.08em] text-mint">
+        <span className="rounded-full border border-mint/30 bg-mint-wash px-2.5 py-1 font-mono text-[0.625rem] font-medium tracking-[0.08em] text-mint">
           BOTH DIRECTIONS
         </span>
       </div>
@@ -74,14 +74,14 @@ function HeroMatch() {
           aria-hidden="true"
           className="flex items-center justify-center gap-1 sm:flex-col sm:gap-1.5"
         >
-          <span className="h-px w-8 bg-mint/40 sm:h-8 sm:w-px" />
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-mint/30 bg-mint/10 text-mint">
+          <span className="h-px w-8 bg-mint/30 sm:h-8 sm:w-px" />
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-mint/30 bg-mint-wash text-mint">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 5.5h9.5M9 3l2.5 2.5L9 8" />
               <path d="M14 10.5H4.5M7 13l-2.5-2.5L7 8" />
             </svg>
           </span>
-          <span className="h-px w-8 bg-mint/40 sm:h-8 sm:w-px" />
+          <span className="h-px w-8 bg-mint/30 sm:h-8 sm:w-px" />
         </div>
 
         <MatchSide who="Them" has="Permanent Kitsune" wants="Permanent Dough" align="right" />
@@ -136,7 +136,7 @@ export default function HomePage() {
   return (
     <div className="min-h-dvh">
       {/* ---- nav ---- */}
-      <header className="sticky top-0 z-50 border-b border-white/[0.055] bg-abyss/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-line-soft bg-surface/95 backdrop-blur-xl">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5 sm:px-8">
           <Wordmark />
           <div className="hidden items-center gap-7 text-[0.8125rem] font-medium text-ink-soft md:flex">
@@ -144,7 +144,7 @@ export default function HomePage() {
             <a href="#games" className="transition-colors hover:text-ink">Games</a>
             <a href="#trust" className="transition-colors hover:text-ink">Trust</a>
           </div>
-          <Link href="/app" className="pill pill-primary">
+          <Link href="/app" className="pill pill-mint">
             Continue with Roblox
           </Link>
         </nav>
@@ -171,7 +171,7 @@ export default function HomePage() {
               </p>
 
               <div className="mt-9 flex flex-wrap items-center gap-3">
-                <Link href="/app" className="pill pill-primary px-6 py-3.5 text-sm">
+                <Link href="/app" className="pill pill-mint px-6 py-3.5 text-sm">
                   Continue with Roblox
                 </Link>
                 <a href="#how" className="pill pill-ghost px-6 py-3.5 text-sm">
@@ -194,7 +194,7 @@ export default function HomePage() {
         </section>
 
         {/* ---- principles ---- */}
-        <section className="border-t border-white/[0.055] py-20 sm:py-24">
+        <section className="border-t border-line-soft py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <SectionLabel>Why it works</SectionLabel>
             <h2 className="display measure text-[1.9rem] sm:text-[2.4rem]">
@@ -217,14 +217,14 @@ export default function HomePage() {
         </section>
 
         {/* ---- how it works ---- */}
-        <section id="how" className="scroll-mt-20 border-t border-white/[0.055] py-20 sm:py-24">
+        <section id="how" className="scroll-mt-20 border-t border-line-soft py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <SectionLabel>How it works</SectionLabel>
             <h2 className="display measure text-[1.9rem] sm:text-[2.4rem]">Four steps, then you are talking to someone.</h2>
 
-            <ol className="mt-12 grid gap-px overflow-hidden rounded-[var(--radius-panel)] border border-white/[0.07] bg-white/[0.055] sm:grid-cols-2 lg:grid-cols-4">
+            <ol className="mt-12 grid gap-px overflow-hidden rounded-[var(--radius-panel)] border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
               {STEPS.map((s, i) => (
-                <li key={s.t} className="bg-deep/70 p-6 backdrop-blur-xl sm:p-7">
+                <li key={s.t} className="bg-surface/85 p-6 backdrop-blur-xl sm:p-7">
                   <span className="font-mono text-[0.6875rem] font-medium tracking-[0.1em] text-mint">
                     {String(i + 1).padStart(2, "0")}
                   </span>
@@ -237,7 +237,7 @@ export default function HomePage() {
         </section>
 
         {/* ---- games ---- */}
-        <section id="games" className="scroll-mt-20 border-t border-white/[0.055] py-20 sm:py-24">
+        <section id="games" className="scroll-mt-20 border-t border-line-soft py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <SectionLabel>Six games at launch</SectionLabel>
             <h2 className="display measure text-[1.9rem] sm:text-[2.4rem]">Each one gets its own shape.</h2>
@@ -247,22 +247,29 @@ export default function HomePage() {
             </p>
 
             <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {GAMES.map((g) => (
-                <article key={g.slug} className="glass flex flex-col rounded-[var(--radius-panel)] p-6">
-                  <div className="flex items-center gap-3.5">
-                    <GameMark game={g} size={42} />
-                    <h3 className="text-[1rem] font-bold leading-tight tracking-[-0.02em] text-ink">{g.name}</h3>
-                  </div>
-                  <p className="mt-4 flex-1 text-[0.875rem] leading-relaxed text-ink-soft">{g.blurb}</p>
-                  <div className="mt-5 flex flex-wrap gap-1.5">
-                    {g.modules.map((m) => (
-                      <span
-                        key={m}
-                        className="rounded-md border border-white/[0.07] bg-white/[0.035] px-2 py-1 font-mono text-[0.625rem] tracking-[0.05em] text-ink-mute"
-                      >
-                        {MODULE_LABELS[m]}
-                      </span>
-                    ))}
+              {GAMES.map((g, i) => (
+                <article
+                  key={g.slug}
+                  className="glass flex flex-col overflow-hidden rounded-[var(--radius-panel)]"
+                >
+                  <GameCover game={g} priority={i < 3} />
+                  <div className="flex flex-1 flex-col p-6">
+                    <h3 className="text-[1.0625rem] font-bold leading-tight tracking-[-0.025em] text-ink">
+                      {g.name}
+                    </h3>
+                    <p className="mt-2.5 flex-1 text-[0.875rem] leading-relaxed text-ink-soft">
+                      {g.blurb}
+                    </p>
+                    <div className="mt-5 flex flex-wrap gap-1.5">
+                      {g.modules.map((m) => (
+                        <span
+                          key={m}
+                          className="rounded-md border border-line bg-fill px-2 py-1 font-mono text-[0.625rem] tracking-[0.05em] text-ink-mute"
+                        >
+                          {MODULE_LABELS[m]}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </article>
               ))}
@@ -271,7 +278,7 @@ export default function HomePage() {
         </section>
 
         {/* ---- trust ---- */}
-        <section id="trust" className="scroll-mt-20 border-t border-white/[0.055] py-20 sm:py-24">
+        <section id="trust" className="scroll-mt-20 border-t border-line-soft py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <SectionLabel>Where the line is</SectionLabel>
             <h2 className="display measure text-[1.9rem] sm:text-[2.4rem]">
@@ -300,7 +307,7 @@ export default function HomePage() {
         </section>
 
         {/* ---- final cta ---- */}
-        <section className="border-t border-white/[0.055] py-24 sm:py-32">
+        <section className="border-t border-line-soft py-24 sm:py-32">
           <div className="mx-auto max-w-6xl px-5 text-center sm:px-8">
             <h2 className="display mx-auto max-w-[18ch] text-[2.1rem] sm:text-[2.9rem]">
               Find the person you already needed.
@@ -309,7 +316,7 @@ export default function HomePage() {
               Pick a game, say what you are after, and see who lines up.
             </p>
             <div className="mt-9 flex justify-center">
-              <Link href="/app" className="pill pill-primary px-7 py-4 text-[0.9375rem]">
+              <Link href="/app" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
                 Continue with Roblox
               </Link>
             </div>
@@ -318,7 +325,7 @@ export default function HomePage() {
       </main>
 
       {/* ---- footer ---- */}
-      <footer className="border-t border-white/[0.055] py-12">
+      <footer className="border-t border-line-soft py-12">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-start md:justify-between">
           <div>
             <Wordmark />

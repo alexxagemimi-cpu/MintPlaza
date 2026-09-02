@@ -62,8 +62,8 @@ export function Rail() {
               title={item.label}
               className={`grid h-11 w-11 place-items-center rounded-[15px] transition-colors duration-200 ${
                 active
-                  ? "bg-mint/[0.14] text-mint"
-                  : "text-ink-mute hover:bg-white/[0.055] hover:text-ink"
+                  ? "bg-mint-wash text-mint"
+                  : "text-ink-mute hover:bg-line hover:text-ink"
               }`}
             >
               {item.icon}
@@ -71,13 +71,13 @@ export function Rail() {
           );
         })}
 
-        <span aria-hidden="true" className="my-1 h-px w-6 bg-white/10" />
+        <span aria-hidden="true" className="my-1 h-px w-6 bg-line" />
 
         <Link
           href="/settings"
           aria-label="Settings"
           title="Settings"
-          className="grid h-11 w-11 place-items-center rounded-[15px] text-ink-mute transition-colors duration-200 hover:bg-white/[0.055] hover:text-ink"
+          className="grid h-11 w-11 place-items-center rounded-[15px] text-ink-mute transition-colors duration-200 hover:bg-line hover:text-ink"
         >
           {icon("M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM16.2 12.2a1.4 1.4 0 0 0 .3 1.5l.1.1a1.6 1.6 0 1 1-2.3 2.3l-.1-.1a1.4 1.4 0 0 0-2.4 1v.2a1.6 1.6 0 1 1-3.2 0v-.1a1.4 1.4 0 0 0-2.4-1l-.1.1a1.6 1.6 0 1 1-2.3-2.3l.1-.1a1.4 1.4 0 0 0-1-2.4H2.8a1.6 1.6 0 1 1 0-3.2h.1a1.4 1.4 0 0 0 1-2.4l-.1-.1a1.6 1.6 0 1 1 2.3-2.3l.1.1a1.4 1.4 0 0 0 2.4-1V2.8a1.6 1.6 0 1 1 3.2 0v.1a1.4 1.4 0 0 0 2.4 1l.1-.1a1.6 1.6 0 1 1 2.3 2.3l-.1.1a1.4 1.4 0 0 0 1 2.4h.2a1.6 1.6 0 1 1 0 3.2h-.1a1.4 1.4 0 0 0-1.3.8Z")}
         </Link>
@@ -97,7 +97,7 @@ export function Rail() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={`flex min-w-[3.5rem] flex-col items-center gap-1 rounded-[15px] px-3 py-2 transition-colors duration-200 ${
-                active ? "bg-mint/[0.14] text-mint" : "text-ink-mute"
+                active ? "bg-mint-wash text-mint" : "text-ink-mute"
               }`}
             >
               {item.icon}

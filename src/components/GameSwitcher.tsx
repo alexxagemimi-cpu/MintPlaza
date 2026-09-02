@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GAMES, type Game } from "@/lib/games";
-import { GameMark } from "./GameMark";
+import { GameArt } from "./GameArt";
 
 /**
  * The game switcher.
@@ -130,10 +130,10 @@ export function GameSwitcher({ current }: { current: Game }) {
         <span
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 rounded-[var(--radius-panel)] opacity-70"
-          style={{ background: `radial-gradient(22rem 12rem at 8% -30%, ${current.hue}1A, transparent 70%)` }}
+          style={{ background: `radial-gradient(24rem 13rem at 6% -35%, ${current.hue}24, transparent 72%)` }}
         />
         <span className="relative flex items-center gap-4">
-          <GameMark game={current} size={54} />
+          <GameArt game={current} size={54} />
           <span className="min-w-0 flex-1">
             <span className="label block">Current game</span>
             <span className="mt-1 block truncate text-[1.25rem] font-extrabold tracking-[-0.03em] text-ink sm:text-[1.375rem]">
@@ -141,7 +141,7 @@ export function GameSwitcher({ current }: { current: Game }) {
             </span>
           </span>
           <span
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.045] text-ink-soft transition-all duration-300 ease-[var(--ease-out-soft)] group-hover:border-white/20 group-hover:text-ink ${open ? "rotate-180" : ""}`}
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-fill text-ink-soft transition-all duration-300 ease-[var(--ease-out-soft)] group-hover:border-line group-hover:text-ink ${open ? "rotate-180" : ""}`}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 6.5 8 10.5l4-4" />
@@ -157,7 +157,7 @@ export function GameSwitcher({ current }: { current: Game }) {
       {open && (
         <div
           aria-hidden="true"
-          className="fixed inset-0 z-40 bg-abyss/70 backdrop-blur-sm sm:hidden"
+          className="fixed inset-0 z-40 bg-ink/25 backdrop-blur-sm sm:hidden"
           onPointerDown={() => setOpen(false)}
         />
       )}
@@ -187,9 +187,9 @@ export function GameSwitcher({ current }: { current: Game }) {
               onKeyDown={(e) => onOptionKeyDown(e, i)}
               onPointerEnter={() => setActiveIndex(i)}
               style={{ animationDelay: `${i * 38}ms` }}
-              className="rise flex cursor-pointer items-center gap-3.5 rounded-[var(--radius-inner)] p-3 outline-none transition-colors duration-150 hover:bg-white/[0.055] focus-visible:bg-white/[0.075] aria-[selected]:bg-transparent"
+              className="rise flex cursor-pointer items-center gap-3.5 rounded-[var(--radius-inner)] p-3 outline-none transition-colors duration-150 hover:bg-line focus-visible:bg-fill-strong aria-[selected]:bg-transparent"
             >
-              <GameMark game={g} size={40} />
+              <GameArt game={g} size={40} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[0.9375rem] font-bold tracking-[-0.02em] text-ink">
                   {g.name}

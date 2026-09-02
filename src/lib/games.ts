@@ -40,10 +40,16 @@ export interface Game {
   activityKinds: readonly string[];
   itemCategories: readonly string[];
   itemAttributes: readonly ItemAttribute[];
-  /** Restrained per-game identity hue. Used for one dot and one soft glow. */
+  /** Per-game identity hue, sampled from the artwork. Used for soft glows. */
   hue: string;
-  /** Two-letter mark shown while no artwork exists. Never a Roblox asset (§30). */
-  mark: string;
+  /**
+   * Cover art, served from /public/games. One field per game so any image can
+   * be swapped without touching a component.
+   *
+   * These are the games' own promotional images. MintPlaza claims no rights in
+   * them and no affiliation with their creators or with Roblox (§30).
+   */
+  art: string;
 }
 
 export const GAMES: readonly Game[] = [
@@ -60,8 +66,8 @@ export const GAMES: readonly Game[] = [
       { key: "form", label: "Form", options: ["Physical", "Permanent"] },
       { key: "condition", label: "Condition", options: ["Untouched", "Used"] },
     ],
-    hue: "#5FE3B5",
-    mark: "BF",
+    hue: "#D9542B",
+    art: "/games/blox-fruits.jpg",
   },
   {
     slug: "grow-a-garden",
@@ -76,8 +82,8 @@ export const GAMES: readonly Game[] = [
       { key: "mutation", label: "Mutation", options: ["None", "Mutated"] },
       { key: "weight", label: "Weight", options: [] },
     ],
-    hue: "#9BE36A",
-    mark: "GG",
+    hue: "#5BAE3A",
+    art: "/games/grow-a-garden.jpg",
   },
   {
     slug: "adopt-me",
@@ -93,8 +99,8 @@ export const GAMES: readonly Game[] = [
       { key: "age", label: "Age", options: ["Newborn", "Junior", "Pre-Teen", "Teen", "Post-Teen", "Full Grown"] },
       { key: "potion", label: "Potion", options: ["None", "Fly", "Ride", "Fly & Ride"] },
     ],
-    hue: "#F2A0C4",
-    mark: "AM",
+    hue: "#E8B23A",
+    art: "/games/adopt-me.jpg",
   },
   {
     slug: "murder-mystery-2",
@@ -109,8 +115,8 @@ export const GAMES: readonly Game[] = [
       { key: "tier", label: "Tier", options: ["Common", "Uncommon", "Rare", "Legendary", "Godly", "Ancient", "Unique"] },
       { key: "chroma", label: "Chroma", options: ["No", "Yes"] },
     ],
-    hue: "#F2806D",
-    mark: "MM",
+    hue: "#D9538F",
+    art: "/games/murder-mystery-2.jpg",
   },
   {
     slug: "royale-high",
@@ -125,8 +131,8 @@ export const GAMES: readonly Game[] = [
       { key: "kind", label: "Kind", options: ["Halo", "Set piece", "Accessory"] },
       { key: "season", label: "Season", options: [] },
     ],
-    hue: "#C6A6F2",
-    mark: "RH",
+    hue: "#D98BC4",
+    art: "/games/royale-high.jpg",
   },
   {
     slug: "creatures-of-sonaria",
@@ -141,8 +147,8 @@ export const GAMES: readonly Game[] = [
       { key: "stage", label: "Stage", options: ["Child", "Juvenile", "Adult", "Elder"] },
       { key: "variant", label: "Variant", options: ["Standard", "Variant"] },
     ],
-    hue: "#7CB8F2",
-    mark: "CS",
+    hue: "#4E8FB5",
+    art: "/games/creatures-of-sonaria.jpg",
   },
 ] as const;
 
