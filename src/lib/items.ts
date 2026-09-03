@@ -106,6 +106,25 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Dragon", "Mythical", "Beast"),
 ];
 
+/**
+ * Gamepasses trade alongside fruits in every Blox Fruits trading community, so
+ * a catalogue without them is only half a catalogue.
+ */
+const BLOX_GAMEPASSES: CatalogItem[] = ([
+  ["Dark Blade", "Mythical"],
+  ["Fruit Notifier", "Legendary"],
+  ["Fast Boats", "Rare"],
+  ["2x Money", "Rare"],
+  ["2x Mastery", "Rare"],
+  ["2x Boss Drop Chance", "Rare"],
+] as [string, Rarity][]).map(([name, rarity]) => ({
+  id: `bf-gp-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "blox-fruits",
+  name,
+  category: "Gamepass",
+  rarity,
+}));
+
 const make = (
   gameSlug: string,
   prefix: string,
@@ -158,7 +177,7 @@ const SONARIA = make("creatures-of-sonaria", "cs", "Creature", [
 ]);
 
 export const CATALOG: readonly CatalogItem[] = [
-  ...BLOX_FRUITS, ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
+  ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
 ];
 
 export function catalogFor(gameSlug: string): readonly CatalogItem[] {
@@ -171,3 +190,20 @@ export function findItem(id: string): CatalogItem | undefined {
 
 /** How current this catalogue is. Shown wherever it could mislead. */
 export const CATALOG_CHECKED = "September 2026";
+
+
+/**
+ * The variants a listing may state about an item.
+ *
+ * In Blox Fruits a permanent and a physical of the same fruit are different
+ * things at very different values, so the listing has to say which — the same
+ * way a trading site shows it on the tile rather than burying it in a note.
+ */
+export const ITEM_VARIANTS: Record<string, readonly string[]> = {
+  "blox-fruits": ["Permanent", "Physical"],
+  "adopt-me": ["Regular", "Neon", "Mega Neon"],
+  "pet-simulator-99": ["Normal", "Golden", "Rainbow", "Shiny"],
+  "creatures-of-sonaria": ["Child", "Juvenile", "Adult", "Elder"],
+  "royale-high": [],
+  "grow-a-garden": ["Normal", "Mutated"],
+};

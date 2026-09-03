@@ -3,7 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { GAMES, getGame, type Game } from "@/lib/games";
 import { GameSwitcher } from "@/components/GameSwitcher";
-import { DEMO_ENABLED, REASON_COPY, demoListings, type DemoListing } from "@/lib/demo";
+import { DEMO_ENABLED, demoListings } from "@/lib/demo";
+import { TradeListingCard } from "@/components/TradeListingCard";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -138,67 +139,6 @@ function InventoryPrompt({ game }: { game: Game }) {
 
 /* ------------------------------------------------------------------ */
 
-function MatchCard({ listing }: { listing: DemoListing }) {
-  const reciprocal = listing.reason === "RECIPROCAL_MATCH";
-
-  return (
-    <article className="glass rounded-[var(--radius-panel)] p-5">
-      <div className="flex flex-wrap items-center gap-2">
-        {listing.reason && (
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[0.625rem] font-medium tracking-[0.06em] ${
-              reciprocal
-                ? "border border-mint/30 bg-mint-wash text-mint"
-                : "border border-line bg-fill text-ink-mute"
-            }`}
-          >
-            {reciprocal && <span className="h-1 w-1 rounded-full bg-mint" />}
-            {reciprocal ? "POTENTIAL MATCH" : "SEEMS RELEVANT"}
-          </span>
-        )}
-        <span className="rounded-full border border-warn/30 bg-warn-wash px-2 py-1 font-mono text-[0.5625rem] font-medium tracking-[0.09em] text-warn">
-          DEMO
-        </span>
-        <span className="ml-auto font-mono text-[0.6875rem] text-ink-faint">
-          {listing.postedHoursAgo}h ago
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint">Offering</p>
-          <ul className="mt-1.5 space-y-1">
-            {listing.offering.map((o) => (
-              <li key={o} className="text-[0.9375rem] font-semibold leading-snug text-ink">{o}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink-mute">Looking for</p>
-          <ul className="mt-1.5 space-y-1">
-            {listing.wanting.map((w) => (
-              <li key={w} className="text-[0.9375rem] font-semibold leading-snug text-ink-soft">{w}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {listing.note && (
-        <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">&ldquo;{listing.note}&rdquo;</p>
-      )}
-
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-line-soft pt-4">
-        <p className="min-w-0 text-[0.75rem] leading-snug text-ink-faint">
-          {listing.reason ? REASON_COPY[listing.reason] : "Recently posted"}
-        </p>
-        <button type="button" className="pill pill-ghost shrink-0 py-2 text-[0.8125rem]">
-          Message
-        </button>
-      </div>
-    </article>
-  );
-}
-
 /** What the dashboard looks like before anyone has posted anything (§46). */
 function NoMatchesYet({ game }: { game: Game }) {
   return (
@@ -332,7 +272,7 @@ export default async function GameDashboard({
           {listings.length > 0 ? (
             <div className="grid gap-3">
               {listings.map((l) => (
-                <MatchCard key={l.id} listing={l} />
+                <TradeListingCard key={l.id} listing={l} />
               ))}
             </div>
           ) : (

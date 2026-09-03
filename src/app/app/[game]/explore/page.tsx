@@ -6,7 +6,8 @@ import { catalogFor } from "@/lib/items";
 import { ExploreCatalog } from "@/components/ExploreCatalog";
 import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
-import { DEMO_ENABLED, REASON_COPY, demoListings, type DemoListing } from "@/lib/demo";
+import { DEMO_ENABLED, demoListings } from "@/lib/demo";
+import { TradeListingCard } from "@/components/TradeListingCard";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -23,8 +24,11 @@ export async function generateMetadata({
 
 function TabBar({ game, active }: { game: Game; active: ExploreTab }) {
   return (
-    <div className="mt-6 border-b border-line">
-      <nav aria-label="Explore sections" className="no-scrollbar -mb-px flex gap-1 overflow-x-auto">
+    <div className="mt-6">
+      <nav
+        aria-label="Explore sections"
+        className="no-scrollbar glass-quiet flex gap-1 overflow-x-auto rounded-full p-1"
+      >
         {game.exploreTabs.map((tab) => {
           const on = tab.id === active.id;
           return (
@@ -33,10 +37,10 @@ function TabBar({ game, active }: { game: Game; active: ExploreTab }) {
               href={`/app/${game.slug}/explore?tab=${tab.id}`}
               aria-current={on ? "page" : undefined}
               scroll={false}
-              className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-3 pt-2 text-[0.9375rem] font-bold tracking-[-0.015em] transition-colors ${
+              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-center text-[0.875rem] font-bold tracking-[-0.015em] transition-colors duration-150 sm:flex-1 ${
                 on
-                  ? "border-mint text-ink"
-                  : "border-transparent text-ink-mute hover:text-ink"
+                  ? "bg-ink text-white shadow-[0_6px_18px_-8px_rgba(13,22,19,0.5)]"
+                  : "text-ink-mute hover:bg-fill hover:text-ink"
               }`}
             >
               {tab.label}
@@ -45,66 +49,6 @@ function TabBar({ game, active }: { game: Game; active: ExploreTab }) {
         })}
       </nav>
     </div>
-  );
-}
-
-/* ---- trade listings, shared shape with the dashboard ---- */
-
-function ListingCard({ listing }: { listing: DemoListing }) {
-  const reciprocal = listing.reason === "RECIPROCAL_MATCH";
-  return (
-    <article className="glass rounded-[var(--radius-panel)] p-5">
-      <div className="flex flex-wrap items-center gap-2">
-        {listing.reason && (
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[0.625rem] font-medium tracking-[0.06em] ${
-              reciprocal
-                ? "border border-mint/30 bg-mint-wash text-mint"
-                : "border border-line bg-fill text-ink-mute"
-            }`}
-          >
-            {reciprocal && <span className="h-1 w-1 rounded-full bg-mint" />}
-            {reciprocal ? "POTENTIAL MATCH" : "SEEMS RELEVANT"}
-          </span>
-        )}
-        <span className="rounded-full border border-warn/30 bg-warn-wash px-2 py-1 font-mono text-[0.5625rem] font-medium tracking-[0.09em] text-warn">
-          DEMO
-        </span>
-        <span className="ml-auto font-mono text-[0.6875rem] text-ink-faint">
-          {listing.postedHoursAgo}h ago
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-mint">Offering</p>
-          <ul className="mt-1.5 space-y-1">
-            {listing.offering.map((o) => (
-              <li key={o} className="text-[0.9375rem] font-semibold leading-snug text-ink">{o}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink-mute">Looking for</p>
-          <ul className="mt-1.5 space-y-1">
-            {listing.wanting.map((w) => (
-              <li key={w} className="text-[0.9375rem] font-semibold leading-snug text-ink-soft">{w}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {listing.note && (
-        <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">&ldquo;{listing.note}&rdquo;</p>
-      )}
-
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-line-soft pt-4">
-        <p className="min-w-0 text-[0.75rem] leading-snug text-ink-faint">
-          {listing.reason ? REASON_COPY[listing.reason] : "Recently posted"}
-        </p>
-        <button type="button" className="pill pill-ghost shrink-0 py-2 text-[0.8125rem]">Message</button>
-      </div>
-    </article>
   );
 }
 
@@ -210,7 +154,7 @@ export default async function ExplorePage({
             </h2>
             {listings.length > 0 ? (
               <div className="grid gap-3 lg:grid-cols-2">
-                {listings.map((l) => <ListingCard key={l.id} listing={l} />)}
+                {listings.map((l) => <TradeListingCard key={l.id} listing={l} />)}
               </div>
             ) : (
               <EmptyPanel

@@ -9,131 +9,162 @@
  *   2. It refuses to run in a production build, so it cannot leak to real users.
  *   3. Every record it returns is flagged, and the interface badges it visibly.
  *
- * When this is off, the interface shows its real empty states. That is the
- * correct look for a platform before it has users, and those empty states are
- * a designed surface rather than an afterthought (§46).
+ * Listings are generated from the real item catalogue rather than typed out, so
+ * the example content exercises the same shape a real listing will have —
+ * catalogue ids, variants, quantities — instead of loose strings that would let
+ * a rendering bug hide until the database arrives.
+ *
+ * Generation is seeded and deterministic: the server and the browser produce
+ * identical output, so there is no hydration mismatch and no shuffling on every
+ * refresh.
  */
+
+import { catalogFor, ITEM_VARIANTS, type CatalogItem } from "./items";
 
 export const DEMO_ENABLED =
   process.env.NEXT_PUBLIC_DEMO_MODE === "on" &&
   process.env.NODE_ENV !== "production";
+
+export type ReasonCode =
+  | "RECIPROCAL_MATCH"
+  | "HAS_WHAT_YOU_WANT"
+  | "WANTS_WHAT_YOU_HAVE"
+  | "NEW_IN_YOUR_GAME";
+
+export interface ListingItem {
+  item: CatalogItem;
+  variant?: string;
+  quantity: number;
+}
 
 export interface DemoListing {
   /** Always true. Nothing from this module renders without its badge. */
   isDemo: true;
   id: string;
   gameSlug: string;
-  offering: readonly string[];
-  wanting: readonly string[];
-  note: string;
-  /** Hours since posting, so the relative time never drifts as dates pass. */
+  username: string;
+  /** Completed interactions on MintPlaza. Zero for a new account. */
+  trades: number;
+  offering: ListingItem[];
+  /** An empty array means the trader is open to offers. */
+  wanting: ListingItem[];
+  note?: string;
   postedHoursAgo: number;
-  /** Reason code from the matching engine's fixed set (§8). */
-  reason: "RECIPROCAL_MATCH" | "HAS_WHAT_YOU_WANT" | "WANTS_WHAT_YOU_HAVE" | null;
+  reason: ReasonCode;
 }
 
-const LISTINGS: readonly DemoListing[] = [
-  {
-    isDemo: true,
-    id: "d1",
-    gameSlug: "blox-fruits",
-    offering: ["Permanent Dough"],
-    wanting: ["Permanent Kitsune", "Permanent Leopard"],
-    note: "Only after both are shown in-game. No middleman.",
-    postedHoursAgo: 2,
-    reason: "RECIPROCAL_MATCH",
-  },
-  {
-    isDemo: true,
-    id: "d2",
-    gameSlug: "blox-fruits",
-    offering: ["Physical Kitsune", "Godhuman"],
-    wanting: ["Permanent Dragon"],
-    note: "Happy to add materials on top to even it out.",
-    postedHoursAgo: 5,
-    reason: "HAS_WHAT_YOU_WANT",
-  },
-  {
-    isDemo: true,
-    id: "d3",
-    gameSlug: "blox-fruits",
-    offering: ["Permanent Spirit"],
-    wanting: ["Permanent Portal", "Permanent Control"],
-    note: "Third sea only. I can show proof before we start.",
-    postedHoursAgo: 11,
-    reason: "WANTS_WHAT_YOU_HAVE",
-  },
-  {
-    isDemo: true,
-    id: "d4",
-    gameSlug: "adopt-me",
-    offering: ["Mega Neon Frost Dragon"],
-    wanting: ["Neon Shadow Dragon", "Bat Dragon"],
-    note: "Looking for a fair trade, not overpay. Will decline lowballs.",
-    postedHoursAgo: 1,
-    reason: "RECIPROCAL_MATCH",
-  },
-  {
-    isDemo: true,
-    id: "d5",
-    gameSlug: "adopt-me",
-    offering: ["Neon Owl", "Fly & Ride Unicorn"],
-    wanting: ["Mega Neon Crow"],
-    note: "Can add pets to make up the difference.",
-    postedHoursAgo: 7,
-    reason: "HAS_WHAT_YOU_WANT",
-  },
-  {
-    isDemo: true,
-    id: "d6",
-    gameSlug: "pet-simulator-99",
-    offering: ["Rainbow Huge Cat"],
-    wanting: ["Titanic Pegasus"],
-    note: "Happy to add gems on top. Checking values before I accept.",
-    postedHoursAgo: 3,
-    reason: "RECIPROCAL_MATCH",
-  },
-  {
-    isDemo: true,
-    id: "d7",
-    gameSlug: "royale-high",
-    offering: ["Winter Halo 2019"],
-    wanting: ["Autumn Halo 2020"],
-    note: "Open to hearing offers with sets added on.",
-    postedHoursAgo: 9,
-    reason: "HAS_WHAT_YOU_WANT",
-  },
-  {
-    isDemo: true,
-    id: "d8",
-    gameSlug: "grow-a-garden",
-    offering: ["Mutated Candy Blossom"],
-    wanting: ["Mutated Beanstalk", "Ember Lily"],
-    note: "Will trade during the next weather window.",
-    postedHoursAgo: 4,
-    reason: "WANTS_WHAT_YOU_HAVE",
-  },
-  {
-    isDemo: true,
-    id: "d9",
-    gameSlug: "creatures-of-sonaria",
-    offering: ["Adult Boreacal"],
-    wanting: ["Adult Nyctosaurus"],
-    note: "Also happy to just run pack missions if you would rather.",
-    postedHoursAgo: 6,
-    reason: "RECIPROCAL_MATCH",
-  },
-] as const;
+/* ---- deterministic pseudo-randomness ------------------------------- */
+
+function seededRandom(seed: string) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return () => {
+    h ^= h << 13; h >>>= 0;
+    h ^= h >> 17;
+    h ^= h << 5;  h >>>= 0;
+    return h / 4294967296;
+  };
+}
+
+const USERNAMES = [
+  "frostbite_kai", "quietdough", "melonhead", "kitsunemain", "seabeast_ari",
+  "nokoprince", "halolyra", "packmother", "titanic_bee", "mirage_wren",
+  "sableclover", "rainmutation", "aged_owl", "voidtouched", "emberlily_",
+];
+
+const NOTES = [
+  "Only after both are shown in-game. No middleman.",
+  "Happy to add a bit on top to even it out.",
+  "I can show proof before we start.",
+  "Not in a rush, looking for a fair one.",
+  "Will decline lowballs, no offence meant.",
+  "Trading in-game only, nothing off-platform.",
+  "",
+  "",
+];
+
+const REASONS: ReasonCode[] = [
+  "RECIPROCAL_MATCH", "RECIPROCAL_MATCH",
+  "HAS_WHAT_YOU_WANT", "WANTS_WHAT_YOU_HAVE", "NEW_IN_YOUR_GAME",
+];
+
+function pick<T>(rand: () => number, list: readonly T[]): T {
+  return list[Math.floor(rand() * list.length)];
+}
+
+/** Distinct picks, so a listing never offers the same item twice. */
+function pickMany<T>(rand: () => number, list: readonly T[], count: number): T[] {
+  const out: T[] = [];
+  const pool = [...list];
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+function buildSide(
+  rand: () => number,
+  pool: readonly CatalogItem[],
+  variants: readonly string[],
+  count: number,
+): ListingItem[] {
+  return pickMany(rand, pool, count).map((item) => ({
+    item,
+    variant: variants.length > 0 ? pick(rand, variants) : undefined,
+    quantity: rand() > 0.88 ? 2 : 1,
+  }));
+}
 
 /** Example listings for a game, or nothing at all when demo mode is off. */
-export function demoListings(gameSlug: string): readonly DemoListing[] {
+export function demoListings(gameSlug: string, count = 8): readonly DemoListing[] {
   if (!DEMO_ENABLED) return [];
-  return LISTINGS.filter((l) => l.gameSlug === gameSlug);
+
+  const catalog = catalogFor(gameSlug);
+  if (catalog.length === 0) return [];
+
+  // Weight toward the top end, which is what people actually post about.
+  const desirable = catalog.filter(
+    (i) => i.rarity === "Mythical" || i.rarity === "Legendary",
+  );
+  const pool = desirable.length >= 6 ? desirable : catalog;
+  const variants = ITEM_VARIANTS[gameSlug] ?? [];
+
+  return Array.from({ length: count }, (_, n) => {
+    const rand = seededRandom(`${gameSlug}:${n}`);
+    const openToOffers = rand() > 0.82;
+    const offering = buildSide(rand, pool, variants, rand() > 0.6 ? 2 : 1);
+
+    // A trader never wants back what they are already offering, so the want
+    // side is drawn from what is left.
+    const offeredIds = new Set(offering.map((o) => o.item.id));
+    const wantPool = pool.filter((i) => !offeredIds.has(i.id));
+
+    // Step through the name list rather than sampling it, or the same handle
+    // turns up four times on one screen.
+    const username = USERNAMES[(n * 5 + gameSlug.length) % USERNAMES.length];
+
+    return {
+      isDemo: true as const,
+      id: `${gameSlug}-demo-${n}`,
+      gameSlug,
+      username,
+      trades: Math.floor(rand() * 60),
+      offering,
+      wanting: openToOffers ? [] : buildSide(rand, wantPool, variants, rand() > 0.7 ? 2 : 1),
+      note: pick(rand, NOTES) || undefined,
+      postedHoursAgo: 1 + Math.floor(rand() * 20),
+      reason: pick(rand, REASONS),
+    };
+  });
 }
 
 /** Copy for each reason code. The engine explains itself; it never guesses. */
-export const REASON_COPY: Record<NonNullable<DemoListing["reason"]>, string> = {
+export const REASON_COPY: Record<ReasonCode, string> = {
   RECIPROCAL_MATCH: "They want something you have, and have something you want",
   HAS_WHAT_YOU_WANT: "Has something on your wants list",
   WANTS_WHAT_YOU_HAVE: "Looking for something you have",
+  NEW_IN_YOUR_GAME: "Recently posted in a game you follow",
 };
