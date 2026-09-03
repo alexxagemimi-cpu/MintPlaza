@@ -71,36 +71,34 @@ const f = (
 });
 
 /**
- * Blox Fruits — checked against the game wiki, September 2026, and corrected
- * by a player who knows the game.
+ * Blox Fruits — 41 fruits, read off the in-game wiki list.
  *
- * Totals 43, which matches community documentation for August 2026.
+ * Order and rarity follow the wiki's own grid, where the tile border is the
+ * rarity: grey Common, cyan Uncommon, purple Rare, magenta Legendary, red
+ * Mythical. That gives 7 / 6 / 4 / 11 / 13, totalling 41.
  *
- * Four entries here are renames rather than separate fruits, and each keeps
- * its old name as a searchable alias because players go on using them:
+ * Four entries are renames rather than separate fruits, and each keeps its old
+ * name as a searchable alias because players go on using them for years:
  *
- *   Barrier  was reworked into Creation
- *   Revive   was reworked into Ghost
- *   Leopard  was reworked and renamed to Tiger
- *   Rumble   was renamed to Lightning
+ *   Barrier -> Creation
+ *   Revive  -> Ghost
+ *   Leopard -> Tiger
+ *   Rumble  -> Lightning
  *
- * Also corrected from an earlier draft: Quake and Buddha are Legendary rather
- * than Rare, Light is Rare rather than Uncommon, Gravity is Mythical since it
- * is not among the eleven Legendary fruits the wiki names, and Shark was
- * missing entirely.
+ * Removed after checking against the real list: Shark, which never existed and
+ * came from a bad search result, and Chop, which is not in the game's list.
  */
 const BLOX_FRUITS: CatalogItem[] = [
-  // ---- Common ----
+  // ---- Common (7) ----
   f("Rocket", "Common", "Natural"),
   f("Spin", "Common", "Natural"),
-  f("Chop", "Common", "Natural"),
   f("Blade", "Common", "Natural"),
   f("Spring", "Common", "Natural"),
   f("Bomb", "Common", "Natural"),
   f("Smoke", "Common", "Elemental"),
   f("Spike", "Common", "Natural"),
 
-  // ---- Uncommon ----
+  // ---- Uncommon (6) ----
   f("Flame", "Uncommon", "Elemental"),
   f("Ice", "Uncommon", "Elemental"),
   f("Sand", "Uncommon", "Elemental"),
@@ -108,16 +106,17 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Eagle", "Uncommon", "Beast"),
   f("Diamond", "Uncommon", "Natural"),
 
-  // ---- Rare ----
+  // ---- Rare (4) ----
   f("Light", "Rare", "Elemental"),
   f("Rubber", "Rare", "Natural"),
   f("Ghost", "Rare", "Natural", ["Revive"]),
   f("Magma", "Rare", "Elemental"),
 
-  // ---- Legendary — the wiki names these eleven ----
+  // ---- Legendary (11) ----
   f("Quake", "Legendary", "Natural"),
   f("Buddha", "Legendary", "Beast"),
   f("Love", "Legendary", "Natural"),
+  f("Creation", "Legendary", "Natural", ["Barrier"]),
   f("Spider", "Legendary", "Natural"),
   f("Sound", "Legendary", "Natural"),
   f("Phoenix", "Legendary", "Beast"),
@@ -125,23 +124,21 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Lightning", "Legendary", "Elemental", ["Rumble"]),
   f("Pain", "Legendary", "Natural"),
   f("Blizzard", "Legendary", "Elemental"),
-  f("Creation", "Legendary", "Natural", ["Barrier"]),
 
-  // ---- Mythical ----
+  // ---- Mythical (13) ----
   f("Gravity", "Mythical", "Natural"),
-  f("Shark", "Mythical", "Beast"),
   f("Mammoth", "Mythical", "Beast"),
   f("T-Rex", "Mythical", "Beast"),
   f("Dough", "Mythical", "Natural"),
   f("Shadow", "Mythical", "Elemental"),
   f("Venom", "Mythical", "Natural"),
-  f("Control", "Mythical", "Natural"),
-  f("Spirit", "Mythical", "Natural"),
   f("Gas", "Mythical", "Elemental"),
+  f("Spirit", "Mythical", "Natural"),
   f("Tiger", "Mythical", "Beast", ["Leopard"]),
   f("Yeti", "Mythical", "Beast"),
-  f("Dragon", "Mythical", "Beast"),
   f("Kitsune", "Mythical", "Beast"),
+  f("Control", "Mythical", "Natural"),
+  f("Dragon", "Mythical", "Beast"),
 ];
 
 /**
@@ -256,3 +253,22 @@ export const ITEM_VARIANTS: Record<string, readonly string[]> = {
   "royale-high": [],
   "grow-a-garden": ["Normal", "Mutated"],
 };
+
+
+/**
+ * Mutations — modified versions of a fruit that change appearance, moveset and
+ * playstyle. All three are event-exclusive and Beast type, and each belongs to
+ * one specific fruit, so a listing states them per item rather than per game.
+ *
+ * They move value the way Permanent does, which is why they are a listing
+ * field and not a note.
+ */
+export const MUTATIONS: Record<string, readonly string[]> = {
+  "bf-kitsune": ["Empyrean"],
+  "bf-yeti": ["Fiend"],
+  "bf-tiger": ["Werewolf"],
+};
+
+export function mutationsFor(itemId: string): readonly string[] {
+  return MUTATIONS[itemId] ?? [];
+}
