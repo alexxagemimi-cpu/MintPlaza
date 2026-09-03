@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ItemTile, RarityChip } from "./ItemTile";
-import { CATALOG_CHECKED, type CatalogItem, type Rarity } from "@/lib/items";
+import { CATALOG_CHECKED, CATALOG_NOTES, type CatalogItem, type Rarity } from "@/lib/items";
 
 const RARITIES: readonly Rarity[] = ["Common", "Uncommon", "Rare", "Legendary", "Mythical"];
 
@@ -13,7 +13,13 @@ const RARITIES: readonly Rarity[] = ["Common", "Uncommon", "Rare", "Legendary", 
  * is what lets "Permanent Kitsune" mean the same thing to both sides, and what
  * turns matching into an indexed lookup instead of a string search.
  */
-export function ExploreCatalog({ items }: { items: readonly CatalogItem[] }) {
+export function ExploreCatalog({
+  items,
+  gameSlug,
+}: {
+  items: readonly CatalogItem[];
+  gameSlug: string;
+}) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<Rarity | null>(null);
   const [category, setCategory] = useState<string | null>(null);
@@ -82,6 +88,16 @@ export function ExploreCatalog({ items }: { items: readonly CatalogItem[] }) {
         {shown.length} OF {items.length} ITEMS · CATALOGUE CHECKED {CATALOG_CHECKED.toUpperCase()}
       </p>
 
+      {CATALOG_NOTES[gameSlug] && (
+        <p className="mt-2 flex items-start gap-2 text-[0.75rem] leading-relaxed text-ink-mute">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-0.5 shrink-0 text-warn" strokeLinecap="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.4" />
+            <path d="M8 5v3.4M8 11h.01" />
+          </svg>
+          {CATALOG_NOTES[gameSlug]}
+        </p>
+      )}
+
       {shown.length > 0 ? (
         <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((item) => (
@@ -95,8 +111,16 @@ export function ExploreCatalog({ items }: { items: readonly CatalogItem[] }) {
                   <span className="block truncate text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
                     {item.name}
                   </span>
-                  <span className="mt-1 flex items-center gap-1.5">
+                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     {item.rarity && <RarityChip rarity={item.rarity} />}
+                    {item.verified === false && (
+                      <span
+                        title="Not confirmed against the game wiki"
+                        className="rounded-md border border-warn/30 bg-warn-wash px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.08em] text-warn"
+                      >
+                        UNCONFIRMED
+                      </span>
+                    )}
                     {item.type && (
                       <span className="font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
                         {item.type.toUpperCase()}

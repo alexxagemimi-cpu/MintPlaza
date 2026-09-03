@@ -172,7 +172,7 @@ export default async function ExplorePage({
               Listings are built from this catalogue rather than typed out, so
               the same item means the same thing to both sides of a trade.
             </p>
-            <ExploreCatalog items={items} />
+            <ExploreCatalog items={items} gameSlug={game.slug} />
           </section>
         </div>
       )}

@@ -14,7 +14,12 @@
  * so it carries a verification note and moves to the admin surface later.
  */
 
-export type Rarity = "Common" | "Uncommon" | "Rare" | "Legendary" | "Mythical";
+/**
+ * Blox Fruits runs six tiers, not five. Premium is the sixth: paid and
+ * admin-exclusive inventory items, which is where the 41 Permanent Fruits sit.
+ */
+export type Rarity =
+  | "Common" | "Uncommon" | "Rare" | "Legendary" | "Mythical" | "Premium";
 
 export interface CatalogItem {
   id: string;
@@ -25,6 +30,12 @@ export interface CatalogItem {
   /** Game-specific secondary classification, e.g. Blox Fruits fruit type. */
   type?: string;
   art?: string;
+  /**
+   * False where the rarity or existence could not be confirmed against the
+   * game wiki. Shown in admin so the uncertain rows can be corrected first,
+   * rather than quietly presented as fact.
+   */
+  verified?: boolean;
 }
 
 /** Tile colours by rarity. Restrained — this is a label, not a rainbow. */
@@ -34,12 +45,14 @@ export const RARITY_STYLE: Record<Rarity, { fg: string; bg: string; ring: string
   Rare:      { fg: "#2C6C9E", bg: "#E7F0F8", ring: "#2C6C9E26" },
   Legendary: { fg: "#8A5A12", bg: "#FBF1E0", ring: "#8A5A1226" },
   Mythical:  { fg: "#9B3B6E", bg: "#FAEBF2", ring: "#9B3B6E26" },
+  Premium:   { fg: "#6B4CA8", bg: "#F0ECFA", ring: "#6B4CA826" },
 };
 
 const f = (
   name: string,
   rarity: Rarity,
   type: "Natural" | "Elemental" | "Beast",
+  verified = true,
 ): CatalogItem => ({
   id: `bf-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
   gameSlug: "blox-fruits",
@@ -47,50 +60,71 @@ const f = (
   category: "Fruit",
   rarity,
   type,
+  verified,
 });
 
 /**
- * Blox Fruits.
+ * Blox Fruits — checked against the game wiki, September 2026.
  *
- * Community documentation counted 43 fruits in August 2026 across 23 Natural,
- * 11 Elemental and 9 Beast. Sources disagree at the margins — a few fruits sit
- * on the Legendary/Mythical boundary depending on who is counting — so treat
- * rarity here as a starting point to correct, not as settled.
+ * The wiki puts the total at 41 fruits across six rarities. Corrections made
+ * after checking, each of which had been wrong here:
+ *
+ *   Leopard and Tiger are ONE fruit. Leopard was reworked and renamed to
+ *   Tiger, so the old name is gone rather than being a second entry.
+ *   Rumble is likewise the old name for Lightning.
+ *   Quake and Buddha are Legendary, not Rare.
+ *   Light is Rare, not Uncommon.
+ *   Gravity is not among the eleven Legendary fruits, so it sits in Mythical.
+ *   Shark exists and was missing entirely.
+ *
+ * The eleven Legendary fruits are named explicitly on the wiki and are the
+ * most reliable rows here. The Common, Uncommon and Rare split is the least
+ * reliable: entries marked unverified could not be confirmed and need a
+ * player's eye before they are trusted.
  */
 const BLOX_FRUITS: CatalogItem[] = [
+  // ---- Common ----
   f("Rocket", "Common", "Natural"),
   f("Spin", "Common", "Natural"),
+  f("Chop", "Common", "Natural", false),
   f("Blade", "Common", "Natural"),
   f("Spring", "Common", "Natural"),
   f("Bomb", "Common", "Natural"),
   f("Smoke", "Common", "Elemental"),
   f("Spike", "Common", "Natural"),
 
+  // ---- Uncommon ----
   f("Flame", "Uncommon", "Elemental"),
   f("Ice", "Uncommon", "Elemental"),
   f("Sand", "Uncommon", "Elemental"),
   f("Dark", "Uncommon", "Elemental"),
   f("Eagle", "Uncommon", "Beast"),
   f("Diamond", "Uncommon", "Natural"),
-  f("Light", "Uncommon", "Elemental"),
 
+  // ---- Rare ----
+  f("Light", "Rare", "Elemental"),
   f("Rubber", "Rare", "Natural"),
+  f("Barrier", "Rare", "Natural", false),
   f("Ghost", "Rare", "Natural"),
   f("Magma", "Rare", "Elemental"),
-  f("Quake", "Rare", "Natural"),
-  f("Buddha", "Rare", "Beast"),
-  f("Love", "Rare", "Natural"),
-  f("Creation", "Rare", "Natural"),
-  f("Spider", "Rare", "Natural"),
+  f("Revive", "Rare", "Natural", false),
 
+  // ---- Legendary — the wiki names these eleven ----
+  f("Quake", "Legendary", "Natural"),
+  f("Buddha", "Legendary", "Beast"),
+  f("Love", "Legendary", "Natural"),
+  f("Spider", "Legendary", "Natural"),
   f("Sound", "Legendary", "Natural"),
   f("Phoenix", "Legendary", "Beast"),
   f("Portal", "Legendary", "Natural"),
   f("Lightning", "Legendary", "Elemental"),
   f("Pain", "Legendary", "Natural"),
   f("Blizzard", "Legendary", "Elemental"),
+  f("Creation", "Legendary", "Natural"),
 
+  // ---- Mythical ----
   f("Gravity", "Mythical", "Natural"),
+  f("Shark", "Mythical", "Beast"),
   f("Mammoth", "Mythical", "Beast"),
   f("T-Rex", "Mythical", "Beast"),
   f("Dough", "Mythical", "Natural"),
@@ -101,9 +135,8 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Gas", "Mythical", "Elemental"),
   f("Tiger", "Mythical", "Beast"),
   f("Yeti", "Mythical", "Beast"),
-  f("Leopard", "Mythical", "Beast"),
-  f("Kitsune", "Mythical", "Beast"),
   f("Dragon", "Mythical", "Beast"),
+  f("Kitsune", "Mythical", "Beast"),
 ];
 
 /**
@@ -190,6 +223,25 @@ export function findItem(id: string): CatalogItem | undefined {
 
 /** How current this catalogue is. Shown wherever it could mislead. */
 export const CATALOG_CHECKED = "September 2026";
+
+/**
+ * An open discrepancy, stated rather than hidden.
+ *
+ * The wiki puts Blox Fruits at 41 fruits. This catalogue lists 45 after the
+ * corrections above, which means roughly four entries are either renamed
+ * duplicates or no longer in the game. The unverified rows are the suspects.
+ * Rather than quietly present a number that does not add up, the interface
+ * says so and the rows stay editable.
+ */
+export const CATALOG_NOTES: Record<string, string> = {
+  "blox-fruits":
+    "The wiki counts 41 fruits; this list has 45, so about four are likely renamed duplicates or removed. Unverified rows are the ones to check first.",
+};
+
+/** Rows that could not be confirmed against the wiki. */
+export function unverifiedCount(gameSlug: string): number {
+  return catalogFor(gameSlug).filter((i) => i.verified === false).length;
+}
 
 
 /**
