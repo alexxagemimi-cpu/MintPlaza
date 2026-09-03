@@ -33,7 +33,9 @@ export function ExploreCatalog({
     const q = query.trim().toLowerCase();
     return items.filter(
       (i) =>
-        (!q || i.name.toLowerCase().includes(q)) &&
+        (!q ||
+          i.name.toLowerCase().includes(q) ||
+          i.aliases?.some((a) => a.toLowerCase().includes(q))) &&
         (!rarity || i.rarity === rarity) &&
         (!category || i.category === category),
     );
@@ -113,6 +115,15 @@ export function ExploreCatalog({
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     {item.rarity && <RarityChip rarity={item.rarity} />}
+                    {item.aliases?.map((a) => (
+                      <span
+                        key={a}
+                        title={`Formerly ${a}`}
+                        className="rounded-md border border-line bg-fill px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.08em] text-ink-mute"
+                      >
+                        WAS {a.toUpperCase()}
+                      </span>
+                    ))}
                     {item.verified === false && (
                       <span
                         title="Not confirmed against the game wiki"
