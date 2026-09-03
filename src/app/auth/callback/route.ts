@@ -37,5 +37,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Supabase will not always permit a trigger on auth.users, so the profile
+  // row is guaranteed here instead. Idempotent: a no-op when the trigger ran.
+  const { error: profileError } = await supabase.rpc("ensure_profile");
+  if (profileError) {
+    // Not fatal — the session is valid and the profile can be created later.
+    console.error("ensure_profile failed after sign-in:", profileError.message);
+  }
+
   return NextResponse.redirect(new URL(next, url.origin));
 }

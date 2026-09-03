@@ -59,8 +59,20 @@ create table if not exists public.profiles (
 
 create index if not exists profiles_username_idx on public.profiles using gin (username gin_trgm_ops);
 
--- Create the profile when Supabase creates the auth user. Claim names follow
--- the Roblox OIDC userinfo response.
+-- ---------------------------------------------------------------------------
+-- Creating the profile row
+--
+-- Two paths, because the obvious one is not always permitted. Supabase locks
+-- down the `auth` schema, and on most projects the SQL editor's role does not
+-- own `auth.users` — attempting a trigger there fails with
+-- "must be owner of relation users" and, worse, aborts the whole script.
+--
+-- So: try the trigger, and carry on without it if the project will not allow
+-- it. Either way `ensure_profile()` is the guaranteed path — the app calls it
+-- once after sign-in, and it is idempotent, so it costs nothing when the
+-- trigger already did the work.
+-- ---------------------------------------------------------------------------
+
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -81,11 +93,57 @@ begin
   return new;
 end $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
+do $$
+begin
+  execute 'drop trigger if exists on_auth_user_created on auth.users';
+  execute 'create trigger on_auth_user_created
+             after insert on auth.users
+             for each row execute function public.handle_new_user()';
+  raise notice 'Profile trigger installed on auth.users.';
+exception
+  when insufficient_privilege or undefined_table then
+    raise notice 'Could not attach a trigger to auth.users (%). This is normal on Supabase — ensure_profile() covers it.', sqlerrm;
+end $$;
 
+/**
+ * Called by the app immediately after sign-in.
+ *
+ * Reads the signed-in user's own claims — it cannot be used to create a
+ * profile for anybody else, because auth.uid() is whoever is calling.
+ */
+create or replace function public.ensure_profile()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid  uuid   := auth.uid();
+  v_meta jsonb  := coalesce(auth.jwt() -> 'user_metadata', '{}'::jsonb);
+begin
+  if v_uid is null then
+    return;
+  end if;
+
+  insert into public.profiles (id, roblox_user_id, username, display_name, avatar_url, roblox_created_at)
+  values (
+    v_uid,
+    coalesce(v_meta ->> 'sub', v_meta ->> 'provider_id', v_uid::text),
+    coalesce(v_meta ->> 'preferred_username', v_meta ->> 'name', 'player'),
+    coalesce(v_meta ->> 'nickname', v_meta ->> 'full_name'),
+    coalesce(v_meta ->> 'picture', v_meta ->> 'avatar_url'),
+    case
+      when v_meta ? 'created_at' and (v_meta ->> 'created_at') ~ '^[0-9]+$'
+      then to_timestamp((v_meta ->> 'created_at')::bigint)
+      else null
+    end
+  )
+  on conflict (id) do nothing;
+exception
+  -- Another Roblox id already claimed: leave the existing row alone rather
+  -- than failing the sign-in.
+  when unique_violation then
+    return;
+end $$;
+
+revoke all on function public.ensure_profile() from public;
+grant execute on function public.ensure_profile() to authenticated;
 
 -- ===========================================================================
 -- Games and items
