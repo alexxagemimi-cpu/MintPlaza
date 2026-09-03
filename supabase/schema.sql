@@ -272,19 +272,20 @@ create index if not exists listing_sides_listing_idx on public.listing_sides (li
 -- cannot cycle past the limit.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.listing_allowance(p_user uuid, p_game text)
+create or replace function public.listing_allowance(p_game text)
 returns table (
-  used          int,
-  remaining     int,
-  next_slot_at  timestamptz,
+  used           int,
+  remaining      int,
+  next_slot_at   timestamptz,
   active_in_game int,
-  active_cap    int
+  active_cap     int
 )
-language sql stable security definer set search_path = public as $$
-  with recent as (
+language sql stable security definer set search_path = public, pg_catalog as $$
+  with me as (select auth.uid() as uid),
+  recent as (
     select created_at
     from public.trade_listings
-    where user_id = p_user
+    where user_id = (select uid from me)
       and created_at > now() - mintplaza.listing_window()
     order by created_at desc
     limit mintplaza.listings_per_window()
@@ -292,7 +293,8 @@ language sql stable security definer set search_path = public as $$
   live as (
     select count(*)::int as n
     from public.trade_listings
-    where user_id = p_user and game_slug = p_game and status = 'active'
+    where user_id = (select uid from me)
+      and game_slug = p_game and status = 'active'
   )
   select
     (select count(*)::int from recent),
@@ -787,3 +789,47 @@ on conflict (slug) do update set
 
 -- Murder Mystery 2 was in an earlier draft by mistake and is not a launch game.
 delete from public.games where slug = 'murder-mystery-2';
+
+
+-- ===========================================================================
+-- Function hardening
+--
+-- Added after Supabase's own database linter flagged two real problems on the
+-- live project:
+--
+--   Every SECURITY DEFINER function was callable by `anon` over the REST API.
+--   expire_listings() in particular would have let anyone expire the board.
+--
+--   Several functions had a mutable search_path, which lets a caller shadow
+--   the objects a SECURITY DEFINER function resolves — a privilege escalation
+--   route.
+--
+-- listing_allowance also took an arbitrary user id, so any signed-in player
+-- could read anyone else's slot usage. It now reports on the caller only.
+-- ===========================================================================
+
+alter function mintplaza.listing_window()      set search_path = pg_catalog;
+alter function mintplaza.listings_per_window() set search_path = pg_catalog;
+alter function mintplaza.max_active_per_game() set search_path = pg_catalog;
+alter function mintplaza.listing_lifetime()    set search_path = pg_catalog;
+alter function public.is_moderator()           set search_path = public, pg_catalog;
+alter function public.touch_updated_at()       set search_path = public, pg_catalog;
+
+revoke all on function public.ensure_profile()          from public, anon, authenticated;
+revoke all on function public.bump_listing(uuid)        from public, anon, authenticated;
+revoke all on function public.listing_allowance(text)   from public, anon, authenticated;
+revoke all on function public.expire_listings()         from public, anon, authenticated;
+revoke all on function public.handle_new_user()         from public, anon, authenticated;
+revoke all on function public.enforce_listing_limits()  from public, anon, authenticated;
+revoke all on function public.is_participant(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.recommended_listings(text, int, timestamptz) from public, anon, authenticated;
+
+grant execute on function public.ensure_profile()        to authenticated;
+grant execute on function public.bump_listing(uuid)      to authenticated;
+grant execute on function public.listing_allowance(text) to authenticated;
+grant execute on function public.recommended_listings(text, int, timestamptz) to authenticated;
+
+-- expire_listings is a scheduled job, handle_new_user and
+-- enforce_listing_limits are trigger bodies, and is_participant is a helper
+-- used inside policies. None should be reachable over the REST API, so none
+-- of them are granted to anybody.
