@@ -159,7 +159,7 @@ export default function HomePage() {
             <a href="#games" className="transition-colors hover:text-ink">Games</a>
             <a href="#trust" className="transition-colors hover:text-ink">Trust</a>
           </div>
-          <Link href="/app" className="pill pill-mint">
+          <Link href="/login" className="pill pill-mint">
             Continue with Roblox
           </Link>
         </nav>
@@ -188,7 +188,7 @@ export default function HomePage() {
 
           <div className="mx-auto mt-12 max-w-6xl px-5 text-center sm:px-8">
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <Link href="/app" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
+              <Link href="/login" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
                 Try MintPlaza now
               </Link>
               <a href="#how" className="pill pill-ghost px-6 py-4 text-[0.9375rem]">
@@ -332,7 +332,7 @@ export default function HomePage() {
               Pick a game, say what you are after, and see who lines up.
             </p>
             <div className="mt-9 flex justify-center">
-              <Link href="/app" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
+              <Link href="/login" className="pill pill-mint px-7 py-4 text-[0.9375rem]">
                 Continue with Roblox
               </Link>
             </div>

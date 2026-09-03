@@ -19,7 +19,8 @@
  * admin-exclusive inventory items, which is where the 41 Permanent Fruits sit.
  */
 export type Rarity =
-  | "Common" | "Uncommon" | "Rare" | "Legendary" | "Mythical" | "Premium";
+  | "Common" | "Uncommon" | "Rare" | "Ultra-Rare"
+  | "Legendary" | "Mythical" | "Premium";
 
 export interface CatalogItem {
   id: string;
@@ -49,6 +50,7 @@ export const RARITY_STYLE: Record<Rarity, { fg: string; bg: string; ring: string
   Common:    { fg: "#5A6B65", bg: "#EEF2F0", ring: "#0D161314" },
   Uncommon:  { fg: "#2F7D57", bg: "#E6F4EC", ring: "#2F7D5726" },
   Rare:      { fg: "#2C6C9E", bg: "#E7F0F8", ring: "#2C6C9E26" },
+  "Ultra-Rare": { fg: "#2F5FA8", bg: "#E6ECF9", ring: "#2F5FA826" },
   Legendary: { fg: "#8A5A12", bg: "#FBF1E0", ring: "#8A5A1226" },
   Mythical:  { fg: "#9B3B6E", bg: "#FAEBF2", ring: "#9B3B6E26" },
   Premium:   { fg: "#6B4CA8", bg: "#F0ECFA", ring: "#6B4CA826" },
@@ -175,41 +177,147 @@ const make = (
   }));
 
 /**
- * Starter catalogues for the other five. Deliberately small — enough to build
- * and test the listing flow against, not a claim to be complete. These grow
- * through the admin surface, and through what players actually list.
+ * The other five games.
+ *
+ * Less complete than Blox Fruits, and honestly so. Royale High's halos are
+ * well documented and close to exhaustive; the rest carry the items their
+ * communities trade most, which is what a listing flow actually needs to be
+ * usable. `PARTIAL_CATALOGUES` names the ones still short so the interface can
+ * say it rather than implying completeness.
+ *
+ * These grow through the admin surface, not through code edits.
  */
-const ADOPT_ME = make("adopt-me", "am", "Pet", [
-  ["Shadow Dragon", "Legendary"], ["Bat Dragon", "Legendary"],
-  ["Frost Dragon", "Legendary"], ["Giraffe", "Legendary"],
-  ["Parrot", "Legendary"], ["Crow", "Legendary"],
-  ["Owl", "Legendary"], ["Unicorn", "Legendary"],
-  ["Kangaroo", "Rare"], ["Turtle", "Rare"],
-]);
 
-const PS99 = make("pet-simulator-99", "ps", "Pet", [
-  ["Huge Cat", "Mythical"], ["Huge Pixel Cat", "Mythical"],
-  ["Titanic Pegasus", "Mythical"], ["Huge Dragon", "Mythical"],
-  ["Huge Hacked Cat", "Mythical"], ["Huge Balloon Cat", "Mythical"],
-]);
+/**
+ * Royale High halos. Each is tied to the event it was winnable in, and once
+ * that event ends trading is the only way to get it — which is exactly why the
+ * year belongs in the name.
+ */
+const ROYALE_HIGH: CatalogItem[] = ([
+  ["Corrupt Halo", "Mythical"],
+  ["Halloween Halo 2018", "Mythical"],
+  ["Winter Crystal Halo 2018", "Mythical"],
+  ["Valentines Halo 2019", "Legendary"],
+  ["Lucky Halo 2019", "Legendary"],
+  ["Easter Halo 2019", "Legendary"],
+  ["Mermaid Halo 2019", "Legendary"],
+  ["Halloween Halo 2019", "Mythical"],
+  ["Autumn Halo 2019", "Legendary"],
+  ["Winter Halo 2019", "Mythical"],
+  ["Valentines Halo 2020", "Legendary"],
+  ["Lucky Halo 2020", "Legendary"],
+  ["Spring Halo 2020", "Legendary"],
+  ["Mermaid Halo 2020", "Legendary"],
+  ["Halloween Halo 2020", "Legendary"],
+  ["Winter Halo 2020", "Legendary"],
+  ["Valentines Halo 2021", "Legendary"],
+  ["Lucky Halo 2021", "Legendary"],
+  ["Spring Halo 2021", "Legendary"],
+  ["Mermaid Halo 2021", "Legendary"],
+  ["Halloween Halo 2021", "Legendary"],
+  ["Winter Halo 2021", "Legendary"],
+  ["Spring Halo 2022", "Rare"],
+  ["Mermaid Halo 2022", "Rare"],
+  ["Witching Hour Autumn Halo 2022", "Legendary"],
+  ["Winter Halo 2022", "Legendary"],
+] as [string, Rarity][]).map(([name, rarity]) => ({
+  id: `rh-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "royale-high",
+  name,
+  category: "Halo",
+  rarity,
+  verified: true,
+}));
 
-const ROYALE_HIGH = make("royale-high", "rh", "Halo", [
-  ["Winter Halo 2019", "Mythical"], ["Halloween Halo 2019", "Mythical"],
-  ["Autumn Halo 2020", "Legendary"], ["Valentines Halo 2021", "Legendary"],
-  ["Summer Halo 2021", "Legendary"], ["Corrupt Halo", "Mythical"],
-]);
+/**
+ * Adopt Me. The wiki counts over thirty obtainable legendaries and far more
+ * retired ones, so this is the trading core rather than the full list.
+ */
+const ADOPT_ME = [
+  ...make("adopt-me", "am", "Pet", [
+    ["Shadow Dragon", "Mythical"], ["Bat Dragon", "Mythical"],
+    ["Frost Dragon", "Mythical"], ["Giraffe", "Mythical"],
+    ["Parrot", "Legendary"], ["Crow", "Legendary"],
+    ["Owl", "Legendary"], ["Evil Unicorn", "Legendary"],
+    ["Turtle", "Legendary"], ["Kangaroo", "Legendary"],
+    ["Unicorn", "Legendary"], ["Dragon", "Legendary"],
+    ["Griffin", "Legendary"], ["Arctic Reindeer", "Legendary"],
+    ["Golden Dragon", "Legendary"], ["Diamond Dragon", "Legendary"],
+    ["Cerberus", "Legendary"], ["Shark", "Ultra-Rare"],
+  ] as [string, Rarity][]),
+  ...make("adopt-me", "am", "Egg", [
+    ["Royal Egg", "Legendary"], ["Cracked Egg", "Common"],
+    ["Pet Egg", "Uncommon"], ["Fairytale Egg", "Rare"],
+  ] as [string, Rarity][]),
+  ...make("adopt-me", "am", "Vehicle", [
+    ["Rainbow Bicycle", "Rare"], ["Golden Scooter", "Rare"],
+  ] as [string, Rarity][]),
+];
 
-const GARDEN = make("grow-a-garden", "gg", "Crop", [
-  ["Candy Blossom", "Mythical"], ["Ember Lily", "Legendary"],
-  ["Beanstalk", "Legendary"], ["Sugar Apple", "Legendary"],
-  ["Moon Melon", "Rare"], ["Dragon Fruit", "Rare"],
-]);
+/**
+ * Pet Simulator 99. Huge, Titanic and Gargantuan are subgroups of the
+ * Exclusive rarity rather than rarities in their own right, so they are
+ * recorded as the category and the rarity stays Exclusive-equivalent.
+ */
+const PS99 = [
+  ...make("pet-simulator-99", "ps", "Huge", [
+    ["Huge Cat", "Mythical"], ["Huge Pixel Cat", "Mythical"],
+    ["Huge Dragon", "Mythical"], ["Huge Hacked Cat", "Mythical"],
+    ["Huge Balloon Cat", "Mythical"], ["Huge Storm Agony", "Mythical"],
+    ["Huge Festive Cat", "Mythical"], ["Huge Lucky Cat", "Mythical"],
+  ] as [string, Rarity][]),
+  ...make("pet-simulator-99", "ps", "Titanic", [
+    ["Titanic Pegasus", "Mythical"], ["Titanic Jolly Penguin", "Mythical"],
+    ["Titanic Bunny", "Mythical"],
+  ] as [string, Rarity][]),
+  ...make("pet-simulator-99", "ps", "Enchant", [
+    ["Ultra Lucky", "Legendary"], ["Team Up", "Legendary"],
+    ["Coins Master", "Legendary"], ["Treasure Hunter", "Legendary"],
+  ] as [string, Rarity][]),
+];
 
-const SONARIA = make("creatures-of-sonaria", "cs", "Creature", [
-  ["Kavouradis", "Mythical"], ["Boreacal", "Legendary"],
-  ["Nyctosaurus", "Legendary"], ["Aurelvis", "Legendary"],
-  ["Sarco", "Rare"], ["Vithura", "Rare"],
-]);
+/** Grow a Garden. Crops, seeds and pets, with mutation and weight as variants. */
+const GARDEN = [
+  ...make("grow-a-garden", "gg", "Crop", [
+    ["Candy Blossom", "Mythical"], ["Ember Lily", "Legendary"],
+    ["Beanstalk", "Legendary"], ["Sugar Apple", "Legendary"],
+    ["Moon Melon", "Rare"], ["Dragon Fruit", "Rare"],
+    ["Grape", "Rare"], ["Mushroom", "Rare"],
+    ["Pepper", "Legendary"], ["Cacao", "Legendary"],
+  ] as [string, Rarity][]),
+  ...make("grow-a-garden", "gg", "Pet", [
+    ["Raccoon", "Mythical"], ["Dragonfly", "Legendary"],
+    ["Queen Bee", "Legendary"], ["Disco Bee", "Mythical"],
+    ["Butterfly", "Legendary"],
+  ] as [string, Rarity][]),
+  ...make("grow-a-garden", "gg", "Gear", [
+    ["Master Sprinkler", "Legendary"], ["Godly Sprinkler", "Rare"],
+    ["Lightning Rod", "Legendary"],
+  ] as [string, Rarity][]),
+];
+
+/**
+ * Creatures of Sonaria. Value here comes from species, mutation, age, gender
+ * and palette together, so the catalogue names the species and the listing
+ * carries the rest.
+ */
+const SONARIA = [
+  ...make("creatures-of-sonaria", "cs", "Creature", [
+    ["Kavouradis", "Mythical"], ["Boreacal", "Legendary"],
+    ["Nyctosaurus", "Legendary"], ["Aurelvis", "Legendary"],
+    ["Sarco", "Rare"], ["Vithura", "Rare"],
+    ["Eigion", "Legendary"], ["Menace", "Mythical"],
+    ["Hyaenire", "Rare"], ["Vahid", "Legendary"],
+  ] as [string, Rarity][]),
+  ...make("creatures-of-sonaria", "cs", "Plushie", [
+    ["Plushie Token", "Rare"],
+  ] as [string, Rarity][]),
+];
+
+/** Games whose catalogue is knowingly incomplete. Surfaced in the interface. */
+export const PARTIAL_CATALOGUES: readonly string[] = [
+  "adopt-me", "pet-simulator-99", "grow-a-garden", "creatures-of-sonaria",
+];
 
 export const CATALOG: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
