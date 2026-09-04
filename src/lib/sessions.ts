@@ -1,223 +1,378 @@
 /**
- * Raids, bosses and services — the middle Explore tab.
+ * Raids & Services — help that takes one or two people, not a team.
  *
- * Trading matches items. This matches *people to a moment*, and that difference
- * drives everything here.
+ * This tab is deliberately narrow. It is for the things a player cannot
+ * comfortably do alone but does not need a squad for: a raid carry, a trial
+ * that needs exactly three, a puzzle step that needs somebody to hit you, a
+ * boss that is miserable solo. Anything that needs a crew — a Leviathan wanting
+ * five in one Sea Exploration Group, a Dough King run — belongs in Help &
+ * Recruitment instead, and is not listed here.
  *
- * A trade listing is patient: it can sit for a week and still be true. A raid
- * forming is not. It has a fixed number of seats, it starts soon, and forty
- * minutes later it is noise. So a session carries slots and a start time, and
- * the interface is built to answer one question fast — can I join this, right
- * now, with the character I actually have?
+ * The board has two sides, and they are the same shape:
  *
- * The requirements are the game's, not ours. Leviathan really does need five
- * players in one Sea Exploration Group before the Frozen Watcher opens the
- * gate; the Race V4 trial really does need three players of three different
- * races activating V3 together. Stating those up front is the whole value: it
- * stops four people gathering for something that needs five.
+ *   OFFER    "I can do these for you" — one player, many services.
+ *   REQUEST  "I need help with this" — one player, one thing they are stuck on.
+ *
+ * Either side can vote on the other. A player stuck on Yama votes on a helper's
+ * offer; a helper votes on a request they could take. A vote is interest, not a
+ * commitment, and the faces of everyone who voted are the fastest way to see
+ * whether a listing is worth answering.
+ *
+ * Listings are short-lived on purpose. Two hours, or until the deal is taken.
+ * A board of week-old "still need help?" posts is worse than an empty one.
+ *
+ * ---------------------------------------------------------------------------
+ * Everything below is read off the Blox Fruits wiki, and where a requirement is
+ * stated it is the game's, not ours. A wrong requirement here costs somebody an
+ * evening, so anything that could not be confirmed is left out rather than
+ * guessed at. Two things that were checked and deliberately excluded:
+ *
+ *   - Saber V3 does not exist. It is a fan concept; Saber stops at V2.
+ *   - "Observation Haki V2" is now called Instinct V2 in game. Both names are
+ *     kept so search finds it either way.
+ * ---------------------------------------------------------------------------
  */
 
-/** What kind of thing people gather for. Named as the games name them. */
-export type ActivityKind =
-  | "Raid" | "Boss" | "Trial" | "Sea event" | "Grind" | "Event" | "Service";
+/** What kind of help this is. Named the way the game names things. */
+export type ServiceKind =
+  | "Raid" | "Trial" | "Puzzle" | "Boss" | "Unlock" | "Grind" | "Island";
 
-export interface Activity {
+export interface Service {
   id: string;
   gameSlug: string;
   name: string;
-  kind: ActivityKind;
-  /**
-   * What the game itself demands before this can start. Only stated where it
-   * was confirmed — a wrong requirement here wastes a group's evening.
-   */
+  kind: ServiceKind;
+  /** The game's own requirement. Only stated where it was confirmed. */
   needs?: string;
-  /** Party size the game enforces, where it enforces one. */
-  minPlayers?: number;
-  maxPlayers?: number;
-  /** What you get, where it is the reason people run it. */
-  reward?: string;
+  /**
+   * Total players including the one being helped. Capped at 3 by the scope of
+   * this tab — anything needing more is recruitment, not a service.
+   */
+  players?: number;
+  /** What the person being helped walks away with. */
+  gives?: string;
+  /** Other names people search for. */
+  aliases?: readonly string[];
   verified?: boolean;
 }
 
 /**
  * Blox Fruits.
  *
- * Read off the wiki: the Leviathan's five-player gate, the V4 trial's three
- * races, the Mirror Fractal's guaranteed drop from Dough King, the raid chip
- * that hosting a raid needs, and the Sea Beast whose health scales with how
- * many players are nearby.
+ * Sourced from the wiki: the raid microchips and their level gate, the V4
+ * trial's three races, the Cursed Dual Katana step that needs another player to
+ * deal you damage, Yama's thirty Elite Hunter quests, Saber V2's player kill,
+ * Instinct V2's prerequisites, and the island spawn conditions.
  */
-const BLOX_FRUITS_ACTIVITIES: Activity[] = [
+const BLOX_FRUITS_SERVICES: Service[] = [
+  // ---- Raids and awakening ----
   {
-    id: "bf-a-v4-trial", gameSlug: "blox-fruits", name: "Race V4 trial", kind: "Trial",
-    needs: "3 players of 3 different races, all activating V3 at the same moment",
-    minPlayers: 3, maxPlayers: 3,
-    reward: "Race V4", verified: true,
+    id: "bf-s-basic-raid", gameSlug: "blox-fruits", name: "Fruit awakening raid carry",
+    kind: "Raid",
+    needs: "Level 1100+. Somebody needs a Basic Raid Microchip — 100,000 Beli, or any physical fruit, from the Mysterious Scientist",
+    players: 2,
+    gives: "Awakened moves and Fragments. Five islands, each harder than the last",
+    aliases: ["awakening", "awaken", "raid carry", "fragments"], verified: true,
   },
   {
-    id: "bf-a-leviathan", gameSlug: "blox-fruits", name: "Leviathan hunt", kind: "Sea event",
-    needs: "5+ players in one Sea Exploration Group, and a Frozen Dimension to open the gate",
-    minPlayers: 5,
-    reward: "Leviathan drops", verified: true,
+    id: "bf-s-advanced-raid", gameSlug: "blox-fruits", name: "Advanced raid — Phoenix or Dough",
+    kind: "Raid",
+    needs: "An Advanced Raid Microchip: 1,000 Robux, or a physical fruit worth over 1,000,000",
+    players: 2,
+    gives: "The only two Advanced Raids in the game",
+    aliases: ["phoenix raid", "dough raid", "advanced"], verified: true,
   },
   {
-    id: "bf-a-dough-king", gameSlug: "blox-fruits", name: "Dough King", kind: "Boss",
-    reward: "Mirror Fractal, guaranteed", verified: true,
+    id: "bf-s-fragments", gameSlug: "blox-fruits", name: "Fragment farming",
+    kind: "Grind",
+    needs: "About 14,500 Fragments awakens most fruits",
+    players: 2,
+    aliases: ["frags"], verified: true,
+  },
+
+  // ---- Race awakening ----
+  {
+    id: "bf-s-v4", gameSlug: "blox-fruits", name: "Race V4 trial",
+    kind: "Trial",
+    needs: "Exactly 3 players of 3 different races, all activating V3 at the same moment",
+    players: 3,
+    gives: "Race V4",
+    aliases: ["v4", "race v4", "race awakening"], verified: true,
   },
   {
-    id: "bf-a-rip-indra", gameSlug: "blox-fruits", name: "Rip Indra (True Form)", kind: "Boss",
+    id: "bf-s-carnage", gameSlug: "blox-fruits", name: "Trial of Carnage (Ghoul)",
+    kind: "Trial",
+    needs: "Every wave of Ancient Zombies and Ancient Vampires down in under one minute. Two to four waves, five zombies each",
+    players: 2,
+    gives: "Ghoul race awakening",
+    aliases: ["ghoul", "carnage"], verified: true,
+  },
+  {
+    id: "bf-s-temple", gameSlug: "blox-fruits", name: "Temple of Time access",
+    kind: "Unlock",
+    needs: "The Blue Gear, then the Mysterious Force at the top of the Great Tree",
+    players: 2,
+    gives: "The Race Awakening trials",
+    aliases: ["temple", "blue gear"], verified: true,
+  },
+
+  // ---- Puzzles and weapon unlocks ----
+  {
+    id: "bf-s-cdk", gameSlug: "blox-fruits", name: "Cursed Dual Katana puzzle",
+    kind: "Puzzle",
+    needs: "Level 2200+ and 350 mastery on both Yama and Tushita. One trial needs you to take 8,000–10,000 damage from another player while holding Yama — that is the part you need a helper for",
+    players: 2,
+    gives: "Cursed Dual Katana",
+    aliases: ["cdk", "cursed dual katana", "alucard"], verified: true,
+  },
+  {
+    id: "bf-s-yama", gameSlug: "blox-fruits", name: "Yama — Elite Hunter grind",
+    kind: "Grind",
+    needs: "Third Sea. 20 Elite Hunter quests for a chance at Yama, 30 to be guaranteed it",
+    players: 2,
+    gives: "Yama, and the Pretty Helmet at 5 Elite Pirates",
+    aliases: ["yama", "elite", "elite pirates", "elite hunter"], verified: true,
+  },
+  {
+    id: "bf-s-saber-v2", gameSlug: "blox-fruits", name: "Saber V2",
+    kind: "Unlock",
+    needs: "One million bounty or honour, and a kill on another player of similar level",
+    players: 2,
+    gives: "Saber V2",
+    aliases: ["saber"], verified: true,
+  },
+  {
+    id: "bf-s-twin-hooks", gameSlug: "blox-fruits", name: "Twin Hooks — Captain Elephant",
+    kind: "Boss",
+    needs: "Floating Turtle, Third Sea",
+    players: 2,
+    gives: "Twin Hooks",
+    aliases: ["twin hooks", "captain elephant"], verified: true,
+  },
+  {
+    id: "bf-s-hallow-scythe", gameSlug: "blox-fruits", name: "Hallow Scythe farming",
+    kind: "Boss",
+    needs: "A 5% drop from the Soul Reaper, so expect to go again",
+    players: 2,
+    gives: "Hallow Scythe",
+    aliases: ["hallow scythe", "soul reaper", "scythe"], verified: true,
+  },
+  {
+    id: "bf-s-shark-anchor", gameSlug: "blox-fruits", name: "Shark Anchor — Anchored Terrorshark",
+    kind: "Boss",
+    needs: "Only the player whose Monster Magnet was consumed can take the drop, so bring your own",
+    players: 2,
+    gives: "Shark Anchor",
+    aliases: ["shark anchor", "terrorshark", "monster magnet"], verified: true,
+  },
+
+  // ---- Haki and styles ----
+  {
+    id: "bf-s-instinct-v2", gameSlug: "blox-fruits", name: "Instinct V2 (Observation V2)",
+    kind: "Unlock",
+    needs: "Level 1800+, 5,000 EXP on Instinct V1, and the Musketeer Hat from the Citizen's Quest. Then the Hungry Man quest",
+    players: 2,
+    gives: "Instinct V2",
+    aliases: ["observation", "observation v2", "ken", "instinct"], verified: true,
+  },
+  {
+    id: "bf-s-godhuman", gameSlug: "blox-fruits", name: "Godhuman mastery grind",
+    kind: "Grind",
+    needs: "400+ mastery on Death Step, Sharkman Karate and Electric Claw — each of which needs 400+ on its own base style first",
+    players: 2,
+    gives: "Godhuman",
+    aliases: ["godhuman", "mastery"], verified: true,
+  },
+  {
+    id: "bf-s-sanguine", gameSlug: "blox-fruits", name: "Sanguine Art unlock",
+    kind: "Unlock",
+    needs: "A Leviathan Heart handed to Shafi, then 5,000,000 Beli and 5,000 Fragments. The Leviathan itself needs a crew — that part belongs in Recruitment",
+    players: 2,
+    gives: "Sanguine Art",
+    aliases: ["sanguine", "shafi"], verified: true,
+  },
+
+  // ---- Islands ----
+  {
+    id: "bf-s-kitsune-island", gameSlug: "blox-fruits", name: "Kitsune Island spawn help",
+    kind: "Island",
+    needs: "Sail into Sea Danger Level 6 in daytime and wait for the Full Moon, or sit at Level 5 and move up when it rises",
+    players: 2,
+    aliases: ["kitsune island", "full moon"], verified: true,
+  },
+  {
+    id: "bf-s-mirage", gameSlug: "blox-fruits", name: "Mirage Island — Mirror Fractal",
+    kind: "Island",
+    needs: "Night-time only, since the Valentine's update — a full moon is no longer needed. Resonate the Mirror Fractal at the island's highest point",
+    players: 2,
+    gives: "The Blue Gear",
+    aliases: ["mirage", "mirror fractal", "blue gear"], verified: true,
+  },
+
+  // ---- Boss carries ----
+  {
+    id: "bf-s-don-swan", gameSlug: "blox-fruits", name: "Don Swan carry",
+    kind: "Boss",
+    needs: "Second Sea. Respawns every 30 minutes, unlike the rest of the sea",
+    players: 2,
+    aliases: ["don swan", "swan"], verified: true,
+  },
+  {
+    id: "bf-s-rip-indra", gameSlug: "blox-fruits", name: "Rip Indra (True Form)",
+    kind: "Boss",
     needs: "Castle on the Sea, Third Sea",
-    reward: "A step on the Race Awakening puzzle", verified: true,
+    players: 3,
+    aliases: ["indra", "rip indra"], verified: true,
   },
   {
-    id: "bf-a-raid", gameSlug: "blox-fruits", name: "Fruit raid", kind: "Raid",
-    needs: "Someone in the party has to own the raid chip",
-    reward: "Fragments toward awakening", verified: true,
+    id: "bf-s-cake-prince", gameSlug: "blox-fruits", name: "Cake Prince",
+    kind: "Boss",
+    needs: "Cake Land, Third Sea",
+    players: 3,
+    aliases: ["cake prince"], verified: true,
   },
   {
-    id: "bf-a-sea-beast", gameSlug: "blox-fruits", name: "Sea Beast hunt", kind: "Sea event",
-    needs: "Sea Danger Level 1-6. The beast's health scales with players nearby",
-    reward: "Sea Beast drops", verified: true,
+    id: "bf-s-level", gameSlug: "blox-fruits", name: "Level grinding help",
+    kind: "Grind",
+    players: 2,
+    aliases: ["level", "grind", "xp"], verified: true,
   },
   {
-    id: "bf-a-cake-prince", gameSlug: "blox-fruits", name: "Cake Prince", kind: "Boss",
-    needs: "Cake Land, Third Sea", verified: true,
-  },
-  {
-    id: "bf-a-terrorshark", gameSlug: "blox-fruits", name: "Terrorshark", kind: "Sea event",
-    verified: true,
-  },
-  {
-    id: "bf-a-awakening", gameSlug: "blox-fruits", name: "Awakening fragment grind", kind: "Grind",
-    needs: "About 14,500 fragments for most fruits", verified: true,
-  },
-  {
-    id: "bf-a-level", gameSlug: "blox-fruits", name: "Third Sea level grind", kind: "Grind",
-    verified: true,
-  },
-  {
-    id: "bf-a-bounty", gameSlug: "blox-fruits", name: "Bounty hunting", kind: "Grind",
-    verified: true,
+    id: "bf-s-bounty", gameSlug: "blox-fruits", name: "Bounty hunting partner",
+    kind: "Grind",
+    players: 2,
+    aliases: ["bounty", "pvp"], verified: true,
   },
 ];
 
 /**
- * The other five games. Shorter, and honestly so — these carry the activities
- * their communities actually organise around, and the list grows through the
+ * The other five games. Short, and flagged as such — these grow through the
  * control panel rather than through code.
  */
-const OTHER_ACTIVITIES: Activity[] = [
-  { id: "gg-a-weather", gameSlug: "grow-a-garden", name: "Weather event window", kind: "Event",
-    needs: "You have to be in the server when it starts" },
-  { id: "gg-a-restock", gameSlug: "grow-a-garden", name: "Restock watch", kind: "Event" },
-  { id: "gg-a-mutation", gameSlug: "grow-a-garden", name: "Mutation run", kind: "Grind" },
-  { id: "gg-a-server", gameSlug: "grow-a-garden", name: "Sharing a server", kind: "Service" },
+const OTHER_SERVICES: Service[] = [
+  { id: "gg-s-mutation", gameSlug: "grow-a-garden", name: "Mutation run help", kind: "Grind", players: 2 },
+  { id: "gg-s-restock", gameSlug: "grow-a-garden", name: "Restock watch", kind: "Grind", players: 2 },
+  { id: "gg-s-event-set", gameSlug: "grow-a-garden", name: "Finishing an event set", kind: "Unlock", players: 2 },
 
-  { id: "am-a-task", gameSlug: "adopt-me", name: "Task help", kind: "Service" },
-  { id: "am-a-neon", gameSlug: "adopt-me", name: "Neon making", kind: "Grind",
-    needs: "Four full-grown pets of the same kind" },
+  { id: "am-s-task", gameSlug: "adopt-me", name: "Task help", kind: "Grind", players: 2 },
+  { id: "am-s-neon", gameSlug: "adopt-me", name: "Neon making", kind: "Unlock",
+    needs: "Four full-grown pets of the same kind", players: 2 },
 
-  { id: "ps-a-hatch", gameSlug: "pet-simulator-99", name: "Hatching session", kind: "Grind" },
-  { id: "ps-a-clan", gameSlug: "pet-simulator-99", name: "Clan battle", kind: "Event" },
-  { id: "ps-a-carry", gameSlug: "pet-simulator-99", name: "Zone carry", kind: "Service" },
+  { id: "ps-s-hatch", gameSlug: "pet-simulator-99", name: "Hatching help", kind: "Grind", players: 2 },
+  { id: "ps-s-carry", gameSlug: "pet-simulator-99", name: "Zone carry", kind: "Grind", players: 2 },
 
-  { id: "rh-a-story", gameSlug: "royale-high", name: "Story help", kind: "Service" },
-  { id: "rh-a-diamond", gameSlug: "royale-high", name: "Diamond run", kind: "Grind" },
-  { id: "rh-a-set", gameSlug: "royale-high", name: "Finishing an event set", kind: "Event" },
+  { id: "rh-s-story", gameSlug: "royale-high", name: "Story help", kind: "Unlock", players: 2 },
+  { id: "rh-s-diamond", gameSlug: "royale-high", name: "Diamond run", kind: "Grind", players: 2 },
 
-  { id: "cs-a-growth", gameSlug: "creatures-of-sonaria", name: "Growth help", kind: "Service" },
-  { id: "cs-a-hunt", gameSlug: "creatures-of-sonaria", name: "Group hunt", kind: "Grind" },
+  { id: "cs-s-growth", gameSlug: "creatures-of-sonaria", name: "Growth help", kind: "Grind", players: 2 },
+  { id: "cs-s-hunt", gameSlug: "creatures-of-sonaria", name: "Group hunt", kind: "Grind", players: 3 },
 ];
 
-export const ACTIVITIES: readonly Activity[] = [
-  ...BLOX_FRUITS_ACTIVITIES, ...OTHER_ACTIVITIES,
+export const SERVICES: readonly Service[] = [
+  ...BLOX_FRUITS_SERVICES, ...OTHER_SERVICES,
 ];
 
-export function activitiesFor(gameSlug: string): readonly Activity[] {
-  return ACTIVITIES.filter((a) => a.gameSlug === gameSlug);
+export function servicesFor(gameSlug: string): readonly Service[] {
+  return SERVICES.filter((s) => s.gameSlug === gameSlug);
 }
 
-export function findActivity(id: string): Activity | undefined {
-  return ACTIVITIES.find((a) => a.id === id);
+export function findService(id: string): Service | undefined {
+  return SERVICES.find((s) => s.id === id);
 }
 
-/** Games whose activity list is knowingly short. Surfaced in the interface. */
-export const PARTIAL_ACTIVITIES: readonly string[] = [
+/** Games whose service list is knowingly short. Surfaced in the interface. */
+export const PARTIAL_SERVICES: readonly string[] = [
   "adopt-me", "pet-simulator-99", "grow-a-garden", "royale-high", "creatures-of-sonaria",
 ];
 
 /**
- * What a host may ask for in return.
+ * What a helper may ask in return.
  *
- * A closed list, and that is a safety decision rather than a modelling one.
- * Free text here would become a marketplace for real money and for account
- * access within a week — "$5 paypal", "give me your account and I'll do it".
- * The master specification forbids both outright, and the cheapest way to
- * enforce a rule is to leave no box to type it into.
- *
- * Everything below is either nothing, or something that exists inside the game
- * and can be handed over by the game's own trade window.
+ * A closed list, and that is a safety decision rather than a modelling one. A
+ * free-text box becomes a market for real money and for account access within a
+ * week — both forbidden outright — and the cheapest way to enforce a rule is to
+ * leave nowhere to type it.
  */
 export type Terms =
   | { kind: "free" }
   | { kind: "split" }
   | { kind: "item"; itemId: string };
 
-export const TERMS_COPY: Record<Terms["kind"], string> = {
-  free: "Free — just need the players",
-  split: "Split whatever drops",
-  item: "In return for an item",
-};
+/** Somebody who voted on a listing. */
+export interface Voter {
+  username: string;
+  /** The Roblox avatar, once a real account is signed in. */
+  avatarUrl?: string;
+  online: boolean;
+}
 
-export interface SessionPost {
+export type ListingSide = "offer" | "request";
+
+export interface ServiceListing {
   /** Always true for now. Nothing renders without its badge. */
   isDemo: true;
   id: string;
   gameSlug: string;
-  activityId: string;
-  host: string;
-  /** Completed interactions on MintPlaza. Zero for a new account. */
-  hostSessions: number;
-  slotsFilled: number;
-  slotsTotal: number;
-  /** Minutes until it starts. Zero means they are waiting in a server now. */
-  startsInMinutes: number;
+  side: ListingSide;
+  author: string;
+  authorAvatarUrl?: string;
+  authorOnline: boolean;
+  /** Completed helps on MintPlaza. Zero for a new account. */
+  completed: number;
+  /**
+   * An offer can carry many services — a helper lists everything they can run.
+   * A request carries the one thing they are stuck on.
+   */
+  serviceIds: readonly string[];
   terms: Terms;
-  /** The host's own extra ask, beyond what the game requires. */
-  asks?: string;
   note?: string;
+  /** Minutes since posting. Drives the two-hour window. */
+  postedMinutesAgo: number;
+  /** Set once somebody's offer is taken, which closes the listing early. */
+  taken: boolean;
+  /**
+   * A handful of voters, for the faces. Never the whole list: a popular listing
+   * can have hundreds, and sending hundreds of records to draw three circles
+   * would be absurd. The stack shows these and counts the rest.
+   */
+  voters: readonly Voter[];
+  /** Everyone who voted, including the ones not sent. */
+  voteCount: number;
+  /** How many of them are on MintPlaza right now. */
+  votersOnline: number;
 }
 
-/** Seats left, floored at zero. */
-export function seatsLeft(s: SessionPost): number {
-  return Math.max(0, s.slotsTotal - s.slotsFilled);
+/** A listing lives two hours, or until the deal is taken. */
+export const LIVE_WINDOW_MINUTES = 120;
+
+export function minutesLeft(l: ServiceListing): number {
+  return Math.max(0, LIVE_WINDOW_MINUTES - l.postedMinutesAgo);
+}
+
+export function listingState(l: ServiceListing): "live" | "taken" | "expired" {
+  if (l.taken) return "taken";
+  return minutesLeft(l) > 0 ? "live" : "expired";
 }
 
 /**
- * A session is stale once it has started and filled. Rather than delete it, the
- * interface says so — a group that already left is useful information, and
- * quietly vanishing posts make a board feel broken.
- */
-export function sessionState(s: SessionPost): "open" | "full" | "starting" {
-  if (seatsLeft(s) === 0) return "full";
-  if (s.startsInMinutes <= 0) return "starting";
-  return "open";
-}
-
-export function startsCopy(s: SessionPost): string {
-  if (s.startsInMinutes <= 0) return "In a server now";
-  if (s.startsInMinutes < 60) return `Starts in ${s.startsInMinutes} min`;
-  const h = Math.round(s.startsInMinutes / 60);
-  return `Starts in ${h} hour${h === 1 ? "" : "s"}`;
-}
-
-/**
- * Does this session have enough people to be possible at all?
+ * "1h 12m", the way a countdown should read at a glance.
  *
- * Worth its own function because it is the thing that wastes players' time:
- * four people gathering for a Leviathan that will not open for fewer than five.
+ * Deliberately without the word "left": on a 390px row that word costs about
+ * thirty pixels, and thirty pixels is the difference between reading
+ * "Fruit awakening raid carry" and reading "Fruit awakening raid …".
  */
-export function meetsGameMinimum(s: SessionPost): boolean {
-  const min = findActivity(s.activityId)?.minPlayers;
-  return min === undefined || s.slotsTotal >= min;
+export function timeLeftCopy(l: ServiceListing): string {
+  const m = minutesLeft(l);
+  if (m <= 0) return "Expired";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+/**
+ * When this listing expires, as a timestamp the browser can count down from.
+ * Derived from the posting age so the server and the client agree.
+ */
+export function expiresAt(l: ServiceListing, now = Date.now()): number {
+  return now + minutesLeft(l) * 60_000;
 }

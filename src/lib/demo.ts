@@ -221,89 +221,115 @@ export const REASON_COPY: Record<ReasonCode, string> = {
 
 
 /* ==================================================================== *
- *  Sessions — the raids and services board
+ *  Service listings — the Raids & Services board
  * ==================================================================== */
 
 import {
-  activitiesFor, findActivity, type SessionPost, type Terms,
+  servicesFor, findService, LIVE_WINDOW_MINUTES,
+  type ServiceListing, type Terms, type Voter, type ListingSide,
 } from "./sessions";
 import { tradableFor as tradableItems } from "./items";
 
-const SESSION_NOTES = [
-  "Mic not needed, I'll ping when we go.",
-  "Please be actually at the level, we wiped twice yesterday.",
-  "First timers welcome, I'll explain it.",
-  "I've got the chip, just need bodies.",
-  "Waiting in a private server, say the word.",
-  "",
+const OFFER_NOTES = [
+  "Been doing these all week, quick and no messing about.",
+  "Free for anyone under level 1000, I remember the grind.",
+  "I have the chip already, just say when.",
+  "Can do back to back if you need more than one.",
   "",
 ];
 
-const HOST_ASKS = [
-  "Level 2400+",
-  "V3 awakened",
-  "Third Sea only",
-  "Bring your own fruit, no lending",
-  "",
-  "",
+const REQUEST_NOTES = [
+  "Tried this solo four times, I give up.",
+  "Never done it before, happy to be told what to do.",
+  "Only need the one run, won't take long.",
+  "Can go right now if someone's free.",
   "",
 ];
 
 /**
- * Example sessions for a game.
+ * People who voted on a listing.
  *
- * Built from the real activity list so the slot counts obey what the game
- * actually requires — a Leviathan never appears asking for four players, and a
- * V4 trial is always exactly three, because those are the game's own rules and
- * an example that broke them would teach the wrong thing.
+ * Demo voters carry no avatar url, so the interface falls back to a lettered
+ * circle. Inventing a Roblox avatar link would put a real stranger's face on
+ * fake activity, which is exactly the kind of fake the specification forbids —
+ * real avatars appear once real accounts sign in through Roblox.
  */
-export function demoSessions(gameSlug: string, count = 7): readonly SessionPost[] {
+const FACES_SENT = 4;
+
+function buildVoters(rand: () => number, total: number): Voter[] {
+  const out: Voter[] = [];
+  const pool = [...USERNAMES];
+  for (let i = 0; i < Math.min(total, FACES_SENT) && pool.length > 0; i++) {
+    out.push({
+      username: pool.splice(Math.floor(rand() * pool.length), 1)[0],
+      online: rand() > 0.55,
+    });
+  }
+  return out;
+}
+
+/**
+ * Example listings for a game.
+ *
+ * Offers carry several services because that is how a helper actually posts —
+ * one person advertising everything they can run. Requests carry one, because
+ * somebody stuck on Yama is stuck on Yama.
+ */
+export function demoServiceListings(gameSlug: string, count = 8): readonly ServiceListing[] {
   if (!DEMO_ENABLED) return [];
 
-  const activities = activitiesFor(gameSlug);
-  if (activities.length === 0) return [];
+  const services = servicesFor(gameSlug);
+  if (services.length === 0) return [];
 
-  // Something to offer in return, drawn from the same catalogue trades use.
   const items = tradableItems(gameSlug);
 
   return Array.from({ length: count }, (_, n) => {
-    const rand = seededRandom(`${gameSlug}:session:${n}`);
-    const activity = activities[n % activities.length];
+    const rand = seededRandom(`${gameSlug}:service:${n}`);
+    const side: ListingSide = rand() > 0.45 ? "offer" : "request";
 
-    // The game's floor wins. Where it names an exact party size, use it.
-    const min = activity.minPlayers ?? 2;
-    const max = activity.maxPlayers ?? Math.max(min, 2 + Math.floor(rand() * 4));
-    const slotsTotal = Math.max(min, Math.min(max, min + Math.floor(rand() * 2)));
-    const slotsFilled = Math.min(slotsTotal, 1 + Math.floor(rand() * slotsTotal));
+    // A helper advertises a handful; someone stuck names one thing.
+    const howMany = side === "offer" ? 2 + Math.floor(rand() * 4) : 1;
+    const chosen = pickMany(rand, services, Math.min(howMany, services.length));
 
     const roll = rand();
     const terms: Terms =
-      roll > 0.82 && items.length > 0
+      roll > 0.78 && items.length > 0
         ? { kind: "item", itemId: pick(rand, items).id }
-        : roll > 0.5
+        : roll > 0.42
           ? { kind: "split" }
           : { kind: "free" };
 
+    const taken = rand() > 0.88;
+
     return {
       isDemo: true as const,
-      id: `${gameSlug}-session-${n}`,
+      id: `${gameSlug}-service-${n}`,
       gameSlug,
-      activityId: activity.id,
-      host: USERNAMES[(n * 7 + gameSlug.length) % USERNAMES.length],
-      hostSessions: Math.floor(rand() * 90),
-      slotsTotal,
-      slotsFilled,
-      startsInMinutes: rand() > 0.55 ? 0 : 1 + Math.floor(rand() * 45),
+      side,
+      author: USERNAMES[(n * 3 + gameSlug.length) % USERNAMES.length],
+      authorOnline: rand() > 0.4,
+      completed: Math.floor(rand() * 120),
+      serviceIds: chosen.map((s) => s.id),
       terms,
-      asks: pick(rand, HOST_ASKS) || undefined,
-      note: pick(rand, SESSION_NOTES) || undefined,
+      note: pick(rand, side === "offer" ? OFFER_NOTES : REQUEST_NOTES) || undefined,
+      // Inside the two-hour window, so the board shows what a live board looks
+      // like rather than a wall of expired posts.
+      postedMinutesAgo: Math.floor(rand() * (LIVE_WINDOW_MINUTES - 4)),
+      taken,
+      ...(() => {
+        // A few listings are quiet and a few are busy, which is what a real
+        // board looks like — a uniform spread would make every card identical.
+        const voteCount = rand() > 0.75
+          ? 20 + Math.floor(rand() * 180)
+          : Math.floor(rand() * 12);
+        return {
+          voteCount,
+          voters: buildVoters(rand, voteCount),
+          votersOnline: Math.floor(voteCount * (0.15 + rand() * 0.4)),
+        };
+      })(),
     };
   });
 }
 
-/** Named so the activity list can say what it is missing, like the catalogue. */
-export function activityCount(gameSlug: string): number {
-  return activitiesFor(gameSlug).length;
-}
-
-export { findActivity };
+export { findService };

@@ -105,7 +105,7 @@ export const GAMES: readonly Game[] = [
       { id: "trades", label: "Trade & Offers", kind: "trades",
         blurb: "Every fruit, sword, gun and material on offer, with what each trader wants back." },
       { id: "raids", label: "Raids & Services", kind: "services",
-        blurb: "Raid teams, boss hunts, V4 trials and the players offering to run them with you." },
+        blurb: "Raid carries, V4 trials, puzzle steps and boss runs \u2014 the things that need one or two people, not a crew." },
       { id: "community", label: "Help & Recruitment", kind: "community",
         blurb: "Crews recruiting, grind partners, and anyone stuck who could use a hand." },
     ],

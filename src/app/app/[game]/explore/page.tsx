@@ -6,10 +6,10 @@ import { catalogFor } from "@/lib/items";
 import { ExploreCatalog } from "@/components/ExploreCatalog";
 import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
-import { DEMO_ENABLED, demoListings, demoSessions } from "@/lib/demo";
+import { DEMO_ENABLED, demoListings, demoServiceListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
-import { SessionCard } from "@/components/SessionCard";
-import { activitiesFor, PARTIAL_ACTIVITIES } from "@/lib/sessions";
+import { ServiceListingCard } from "@/components/ServiceListingCard";
+import { servicesFor, PARTIAL_SERVICES, listingState } from "@/lib/sessions";
 import { currentProfile } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
@@ -120,8 +120,8 @@ export default async function ExplorePage({
     game.exploreTabs.find((t) => t.id === requested) ?? game.exploreTabs[0];
 
   const listings = demoListings(game.slug);
-  const sessions = demoSessions(game.slug);
-  const activities = activitiesFor(game.slug);
+  const serviceListings = demoServiceListings(game.slug);
+  const services = servicesFor(game.slug);
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
@@ -194,52 +194,69 @@ export default async function ExplorePage({
       {active.kind === "services" && (
         <div className="mt-7 grid gap-8">
           <section>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
-                Forming now
+                Live right now
               </h2>
-              <button type="button" className="pill pill-mint py-2.5">Start a group</button>
+              <div className="flex gap-2">
+                <button type="button" className="pill pill-ghost py-2.5 text-[0.8125rem]">
+                  I need help
+                </button>
+                <button type="button" className="pill pill-mint py-2.5 text-[0.8125rem]">
+                  I can help
+                </button>
+              </div>
             </div>
+            <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
+              Posts stay up for two hours, or until the deal is taken.
+            </p>
 
-            {sessions.length > 0 ? (
+            {serviceListings.length > 0 ? (
               <div className="grid gap-2 md:grid-cols-2">
-                {sessions.map((s) => <SessionCard key={s.id} session={s} />)}
+                {serviceListings
+                  .slice()
+                  .sort((a, b) => {
+                    // Live first, then whoever is online, then most voted.
+                    const live = Number(listingState(b) === "live") - Number(listingState(a) === "live");
+                    if (live !== 0) return live;
+                    const on = Number(b.authorOnline) - Number(a.authorOnline);
+                    if (on !== 0) return on;
+                    return b.voters.length - a.voters.length;
+                  })
+                  .map((l) => <ServiceListingCard key={l.id} listing={l} />)}
               </div>
             ) : (
               <EmptyPanel
-                title="Nothing forming right now"
-                body="When somebody needs players for this game, their group appears here with the seats left and what the game requires to start."
+                title="Nothing live right now"
+                body="When somebody offers help or gets stuck, their post appears here for two hours."
               />
             )}
           </section>
 
-          {activities.length > 0 && (
+          {services.length > 0 && (
             <section>
               <h2 className="mb-1 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
-                What people run in {game.shortName}
+                What you can get help with
               </h2>
               <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
-                Groups are built from this list rather than typed out, so the
+                Posts are built from this list rather than typed out, so the
                 requirements come from the game rather than from whoever posted.
-                {PARTIAL_ACTIVITIES.includes(game.slug) &&
+                {PARTIAL_SERVICES.includes(game.slug) &&
                   " This list is still short for this game."}
               </p>
               <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {activities.map((a) => (
-                  <li
-                    key={a.id}
-                    className="glass-quiet rounded-[var(--radius-inner)] p-3"
-                  >
+                {services.map((sv) => (
+                  <li key={sv.id} className="glass-quiet rounded-[var(--radius-inner)] p-3">
                     <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
-                      {a.name}
+                      {sv.name}
                     </p>
                     <p className="mt-0.5 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
-                      {a.kind.toUpperCase()}
-                      {a.minPlayers ? ` · NEEDS ${a.minPlayers}+` : ""}
+                      {sv.kind.toUpperCase()}
+                      {sv.players ? ` · ${sv.players} PLAYERS` : ""}
                     </p>
-                    {a.needs && (
+                    {sv.needs && (
                       <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-mute">
-                        {a.needs}
+                        {sv.needs}
                       </p>
                     )}
                   </li>
