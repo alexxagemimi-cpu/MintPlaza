@@ -8,6 +8,7 @@ import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
+import { currentProfile } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -117,6 +118,9 @@ export default async function ExplorePage({
     game.exploreTabs.find((t) => t.id === requested) ?? game.exploreTabs[0];
 
   const listings = demoListings(game.slug);
+  // A listing reads differently to the player who posted it, so the card
+  // needs to know which of the two it is drawing.
+  const profile = await currentProfile();
   const items = catalogFor(game.slug);
 
   // Requests are generated from the registry's own wants, so the sections stay
@@ -153,8 +157,14 @@ export default async function ExplorePage({
               Open listings
             </h2>
             {listings.length > 0 ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {listings.map((l) => <TradeListingCard key={l.id} listing={l} />)}
+              <div className="grid gap-2 md:grid-cols-2">
+                {listings.map((l) => (
+                  <TradeListingCard
+                    key={l.id}
+                    listing={l}
+                    viewerUsername={profile?.username ?? undefined}
+                  />
+                ))}
               </div>
             ) : (
               <EmptyPanel

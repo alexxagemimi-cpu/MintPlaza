@@ -89,6 +89,20 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
       tradeable: attrs.tradeable === false ? false : undefined,
       chromatic: attrs.chromatic === true ? true : undefined,
       robux: typeof attrs.robux === "number" ? attrs.robux : undefined,
+      beli: typeof attrs.beli === "number" ? attrs.beli : undefined,
+      // Only build a value object when the row actually has one, so an
+      // unpriced item stays unpriced instead of becoming a zero.
+      value:
+        typeof attrs.valuePhysical === "number" || typeof attrs.valuePermanent === "number"
+          ? {
+              physical: typeof attrs.valuePhysical === "number" ? attrs.valuePhysical : undefined,
+              permanent: typeof attrs.valuePermanent === "number" ? attrs.valuePermanent : undefined,
+            }
+          : undefined,
+      demand:
+        typeof attrs.demand === "number" && attrs.demand >= 1 && attrs.demand <= 5
+          ? (attrs.demand as CatalogItem["demand"])
+          : undefined,
       note: attrs.note as string | undefined,
       verified: attrs.verified === false ? false : undefined,
       art: attrs.art as string | undefined,

@@ -5,6 +5,7 @@ import { GAMES, getGame, type Game } from "@/lib/games";
 import { GameSwitcher } from "@/components/GameSwitcher";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
+import { currentProfile } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -232,6 +233,9 @@ export default async function GameDashboard({
   if (!game) notFound();
 
   const listings = demoListings(game.slug);
+  // A listing reads differently to the player who posted it, so the card
+  // needs to know which of the two it is drawing.
+  const profile = await currentProfile();
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8 sm:px-8 sm:pt-12">
@@ -270,9 +274,15 @@ export default async function GameDashboard({
           </div>
 
           {listings.length > 0 ? (
-            <div className="grid gap-3">
+            // Rows, not cards. Eight fit on a phone; the second column on a
+            // wide screen doubles that again.
+            <div className="grid gap-2 xl:grid-cols-2">
               {listings.map((l) => (
-                <TradeListingCard key={l.id} listing={l} />
+                <TradeListingCard
+                  key={l.id}
+                  listing={l}
+                  viewerUsername={profile?.username ?? undefined}
+                />
               ))}
             </div>
           ) : (

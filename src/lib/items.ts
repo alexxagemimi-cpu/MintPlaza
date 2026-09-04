@@ -23,6 +23,8 @@
  * instead of one — "Common / CHROMATIC", "Rare / CHROMATIC" — so it is a
  * separate flag on the item and the tile prints both.
  */
+import type { Demand, ItemValue } from "./values";
+
 export type Rarity =
   | "Common" | "Uncommon" | "Rare" | "Ultra-Rare"
   | "Legendary" | "Mythical" | "Premium";
@@ -75,6 +77,25 @@ export interface CatalogItem {
    * updates, so this is presented as "last checked", never as current.
    */
   robux?: number;
+  /**
+   * Beli price at the Blox Fruit Dealer, for the physical fruit.
+   *
+   * This is PRICE, not value, and the two are different numbers: Portal costs
+   * 1,900,000 Beli and trades at around 10M. Showing price where value belongs
+   * would cost a player five times their fruit, so the interface always labels
+   * which one it is showing.
+   *
+   * Only the fruits whose Beli price could be confirmed carry one. The rest are
+   * absent rather than estimated.
+   */
+  beli?: number;
+  /**
+   * Community trade value, when it came from the database rather than the
+   * seeded table in values.ts. Present only on rows loaded from Supabase, which
+   * is what makes an admin edit take effect on the site.
+   */
+  value?: ItemValue;
+  demand?: Demand;
   /** Shown on the tile where the item carries a condition worth stating. */
   note?: string;
   /**
@@ -106,6 +127,8 @@ const f = (
   /** Robux price of this fruit's Permanent form, from the wiki's own table. */
   robux: number,
   formerly?: readonly string[],
+  /** Beli price of the physical fruit at the Dealer, where confirmed. */
+  beli?: number,
 ): CatalogItem => ({
   id: `bf-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
   gameSlug: "blox-fruits",
@@ -114,6 +137,7 @@ const f = (
   rarity,
   type,
   robux,
+  beli,
   formerly,
   verified: true,
 });
@@ -140,38 +164,38 @@ const BLOX_FRUITS: CatalogItem[] = [
   // ---- Common (7) ----
   f("Rocket", "Common", "Natural", 50),
   f("Spin", "Common", "Natural", 75),
-  f("Blade", "Common", "Natural", 100),
-  f("Spring", "Common", "Natural", 180),
-  f("Bomb", "Common", "Natural", 220),
-  f("Smoke", "Common", "Elemental", 250),
-  f("Spike", "Common", "Natural", 380),
+  f("Blade", "Common", "Natural", 100, undefined, 30_000),
+  f("Spring", "Common", "Natural", 180, undefined, 60_000),
+  f("Bomb", "Common", "Natural", 220, undefined, 80_000),
+  f("Smoke", "Common", "Elemental", 250, undefined, 100_000),
+  f("Spike", "Common", "Natural", 380, undefined, 180_000),
 
   // ---- Uncommon (6) ----
-  f("Flame", "Uncommon", "Elemental", 550),
-  f("Ice", "Uncommon", "Elemental", 750),
-  f("Sand", "Uncommon", "Elemental", 850),
-  f("Dark", "Uncommon", "Elemental", 950),
-  f("Eagle", "Uncommon", "Beast", 975),
-  f("Diamond", "Uncommon", "Natural", 1000),
+  f("Flame", "Uncommon", "Elemental", 550, undefined, 250_000),
+  f("Ice", "Uncommon", "Elemental", 750, undefined, 350_000),
+  f("Sand", "Uncommon", "Elemental", 850, undefined, 420_000),
+  f("Dark", "Uncommon", "Elemental", 950, undefined, 500_000),
+  f("Eagle", "Uncommon", "Beast", 975, undefined, 550_000),
+  f("Diamond", "Uncommon", "Natural", 1000, undefined, 600_000),
 
   // ---- Rare (4) ----
-  f("Light", "Rare", "Elemental", 1100),
-  f("Rubber", "Rare", "Natural", 1200),
-  f("Ghost", "Rare", "Natural", 1275, ["Revive"]),
-  f("Magma", "Rare", "Elemental", 1300),
+  f("Light", "Rare", "Elemental", 1100, undefined, 650_000),
+  f("Rubber", "Rare", "Natural", 1200, undefined, 750_000),
+  f("Ghost", "Rare", "Natural", 1275, ["Revive"], 940_000),
+  f("Magma", "Rare", "Elemental", 1300, undefined, 960_000),
 
   // ---- Legendary (11) ----
-  f("Quake", "Legendary", "Natural", 1500),
-  f("Buddha", "Legendary", "Beast", 1650),
+  f("Quake", "Legendary", "Natural", 1500, undefined, 1_000_000),
+  f("Buddha", "Legendary", "Beast", 1650, undefined, 1_200_000),
   f("Love", "Legendary", "Natural", 1700),
   f("Creation", "Legendary", "Natural", 1750, ["Barrier"]),
   f("Spider", "Legendary", "Natural", 1800),
   f("Sound", "Legendary", "Natural", 1900),
   f("Phoenix", "Legendary", "Beast", 2000),
-  f("Portal", "Legendary", "Natural", 2000),
+  f("Portal", "Legendary", "Natural", 2000, undefined, 1_900_000),
   f("Lightning", "Legendary", "Elemental", 2100, ["Rumble"]),
   f("Pain", "Legendary", "Natural", 2200),
-  f("Blizzard", "Legendary", "Elemental", 2250),
+  f("Blizzard", "Legendary", "Elemental", 2250, undefined, 2_400_000),
 
   // ---- Mythical (13) ----
   f("Gravity", "Mythical", "Natural", 2300),
@@ -181,7 +205,7 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Shadow", "Mythical", "Elemental", 2425),
   f("Venom", "Mythical", "Natural", 2450),
   f("Gas", "Mythical", "Elemental", 2500),
-  f("Spirit", "Mythical", "Natural", 2550),
+  f("Spirit", "Mythical", "Natural", 2550, undefined, 3_400_000),
   f("Tiger", "Mythical", "Beast", 3000, ["Leopard"]),
   f("Yeti", "Mythical", "Beast", 3000),
   f("Kitsune", "Mythical", "Beast", 4000),
@@ -597,4 +621,15 @@ export const MUTATIONS: Record<string, readonly string[]> = {
 
 export function mutationsFor(itemId: string): readonly string[] {
   return MUTATIONS[itemId] ?? [];
+}
+
+/**
+ * Beli prices are confirmed for 20 of the 41 fruits. The rest are absent rather
+ * than derived: the Beli-to-Robux ratio is not constant (Quake is 667×, Portal
+ * 950×, Spirit 1333×), so there is no formula to fall back on and a calculated
+ * price would be a guess wearing a number's clothes.
+ */
+export function beliCoverage(): { known: number; total: number } {
+  const fruits = catalogFor("blox-fruits").filter((i) => i.category === "Fruit");
+  return { known: fruits.filter((i) => i.beli !== undefined).length, total: fruits.length };
 }

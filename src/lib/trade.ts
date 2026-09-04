@@ -1,0 +1,178 @@
+/**
+ * The trade calculator.
+ *
+ * Every value-list site has one, and players trust the verdict more than they
+ * trust their own arithmetic, so it has to be right about three things:
+ *
+ *   1. It runs on VALUE, never on price. See values.ts for why.
+ *   2. It knows whose side it is on. The same listing is a win for one player
+ *      and a loss for the other, so a verdict without a viewer is meaningless.
+ *   3. It refuses to guess. If any item on either side has no published value,
+ *      the totals are incomplete and it says so instead of quietly summing the
+ *      items it happens to know.
+ */
+
+import type { ListingItem } from "./demo";
+import { valueOf, demandOf, type Demand } from "./values";
+
+export interface LineItem {
+  name: string;
+  variant?: string;
+  quantity: number;
+  /** Undefined where the item has no published value. */
+  unit?: number;
+  subtotal?: number;
+  demand?: Demand;
+  /**
+   * What the game charges, shown beside the value so the gap between the two is
+   * visible. Beli for a physical fruit, Robux for anything bought in the shop.
+   * Never summed into a total — price and value are different currencies of
+   * meaning and adding them would be nonsense.
+   */
+  price?: { amount: number; unit: "Beli" | "Robux" };
+}
+
+export interface SideTotal {
+  lines: LineItem[];
+  total: number;
+  /** Names of items with no published value. Non-empty means total is partial. */
+  unpriced: string[];
+}
+
+export function priceSide(entries: readonly ListingItem[]): SideTotal {
+  const lines: LineItem[] = [];
+  const unpriced: string[] = [];
+  let total = 0;
+
+  for (const e of entries) {
+    const unit = valueOf(e.item, e.variant);
+    const subtotal = unit === undefined ? undefined : unit * e.quantity;
+    if (unit === undefined) unpriced.push(e.item.name);
+    else total += subtotal!;
+    // A Permanent fruit is bought with Robux; a physical one is bought with
+    // Beli at the Dealer. Anything from the shop only ever has a Robux price.
+    const price =
+      e.variant === "Permanent" || e.item.category !== "Fruit"
+        ? e.item.robux !== undefined
+          ? { amount: e.item.robux, unit: "Robux" as const }
+          : undefined
+        : e.item.beli !== undefined
+          ? { amount: e.item.beli, unit: "Beli" as const }
+          : undefined;
+
+    lines.push({
+      name: e.item.name,
+      variant: e.variant,
+      quantity: e.quantity,
+      unit,
+      subtotal,
+      demand: demandOf(e.item),
+      price,
+    });
+  }
+
+  return { lines, total, unpriced };
+}
+
+export type Verdict = "W" | "L" | "F" | "?";
+
+export const VERDICT_COPY: Record<Verdict, { short: string; long: string }> = {
+  W: { short: "WIN", long: "You come out ahead on value" },
+  L: { short: "LOSS", long: "You come out behind on value" },
+  F: { short: "FAIR", long: "Both sides are within a few percent" },
+  "?": { short: "NO CALL", long: "Some items have no published value" },
+};
+
+export const VERDICT_STYLE: Record<Verdict, { fg: string; bg: string; ring: string }> = {
+  W: { fg: "#1F7A54", bg: "#E6F4EC", ring: "#1F7A5433" },
+  L: { fg: "#A93226", bg: "#FBEDEB", ring: "#A9322633" },
+  F: { fg: "#465650", bg: "#EEF2F0", ring: "#0D161322" },
+  "?": { fg: "#8A5A12", bg: "#FBF1E0", ring: "#8A5A1233" },
+};
+
+/**
+ * How lopsided a trade is, in words a trader would use.
+ *
+ * A percentage stops meaning anything past a certain point — "+4055%" tells you
+ * nothing you did not already know from "LOSS". Past double, the ratio is the
+ * number people actually say out loud: "that is four times my side".
+ */
+export function gapLabel(calc: Calculation): { short: string; long: string } {
+  if (calc.verdict === "?" || calc.verdict === "F") return { short: "", long: "" };
+  const ratio =
+    calc.outgoing.total > 0 ? calc.incoming.total / calc.outgoing.total : 0;
+  if (ratio > 3) {
+    const n = ratio.toFixed(1);
+    return { short: `${n}×`, long: `what you receive is ${n} times what you give` };
+  }
+  if (ratio > 0 && ratio < 1 / 3) {
+    const n = (1 / ratio).toFixed(1);
+    return { short: `1/${n}`, long: `what you give is ${n} times what you receive` };
+  }
+  const pct = `${calc.percent > 0 ? "+" : "−"}${Math.abs(Math.round(calc.percent))}%`;
+  return { short: pct, long: `${pct} on value` };
+}
+
+export interface Calculation {
+  /** What the viewer would receive. */
+  incoming: SideTotal;
+  /** What the viewer would hand over. */
+  outgoing: SideTotal;
+  /** incoming − outgoing. Positive is in the viewer's favour. */
+  difference: number;
+  /** Difference as a percentage of the outgoing side. */
+  percent: number;
+  verdict: Verdict;
+  /** True when the listing asks for nothing specific. */
+  openToOffers: boolean;
+}
+
+/**
+ * Anything inside this band is a fair trade. Value lists are estimates read off
+ * a moving market, so calling a 3% gap a "win" would be false precision.
+ */
+const FAIR_BAND_PERCENT = 5;
+
+/**
+ * Whose eyes this is calculated through.
+ *
+ *   "owner"  — the player who posted it. They hand over what they are offering
+ *              and receive what they asked for.
+ *   "viewer" — anybody else. The sides are exactly reversed: they receive what
+ *              is offered and hand over what is wanted.
+ *
+ * This is the whole reason one listing shows two different verdicts.
+ */
+export type Perspective = "owner" | "viewer";
+
+export function calculate(
+  offering: readonly ListingItem[],
+  wanting: readonly ListingItem[],
+  perspective: Perspective,
+): Calculation {
+  const offered = priceSide(offering);
+  const wanted = priceSide(wanting);
+
+  const incoming = perspective === "owner" ? wanted : offered;
+  const outgoing = perspective === "owner" ? offered : wanted;
+
+  const openToOffers = wanting.length === 0;
+  const difference = incoming.total - outgoing.total;
+  const percent = outgoing.total > 0 ? (difference / outgoing.total) * 100 : 0;
+
+  // A listing open to offers has nothing to weigh against, and an incomplete
+  // side makes any verdict a guess. Both get "?" rather than a confident lie.
+  const verdict: Verdict =
+    openToOffers ||
+    incoming.unpriced.length > 0 ||
+    outgoing.unpriced.length > 0 ||
+    outgoing.total === 0
+      ? "?"
+      : Math.abs(percent) <= FAIR_BAND_PERCENT
+        ? "F"
+        : percent > 0
+          ? "W"
+          : "L";
+
+  return { incoming, outgoing, difference, percent, verdict, openToOffers };
+}
