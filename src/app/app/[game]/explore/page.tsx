@@ -6,8 +6,10 @@ import { catalogFor } from "@/lib/items";
 import { ExploreCatalog } from "@/components/ExploreCatalog";
 import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
-import { DEMO_ENABLED, demoListings } from "@/lib/demo";
+import { DEMO_ENABLED, demoListings, demoSessions } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
+import { SessionCard } from "@/components/SessionCard";
+import { activitiesFor, PARTIAL_ACTIVITIES } from "@/lib/sessions";
 import { currentProfile } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
@@ -118,6 +120,8 @@ export default async function ExplorePage({
     game.exploreTabs.find((t) => t.id === requested) ?? game.exploreTabs[0];
 
   const listings = demoListings(game.slug);
+  const sessions = demoSessions(game.slug);
+  const activities = activitiesFor(game.slug);
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
@@ -125,7 +129,6 @@ export default async function ExplorePage({
 
   // Requests are generated from the registry's own wants, so the sections stay
   // consistent with what the homepage promises rather than inventing more.
-  const serviceWants = game.wants.filter((w) => w.kind === "group");
   const communityWants = game.wants.filter((w) => w.kind === "help" || w.kind === "check");
 
   return (
@@ -189,21 +192,60 @@ export default async function ExplorePage({
 
       {/* ---------- SERVICES ---------- */}
       {active.kind === "services" && (
-        <div className="mt-7">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">Open requests</h2>
-            <button type="button" className="pill pill-mint py-2.5">Post a request</button>
-          </div>
-
-          {serviceWants.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {serviceWants.map((w) => <RequestCard key={w.label} want={w} game={game} />)}
+        <div className="mt-7 grid gap-8">
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                Forming now
+              </h2>
+              <button type="button" className="pill pill-mint py-2.5">Start a group</button>
             </div>
-          ) : (
-            <EmptyPanel
-              title="Nothing open right now"
-              body="When somebody needs players for this game, their request shows up here with what it actually requires."
-            />
+
+            {sessions.length > 0 ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {sessions.map((s) => <SessionCard key={s.id} session={s} />)}
+              </div>
+            ) : (
+              <EmptyPanel
+                title="Nothing forming right now"
+                body="When somebody needs players for this game, their group appears here with the seats left and what the game requires to start."
+              />
+            )}
+          </section>
+
+          {activities.length > 0 && (
+            <section>
+              <h2 className="mb-1 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                What people run in {game.shortName}
+              </h2>
+              <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
+                Groups are built from this list rather than typed out, so the
+                requirements come from the game rather than from whoever posted.
+                {PARTIAL_ACTIVITIES.includes(game.slug) &&
+                  " This list is still short for this game."}
+              </p>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {activities.map((a) => (
+                  <li
+                    key={a.id}
+                    className="glass-quiet rounded-[var(--radius-inner)] p-3"
+                  >
+                    <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
+                      {a.name}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+                      {a.kind.toUpperCase()}
+                      {a.minPlayers ? ` · NEEDS ${a.minPlayers}+` : ""}
+                    </p>
+                    {a.needs && (
+                      <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-mute">
+                        {a.needs}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </div>
       )}

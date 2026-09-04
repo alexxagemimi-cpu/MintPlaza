@@ -218,3 +218,92 @@ export const REASON_COPY: Record<ReasonCode, string> = {
   WANTS_WHAT_YOU_HAVE: "Looking for something you have",
   NEW_IN_YOUR_GAME: "Recently posted in a game you follow",
 };
+
+
+/* ==================================================================== *
+ *  Sessions — the raids and services board
+ * ==================================================================== */
+
+import {
+  activitiesFor, findActivity, type SessionPost, type Terms,
+} from "./sessions";
+import { tradableFor as tradableItems } from "./items";
+
+const SESSION_NOTES = [
+  "Mic not needed, I'll ping when we go.",
+  "Please be actually at the level, we wiped twice yesterday.",
+  "First timers welcome, I'll explain it.",
+  "I've got the chip, just need bodies.",
+  "Waiting in a private server, say the word.",
+  "",
+  "",
+];
+
+const HOST_ASKS = [
+  "Level 2400+",
+  "V3 awakened",
+  "Third Sea only",
+  "Bring your own fruit, no lending",
+  "",
+  "",
+  "",
+];
+
+/**
+ * Example sessions for a game.
+ *
+ * Built from the real activity list so the slot counts obey what the game
+ * actually requires — a Leviathan never appears asking for four players, and a
+ * V4 trial is always exactly three, because those are the game's own rules and
+ * an example that broke them would teach the wrong thing.
+ */
+export function demoSessions(gameSlug: string, count = 7): readonly SessionPost[] {
+  if (!DEMO_ENABLED) return [];
+
+  const activities = activitiesFor(gameSlug);
+  if (activities.length === 0) return [];
+
+  // Something to offer in return, drawn from the same catalogue trades use.
+  const items = tradableItems(gameSlug);
+
+  return Array.from({ length: count }, (_, n) => {
+    const rand = seededRandom(`${gameSlug}:session:${n}`);
+    const activity = activities[n % activities.length];
+
+    // The game's floor wins. Where it names an exact party size, use it.
+    const min = activity.minPlayers ?? 2;
+    const max = activity.maxPlayers ?? Math.max(min, 2 + Math.floor(rand() * 4));
+    const slotsTotal = Math.max(min, Math.min(max, min + Math.floor(rand() * 2)));
+    const slotsFilled = Math.min(slotsTotal, 1 + Math.floor(rand() * slotsTotal));
+
+    const roll = rand();
+    const terms: Terms =
+      roll > 0.82 && items.length > 0
+        ? { kind: "item", itemId: pick(rand, items).id }
+        : roll > 0.5
+          ? { kind: "split" }
+          : { kind: "free" };
+
+    return {
+      isDemo: true as const,
+      id: `${gameSlug}-session-${n}`,
+      gameSlug,
+      activityId: activity.id,
+      host: USERNAMES[(n * 7 + gameSlug.length) % USERNAMES.length],
+      hostSessions: Math.floor(rand() * 90),
+      slotsTotal,
+      slotsFilled,
+      startsInMinutes: rand() > 0.55 ? 0 : 1 + Math.floor(rand() * 45),
+      terms,
+      asks: pick(rand, HOST_ASKS) || undefined,
+      note: pick(rand, SESSION_NOTES) || undefined,
+    };
+  });
+}
+
+/** Named so the activity list can say what it is missing, like the catalogue. */
+export function activityCount(gameSlug: string): number {
+  return activitiesFor(gameSlug).length;
+}
+
+export { findActivity };
