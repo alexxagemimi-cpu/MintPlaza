@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChromaticChip, ItemTile, RarityChip, RobuxChip } from "./ItemTile";
+import { searchShortcuts, type Shortcut } from "@/lib/admin/search";
 import { CATALOG_CHECKED, CATALOG_NOTES, searchTerms, type CatalogItem, type Rarity } from "@/lib/items";
 
 const RARITIES: readonly Rarity[] = ["Common", "Uncommon", "Rare", "Legendary", "Mythical"];
@@ -23,6 +24,24 @@ export function ExploreCatalog({
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<Rarity | null>(null);
   const [category, setCategory] = useState<string | null>(null);
+
+  /**
+   * Search can return places, not only items. What comes back is decided
+   * entirely on the server from the signed-in identity; this component just
+   * renders whatever list it is handed, and knows nothing about what might be
+   * in it. The call goes out for every search, so the request reveals nothing
+   * either.
+   */
+  const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchShortcuts(query)
+        .then((found) => { if (!cancelled) setShortcuts(found); })
+        .catch(() => { if (!cancelled) setShortcuts([]); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query]);
 
   const categories = useMemo(
     () => [...new Set(items.map((i) => i.category))],
@@ -98,6 +117,30 @@ export function ExploreCatalog({
           {CATALOG_NOTES[gameSlug]}
         </p>
       )}
+
+      {shortcuts.map((s) => (
+        <a key={s.href} href={s.href}
+           className="mt-3 flex items-center gap-3 rounded-[var(--radius-inner)] border border-mint bg-mint-wash px-3.5 py-3 transition-colors hover:border-ink">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface text-mint">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                 strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10 2.5 3.5 5.2v4.4c0 3.4 2.6 6.6 6.5 7.9 3.9-1.3 6.5-4.5 6.5-7.9V5.2Z" />
+              <path d="m7.6 10 1.7 1.7 3.3-3.4" />
+            </svg>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[0.9375rem] font-bold tracking-[-0.015em] text-ink">
+              {s.title}
+            </span>
+            <span className="block text-[0.8125rem] text-ink-soft">{s.body}</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+               className="shrink-0 text-ink-faint" aria-hidden="true">
+            <path d="M6 3.5 10.5 8 6 12.5" />
+          </svg>
+        </a>
+      ))}
 
       {shown.length > 0 ? (
         <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
