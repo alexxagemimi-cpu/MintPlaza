@@ -19,7 +19,7 @@
  * refresh.
  */
 
-import { catalogFor, ITEM_VARIANTS, type CatalogItem } from "./items";
+import { tradableFor, ITEM_VARIANTS, type CatalogItem } from "./items";
 
 export const DEMO_ENABLED =
   process.env.NEXT_PUBLIC_DEMO_MODE === "on" &&
@@ -122,7 +122,8 @@ function buildSide(
 export function demoListings(gameSlug: string, count = 8): readonly DemoListing[] {
   if (!DEMO_ENABLED) return [];
 
-  const catalog = catalogFor(gameSlug);
+  // Only what the game will actually let two players swap.
+  const catalog = tradableFor(gameSlug);
   if (catalog.length === 0) return [];
 
   // Weight toward the top end, which is what people actually post about.

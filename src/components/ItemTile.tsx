@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { RARITY_STYLE, type CatalogItem } from "@/lib/items";
+import { CHROMATIC_STYLE, RARITY_STYLE, type CatalogItem } from "@/lib/items";
 
 /**
  * One catalogue item, the way a trading site shows it.
@@ -64,6 +64,35 @@ export function RarityChip({ rarity }: { rarity: NonNullable<CatalogItem["rarity
       style={{ color: s.fg, background: s.bg, boxShadow: `inset 0 0 0 1px ${s.ring}` }}
     >
       {rarity.toUpperCase()}
+    </span>
+  );
+}
+
+/**
+ * CHROMATIC sits beside the rarity rather than replacing it — the game shows
+ * "Common / CHROMATIC", and on a skin that pairing is the whole point.
+ */
+export function ChromaticChip() {
+  return (
+    <span
+      title="CHROMATIC — recolours the fruit, its abilities and its icon"
+      className="rounded-md px-1.5 py-0.5 font-mono text-[0.5625rem] font-medium tracking-[0.08em]"
+      style={{
+        color: CHROMATIC_STYLE.fg,
+        background: CHROMATIC_STYLE.bg,
+        boxShadow: `inset 0 0 0 1px ${CHROMATIC_STYLE.ring}`,
+      }}
+    >
+      CHROMATIC
+    </span>
+  );
+}
+
+/** Robux price, where the item has one. */
+export function RobuxChip({ amount }: { amount: number }) {
+  return (
+    <span className="font-mono text-[0.5625rem] font-medium tracking-[0.08em] text-ink-mute">
+      R${amount.toLocaleString("en-US")}
     </span>
   );
 }

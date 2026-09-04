@@ -60,8 +60,18 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
 
   if (error || !data || data.length === 0) return catalogFor(gameSlug);
 
+  // Rows carry their catalogue slug ("bf-dragon") alongside the database uuid.
+  // The uuid is the id everything else keys on, so a parent recorded by slug
+  // has to be translated back before it will resolve.
+  const uuidBySlug = new Map<string, string>();
+  for (const row of data) {
+    const slug = (row.attributes as Record<string, unknown> | null)?.slug;
+    if (typeof slug === "string") uuidBySlug.set(slug, row.id);
+  }
+
   return data.map((row) => {
     const attrs = (row.attributes ?? {}) as Record<string, unknown>;
+    const parentSlug = attrs.parentSlug;
     return {
       id: row.id,
       gameSlug: row.game_slug,
@@ -69,7 +79,18 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
       category: row.category ?? "",
       rarity: attrs.rarity as CatalogItem["rarity"],
       type: attrs.type as string | undefined,
+      formerly: Array.isArray(attrs.formerly) ? (attrs.formerly as string[]) : undefined,
       aliases: Array.isArray(attrs.aliases) ? (attrs.aliases as string[]) : undefined,
+      parentId:
+        typeof parentSlug === "string" ? uuidBySlug.get(parentSlug) : undefined,
+      // Absent means tradeable, so only an explicit false may turn it off —
+      // otherwise a row that predates the column would silently vanish from
+      // every listing picker.
+      tradeable: attrs.tradeable === false ? false : undefined,
+      chromatic: attrs.chromatic === true ? true : undefined,
+      robux: typeof attrs.robux === "number" ? attrs.robux : undefined,
+      note: attrs.note as string | undefined,
+      verified: attrs.verified === false ? false : undefined,
       art: attrs.art as string | undefined,
     };
   });

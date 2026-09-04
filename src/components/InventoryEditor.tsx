@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { ItemTile, RarityChip } from "./ItemTile";
-import type { CatalogItem, Rarity } from "@/lib/items";
+import { searchTerms, type CatalogItem, type Rarity } from "@/lib/items";
 import type { InventoryRow } from "@/lib/actions/inventory";
 import { addInventoryItem, removeInventoryItem } from "@/lib/actions/inventory";
 
@@ -41,9 +41,7 @@ export function InventoryEditor({
     return catalog
       .filter((i) => !already.has(i.id))
       .filter((i) =>
-        !q ||
-        i.name.toLowerCase().includes(q) ||
-        i.aliases?.some((a) => a.toLowerCase().includes(q)),
+        !q || searchTerms(i).some((t) => t.toLowerCase().includes(q)),
       )
       .slice(0, 40);
   }, [catalog, query, rows, adding]);

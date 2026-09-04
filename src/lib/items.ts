@@ -15,8 +15,13 @@
  */
 
 /**
- * Blox Fruits runs six tiers, not five. Premium is the sixth: paid and
- * admin-exclusive inventory items, which is where the 41 Permanent Fruits sit.
+ * Five drop tiers plus Premium for what is bought rather than dropped —
+ * gamepasses and scroll bundles. Permanent fruits are Premium too, but they are
+ * recorded as a variant on the fruit rather than as 41 duplicate rows.
+ *
+ * CHROMATIC is deliberately not in here. The wiki shows it beside a tier, not
+ * instead of one — "Common / CHROMATIC", "Rare / CHROMATIC" — so it is a
+ * separate flag on the item and the tile prints both.
  */
 export type Rarity =
   | "Common" | "Uncommon" | "Rare" | "Ultra-Rare"
@@ -34,9 +39,44 @@ export interface CatalogItem {
   /**
    * Names this item used to have. These games rework and rename things, and
    * players keep using the old name for years, so search has to match on them
-   * or half the community cannot find what they are looking for.
+   * or half the community cannot find what they are looking for. Shown on the
+   * tile, because "was Leopard" is the fact that makes the row recognisable.
+   */
+  formerly?: readonly string[];
+  /**
+   * Other things players call this — "Yoru" for Dark Blade, "glacier" for
+   * Glacier Eagle. Search matches on them but they are not displayed: they are
+   * shorthand, not history, and labelling them "was" would be a lie.
    */
   aliases?: readonly string[];
+  /**
+   * The catalogue item this one is a variation of — a skin points at the fruit
+   * it repaints. Lets the interface group a fruit with its skins without
+   * parsing names.
+   */
+  parentId?: string;
+  /**
+   * False where the game itself will not let this move between players. Such
+   * rows still belong in the catalogue — a player browsing skins expects to see
+   * all of them — but they must never appear in a listing picker, or the site
+   * would be inviting trades that cannot complete.
+   *
+   * Absent means tradeable.
+   */
+  tradeable?: boolean;
+  /**
+   * CHROMATIC. Sits beside the rarity rather than replacing it, because that is
+   * how the game presents it.
+   */
+  chromatic?: boolean;
+  /**
+   * Robux price where the item is sold for Robux — Permanent fruits, gamepasses
+   * and scroll bundles. Read off the wiki's own tables. Prices move with
+   * updates, so this is presented as "last checked", never as current.
+   */
+  robux?: number;
+  /** Shown on the tile where the item carries a condition worth stating. */
+  note?: string;
   /**
    * False where the rarity or existence could not be confirmed. Shown in admin
    * so the uncertain rows can be corrected first, rather than quietly
@@ -56,11 +96,16 @@ export const RARITY_STYLE: Record<Rarity, { fg: string; bg: string; ring: string
   Premium:   { fg: "#6B4CA8", bg: "#F0ECFA", ring: "#6B4CA826" },
 };
 
+/** CHROMATIC reads as a second label beside the tier, never as the tier. */
+export const CHROMATIC_STYLE = { fg: "#0E7C86", bg: "#E4F5F5", ring: "#0E7C8626" };
+
 const f = (
   name: string,
   rarity: Rarity,
   type: "Natural" | "Elemental" | "Beast",
-  aliases?: readonly string[],
+  /** Robux price of this fruit's Permanent form, from the wiki's own table. */
+  robux: number,
+  formerly?: readonly string[],
 ): CatalogItem => ({
   id: `bf-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
   gameSlug: "blox-fruits",
@@ -68,7 +113,8 @@ const f = (
   category: "Fruit",
   rarity,
   type,
-  aliases,
+  robux,
+  formerly,
   verified: true,
 });
 
@@ -92,75 +138,221 @@ const f = (
  */
 const BLOX_FRUITS: CatalogItem[] = [
   // ---- Common (7) ----
-  f("Rocket", "Common", "Natural"),
-  f("Spin", "Common", "Natural"),
-  f("Blade", "Common", "Natural"),
-  f("Spring", "Common", "Natural"),
-  f("Bomb", "Common", "Natural"),
-  f("Smoke", "Common", "Elemental"),
-  f("Spike", "Common", "Natural"),
+  f("Rocket", "Common", "Natural", 50),
+  f("Spin", "Common", "Natural", 75),
+  f("Blade", "Common", "Natural", 100),
+  f("Spring", "Common", "Natural", 180),
+  f("Bomb", "Common", "Natural", 220),
+  f("Smoke", "Common", "Elemental", 250),
+  f("Spike", "Common", "Natural", 380),
 
   // ---- Uncommon (6) ----
-  f("Flame", "Uncommon", "Elemental"),
-  f("Ice", "Uncommon", "Elemental"),
-  f("Sand", "Uncommon", "Elemental"),
-  f("Dark", "Uncommon", "Elemental"),
-  f("Eagle", "Uncommon", "Beast"),
-  f("Diamond", "Uncommon", "Natural"),
+  f("Flame", "Uncommon", "Elemental", 550),
+  f("Ice", "Uncommon", "Elemental", 750),
+  f("Sand", "Uncommon", "Elemental", 850),
+  f("Dark", "Uncommon", "Elemental", 950),
+  f("Eagle", "Uncommon", "Beast", 975),
+  f("Diamond", "Uncommon", "Natural", 1000),
 
   // ---- Rare (4) ----
-  f("Light", "Rare", "Elemental"),
-  f("Rubber", "Rare", "Natural"),
-  f("Ghost", "Rare", "Natural", ["Revive"]),
-  f("Magma", "Rare", "Elemental"),
+  f("Light", "Rare", "Elemental", 1100),
+  f("Rubber", "Rare", "Natural", 1200),
+  f("Ghost", "Rare", "Natural", 1275, ["Revive"]),
+  f("Magma", "Rare", "Elemental", 1300),
 
   // ---- Legendary (11) ----
-  f("Quake", "Legendary", "Natural"),
-  f("Buddha", "Legendary", "Beast"),
-  f("Love", "Legendary", "Natural"),
-  f("Creation", "Legendary", "Natural", ["Barrier"]),
-  f("Spider", "Legendary", "Natural"),
-  f("Sound", "Legendary", "Natural"),
-  f("Phoenix", "Legendary", "Beast"),
-  f("Portal", "Legendary", "Natural"),
-  f("Lightning", "Legendary", "Elemental", ["Rumble"]),
-  f("Pain", "Legendary", "Natural"),
-  f("Blizzard", "Legendary", "Elemental"),
+  f("Quake", "Legendary", "Natural", 1500),
+  f("Buddha", "Legendary", "Beast", 1650),
+  f("Love", "Legendary", "Natural", 1700),
+  f("Creation", "Legendary", "Natural", 1750, ["Barrier"]),
+  f("Spider", "Legendary", "Natural", 1800),
+  f("Sound", "Legendary", "Natural", 1900),
+  f("Phoenix", "Legendary", "Beast", 2000),
+  f("Portal", "Legendary", "Natural", 2000),
+  f("Lightning", "Legendary", "Elemental", 2100, ["Rumble"]),
+  f("Pain", "Legendary", "Natural", 2200),
+  f("Blizzard", "Legendary", "Elemental", 2250),
 
   // ---- Mythical (13) ----
-  f("Gravity", "Mythical", "Natural"),
-  f("Mammoth", "Mythical", "Beast"),
-  f("T-Rex", "Mythical", "Beast"),
-  f("Dough", "Mythical", "Natural"),
-  f("Shadow", "Mythical", "Elemental"),
-  f("Venom", "Mythical", "Natural"),
-  f("Gas", "Mythical", "Elemental"),
-  f("Spirit", "Mythical", "Natural"),
-  f("Tiger", "Mythical", "Beast", ["Leopard"]),
-  f("Yeti", "Mythical", "Beast"),
-  f("Kitsune", "Mythical", "Beast"),
-  f("Control", "Mythical", "Natural"),
-  f("Dragon", "Mythical", "Beast"),
+  f("Gravity", "Mythical", "Natural", 2300),
+  f("Mammoth", "Mythical", "Beast", 2350),
+  f("T-Rex", "Mythical", "Beast", 2350),
+  f("Dough", "Mythical", "Natural", 2400),
+  f("Shadow", "Mythical", "Elemental", 2425),
+  f("Venom", "Mythical", "Natural", 2450),
+  f("Gas", "Mythical", "Elemental", 2500),
+  f("Spirit", "Mythical", "Natural", 2550),
+  f("Tiger", "Mythical", "Beast", 3000, ["Leopard"]),
+  f("Yeti", "Mythical", "Beast", 3000),
+  f("Kitsune", "Mythical", "Beast", 4000),
+  f("Control", "Mythical", "Natural", 4000),
+  f("Dragon", "Mythical", "Beast", 5000),
 ];
 
 /**
- * Gamepasses trade alongside fruits in every Blox Fruits trading community, so
- * a catalogue without them is only half a catalogue.
+ * Shop products — gamepasses and the two scroll bundles.
+ *
+ * These trade alongside fruits in every Blox Fruits trading community, so a
+ * catalogue without them is only half a catalogue. Names and Robux prices are
+ * the wiki's own, not rounded or paraphrased: "2x Boss Drops Chance", not
+ * "2x Drop Chance".
+ *
+ * Rarity is Premium across the board because that is what these are: bought,
+ * not dropped. Guessing a drop tier for a gamepass would be inventing data —
+ * Dark Blade grants a Mythical sword, but the pass itself has no tier.
  */
-const BLOX_GAMEPASSES: CatalogItem[] = ([
-  ["Dark Blade", "Mythical"],
-  ["Fruit Notifier", "Legendary"],
-  ["Fast Boats", "Rare"],
-  ["2x Money", "Rare"],
-  ["2x Mastery", "Rare"],
-  ["2x Boss Drop Chance", "Rare"],
-] as [string, Rarity][]).map(([name, rarity]) => ({
-  id: `bf-gp-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+const shopProduct = (
+  name: string,
+  robux: number,
+  category: "Gamepass" | "Scroll",
+  note: string,
+  aliases?: readonly string[],
+): CatalogItem => ({
+  id: `bf-${category === "Scroll" ? "scroll" : "gp"}-${
+    name.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+  }`,
   gameSlug: "blox-fruits",
   name,
-  category: "Gamepass",
+  category,
+  rarity: "Premium",
+  robux,
+  aliases,
+  note,
+  verified: true,
+});
+
+const BLOX_GAMEPASSES: CatalogItem[] = [
+  shopProduct("2x Boss Drops Chance", 350, "Gamepass",
+    "Doubles the chance a boss drops a sword or accessory.",
+    ["2x Drop Chance", "2x Boss Drops", "Double Boss Drops"]),
+  shopProduct("Fast Boats", 350, "Gamepass",
+    "Unlocks the Miracle and The Sentinel boats."),
+  shopProduct("2x Money", 450, "Gamepass",
+    "Doubles Beli from NPCs and quests. Chests are unaffected.",
+    ["Double Money"]),
+  shopProduct("2x Mastery", 450, "Gamepass",
+    "Doubles mastery EXP from NPCs. Does not affect levels.",
+    ["Double Mastery"]),
+  shopProduct("Dark Blade", 1200, "Gamepass",
+    "Grants the Mythical Dark Blade, upgradable through The Son Quest.",
+    ["Yoru", "DB"]),
+  shopProduct("Fruit Notifier", 2700, "Gamepass",
+    "Reports the distance to a fruit the moment it spawns in your server.",
+    ["Notifier"]),
+  shopProduct("+1 Fruit Storage", 400, "Gamepass",
+    "One extra inventory slot. Stacks — buy and trade it many times over.",
+    ["Fruit Storage", "Storage", "+1 Storage"]),
+];
+
+/**
+ * Scrolls. Two bundles, and the count is part of the name because the bundle is
+ * the unit that changes hands.
+ */
+const BLOX_SCROLLS: CatalogItem[] = [
+  shopProduct("5x Legendary Scrolls", 800, "Scroll",
+    "Rerolls a stat to a Legendary roll. Five per purchase.",
+    ["Legendary Scroll", "Leg Scrolls", "Stat Reroll"]),
+  shopProduct("3x Mythical Scrolls", 1500, "Scroll",
+    "Rerolls a stat to a Mythical roll. Three per purchase.",
+    ["Mythical Scroll", "Myth Scrolls", "Stat Reroll"]),
+];
+
+/**
+ * Skins.
+ *
+ * Eight fruits have them: Dragon, Empyrean, Pain, Lightning, Portal, Diamond,
+ * Eagle and Bomb. Each fruit's own default look heads its table and is kept
+ * here for completeness, but it is not a separate item — it arrives with the
+ * fruit — so it is marked untradeable and never reaches a listing picker.
+ *
+ * Rarity and CHROMATIC are recorded exactly as the wiki prints them, side by
+ * side. They do not move together: Ruby Diamond is Rare while every other
+ * Diamond skin is Uncommon, Blue Lightning is Common while its four reskins are
+ * Legendary, and Crimson Empyrean is Mythical with no CHROMATIC at all.
+ *
+ * Players say these as "<skin> <fruit>" — "glacier eagle", "torment pain" — so
+ * that is the name, with the bare skin word kept as a search alias.
+ *
+ * One correction worth recording: Crimson and Galaxy belong to *Empyrean*, the
+ * Mythical mutation of Kitsune, not to Kitsune itself, and Ember is a Dragon
+ * skin. They get mixed up constantly.
+ */
+const skin = (
+  fruit: string,
+  parentId: string,
+  name: string,
+  rarity: Rarity | undefined,
+  chromatic: boolean,
+  opts: { base?: boolean; note?: string } = {},
+): CatalogItem => ({
+  id: `bf-skin-${(name === fruit ? fruit + "-base" : name + "-" + fruit)
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "blox-fruits",
+  // A default skin often shares the fruit's own name, which would read as
+  // "Bomb Bomb"; say Base instead.
+  name: name === fruit ? `${fruit} (Base)` : `${name} ${fruit}`,
+  category: "Skin",
   rarity,
-}));
+  chromatic: chromatic || undefined,
+  type: fruit,
+  parentId,
+  aliases: name === fruit ? undefined : [name],
+  tradeable: opts.base ? false : undefined,
+  note: opts.base
+    ? "The fruit's default look — comes with the fruit, not traded separately."
+    : opts.note,
+  verified: true,
+});
+
+const BLOX_SKINS: CatalogItem[] = [
+  // ---- Bomb — default plus four CHROMATIC, all Common ----
+  skin("Bomb", "bf-bomb", "Bomb", "Common", false, { base: true }),
+  skin("Bomb", "bf-bomb", "Nuclear", "Common", true),
+  skin("Bomb", "bf-bomb", "Thermite", "Common", true),
+  skin("Bomb", "bf-bomb", "Azura", "Common", true),
+  skin("Bomb", "bf-bomb", "Celebration", "Common", true),
+
+  // ---- Diamond — Ruby is Rare, the rest Uncommon ----
+  skin("Diamond", "bf-diamond", "Diamond", "Uncommon", false, { base: true }),
+  skin("Diamond", "bf-diamond", "Emerald", "Uncommon", true),
+  skin("Diamond", "bf-diamond", "Rose Quartz", "Uncommon", true),
+  skin("Diamond", "bf-diamond", "Topaz", "Uncommon", true),
+  skin("Diamond", "bf-diamond", "Ruby", "Rare", true),
+
+  // ---- Eagle — three CHROMATIC, all Uncommon ----
+  skin("Eagle", "bf-eagle", "Eagle", "Uncommon", false, { base: true }),
+  skin("Eagle", "bf-eagle", "Glacier", "Uncommon", true),
+  skin("Eagle", "bf-eagle", "Requiem", "Uncommon", true),
+  skin("Eagle", "bf-eagle", "Matrix", "Uncommon", true),
+
+  // ---- Lightning — the default is Common, the four reskins Legendary ----
+  skin("Lightning", "bf-lightning", "Blue", "Common", false, { base: true }),
+  skin("Lightning", "bf-lightning", "Purple", "Legendary", true),
+  skin("Lightning", "bf-lightning", "Yellow", "Legendary", true),
+  skin("Lightning", "bf-lightning", "Green", "Legendary", true),
+  skin("Lightning", "bf-lightning", "Red", "Legendary", true),
+
+  // ---- Pain — Agony is the default and is Common, not CHROMATIC ----
+  skin("Pain", "bf-pain", "Agony", "Common", false, { base: true }),
+  skin("Pain", "bf-pain", "Sadness", "Legendary", true),
+  skin("Pain", "bf-pain", "Torment", "Legendary", true),
+  skin("Pain", "bf-pain", "Frustration", "Legendary", true),
+  skin("Pain", "bf-pain", "Celestial", "Legendary", true),
+  skin("Pain", "bf-pain", "Super Spirit", "Legendary", true),
+
+  // ---- Portal ----
+  skin("Portal", "bf-portal", "Portal", "Legendary", false, { base: true }),
+  skin("Portal", "bf-portal", "Divine", "Legendary", true),
+
+  // ---- Empyrean — Kitsune's mutation. Crimson carries no CHROMATIC ----
+  skin("Empyrean", "bf-kitsune", "Crimson", "Mythical", false),
+  skin("Empyrean", "bf-kitsune", "Galaxy", "Mythical", true),
+
+  // ---- Dragon ----
+  skin("Dragon", "bf-dragon", "Ember", undefined, true, {
+    note: "Winter 2025 Fruit Box, 1% chance.",
+  }),
+];
 
 const make = (
   gameSlug: string,
@@ -320,11 +512,27 @@ export const PARTIAL_CATALOGUES: readonly string[] = [
 ];
 
 export const CATALOG: readonly CatalogItem[] = [
-  ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
+  ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
+  ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
 ];
+
+/** Catalogue rows the game will not let players trade. Never offer these. */
+export function tradableFor(gameSlug: string): readonly CatalogItem[] {
+  return catalogFor(gameSlug).filter((i) => i.tradeable !== false);
+}
+
+/** A fruit and its skins, for the grouped view. */
+export function variationsOf(itemId: string): readonly CatalogItem[] {
+  return CATALOG.filter((i) => i.parentId === itemId);
+}
 
 export function catalogFor(gameSlug: string): readonly CatalogItem[] {
   return CATALOG.filter((i) => i.gameSlug === gameSlug);
+}
+
+/** Every string this item can be found by. */
+export function searchTerms(item: CatalogItem): readonly string[] {
+  return [item.name, ...(item.formerly ?? []), ...(item.aliases ?? [])];
 }
 
 export function findItem(id: string): CatalogItem | undefined {
@@ -338,7 +546,14 @@ export const CATALOG_CHECKED = "September 2026";
  * Per-game notes shown above the catalogue. Empty when nothing needs saying —
  * the Blox Fruits count reconciled once the four renames were resolved.
  */
-export const CATALOG_NOTES: Record<string, string> = {};
+export const CATALOG_NOTES: Record<string, string> = {
+  "blox-fruits":
+    "All 41 fruits with their Permanent prices, all seven gamepasses, both " +
+    "scroll bundles, and every skin of the eight fruits that have them. A " +
+    "fruit's default look is listed for completeness but cannot be traded on " +
+    "its own — it comes with the fruit. Robux prices are what the wiki showed " +
+    "when this was last checked; they move with updates.",
+};
 
 /** Rows that could not be confirmed against the wiki. */
 export function unverifiedCount(gameSlug: string): number {
@@ -354,6 +569,9 @@ export function unverifiedCount(gameSlug: string): number {
  * way a trading site shows it on the tile rather than burying it in a note.
  */
 export const ITEM_VARIANTS: Record<string, readonly string[]> = {
+  // Permanent fruits are the shop's premium form of all 41 fruits. They are a
+  // variant rather than 41 extra rows, so "Permanent Dragon" has exactly one
+  // representation and matching stays a single key lookup.
   "blox-fruits": ["Permanent", "Physical"],
   "adopt-me": ["Regular", "Neon", "Mega Neon"],
   "pet-simulator-99": ["Normal", "Golden", "Rainbow", "Shiny"],

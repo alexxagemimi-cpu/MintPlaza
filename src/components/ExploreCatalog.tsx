@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ItemTile, RarityChip } from "./ItemTile";
-import { CATALOG_CHECKED, CATALOG_NOTES, type CatalogItem, type Rarity } from "@/lib/items";
+import { ChromaticChip, ItemTile, RarityChip, RobuxChip } from "./ItemTile";
+import { CATALOG_CHECKED, CATALOG_NOTES, searchTerms, type CatalogItem, type Rarity } from "@/lib/items";
 
 const RARITIES: readonly Rarity[] = ["Common", "Uncommon", "Rare", "Legendary", "Mythical"];
 
@@ -34,8 +34,7 @@ export function ExploreCatalog({
     return items.filter(
       (i) =>
         (!q ||
-          i.name.toLowerCase().includes(q) ||
-          i.aliases?.some((a) => a.toLowerCase().includes(q))) &&
+          searchTerms(i).some((t) => t.toLowerCase().includes(q))) &&
         (!rarity || i.rarity === rarity) &&
         (!category || i.category === category),
     );
@@ -115,7 +114,17 @@ export function ExploreCatalog({
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     {item.rarity && <RarityChip rarity={item.rarity} />}
-                    {item.aliases?.map((a) => (
+                    {item.chromatic && <ChromaticChip />}
+                    {item.robux !== undefined && <RobuxChip amount={item.robux} />}
+                    {item.tradeable === false && (
+                      <span
+                        title={item.note ?? "Cannot be traded in-game"}
+                        className="rounded-md border border-line bg-fill px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.08em] text-ink-mute"
+                      >
+                        NOT TRADEABLE
+                      </span>
+                    )}
+                    {item.formerly?.map((a) => (
                       <span
                         key={a}
                         title={`Formerly ${a}`}

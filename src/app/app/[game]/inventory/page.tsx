@@ -52,7 +52,9 @@ export default async function InventoryPage({
         <InventoryEditor
           gameSlug={slug}
           gameName={game.shortName}
-          catalog={catalog}
+          // Inventory feeds matching, and matching leads to a trade, so a row
+          // the game will not let players swap has no business being in here.
+          catalog={catalog.filter((i) => i.tradeable !== false)}
           initial={await readInventory(slug)}
         />
       ) : (
