@@ -1,3 +1,5 @@
+"use client";
+
 import type { Voter } from "@/lib/sessions";
 
 /**
@@ -56,7 +58,7 @@ function Face({ voter, index }: { voter: Voter; index: number }) {
 }
 
 export function VoterStack({
-  voters, total, online,
+  voters, total, online, onOpen,
 }: {
   /** A sample, for the faces. The server never sends them all. */
   voters: readonly Voter[];
@@ -64,6 +66,11 @@ export function VoterStack({
   total: number;
   /** How many of them are here right now. */
   online: number;
+  /**
+   * Opens the full list. The stack is a summary, and a summary you cannot tap
+   * through to the real thing is just decoration.
+   */
+  onOpen?: () => void;
 }) {
   if (total === 0) {
     return (
@@ -76,8 +83,8 @@ export function VoterStack({
   const shown = voters.slice(0, MAX_FACES);
   const rest = total - shown.length;
 
-  return (
-    <span className="flex items-center gap-1.5">
+  const body = (
+    <>
       <span className="flex items-center">
         {shown.map((v, i) => <Face key={v.username} voter={v} index={i} />)}
       </span>
@@ -94,7 +101,20 @@ export function VoterStack({
           {online} ON
         </span>
       )}
-    </span>
+    </>
+  );
+
+  if (!onOpen) return <span className="flex items-center gap-1.5">{body}</span>;
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpen(); }}
+      title="See everyone who voted"
+      className="flex items-center gap-1.5 rounded-full py-0.5 pr-1 transition-opacity hover:opacity-75"
+    >
+      {body}
+    </button>
   );
 }
 

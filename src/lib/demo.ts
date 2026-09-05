@@ -225,8 +225,9 @@ export const REASON_COPY: Record<ReasonCode, string> = {
  * ==================================================================== */
 
 import {
-  servicesFor, findService, LIVE_WINDOW_MINUTES,
+  servicesFor, findService, LIVE_WINDOW_MINUTES, MAX_TEAM,
   type ServiceListing, type Terms, type Voter, type ListingSide,
+  type DealStage, type ListingComment,
 } from "./sessions";
 import { tradableFor as tradableItems } from "./items";
 
@@ -254,19 +255,71 @@ const REQUEST_NOTES = [
  * fake activity, which is exactly the kind of fake the specification forbids —
  * real avatars appear once real accounts sign in through Roblox.
  */
-const FACES_SENT = 4;
+/**
+ * How many voters the card is sent.
+ *
+ * Enough to draw the faces and to fill the picker in an example. A real
+ * listing pages through them; a hundred voter records to draw three circles
+ * would be absurd either way.
+ */
+const VOTERS_SENT = 12;
 
-function buildVoters(rand: () => number, total: number): Voter[] {
+function buildVoters(
+  rand: () => number, total: number, stage: DealStage,
+): Voter[] {
   const out: Voter[] = [];
   const pool = [...USERNAMES];
-  for (let i = 0; i < Math.min(total, FACES_SENT) && pool.length > 0; i++) {
+  const n = Math.min(total, VOTERS_SENT);
+  for (let i = 0; i < n && pool.length > 0; i++) {
+    // Once the poster has picked a team, the first few carry replies. Before
+    // that everybody is simply a candidate.
+    const picked = stage !== "voting" && i < 3;
+    const roll = rand();
     out.push({
       username: pool.splice(Math.floor(rand() * pool.length), 1)[0],
       online: rand() > 0.55,
+      votedMinutesAgo: Math.floor(rand() * 90),
+      reply: !picked
+        ? "not-picked"
+        : stage === "locked" || roll > 0.6
+          ? "agreed"
+          : roll > 0.35
+            ? "waiting"
+            : "denied",
     });
   }
   return out;
 }
+
+const COMMENT_LINES = [
+  "I'm ready whenever, just say the word.",
+  "I can go now, I'm already in Third Sea.",
+  "Done this loads of times, happy to lead it.",
+  "Give me ten minutes and I'm free.",
+  "I have the chip if nobody else does.",
+  "What level do you need us to be?",
+  "Count me in for the second run too.",
+];
+
+function buildComments(rand: () => number, voters: Voter[]): ListingComment[] {
+  if (voters.length === 0 || rand() > 0.75) return [];
+  const howMany = 1 + Math.floor(rand() * Math.min(4, voters.length));
+  return Array.from({ length: howMany }, (_, i) => ({
+    id: `c${i}`,
+    author: voters[i % voters.length].username,
+    online: voters[i % voters.length].online,
+    text: COMMENT_LINES[Math.floor(rand() * COMMENT_LINES.length)],
+    minutesAgo: Math.floor(rand() * 80),
+  }));
+}
+
+const DETAILS = [
+  "Need someone with a different race to me, I'm Human.",
+  "Just need the one run, I have everything else ready.",
+  "Stuck on the last step, everything before it is done.",
+  "Happy to do it twice if you need it back.",
+  "",
+];
 
 /**
  * Example listings for a game.
@@ -299,7 +352,7 @@ export function demoServiceListings(gameSlug: string, count = 8): readonly Servi
           ? { kind: "split" }
           : { kind: "free" };
 
-    const taken = rand() > 0.88;
+    const taken = n !== 2 && rand() > 0.88;
 
     return {
       isDemo: true as const,
@@ -316,20 +369,41 @@ export function demoServiceListings(gameSlug: string, count = 8): readonly Servi
       // like rather than a wall of expired posts.
       postedMinutesAgo: Math.floor(rand() * (LIVE_WINDOW_MINUTES - 4)),
       taken,
+      detail: pick(rand, DETAILS) || undefined,
       ...(() => {
         // A few listings are quiet and a few are busy, which is what a real
         // board looks like — a uniform spread would make every card identical.
         const voteCount = rand() > 0.75
           ? 20 + Math.floor(rand() * 180)
-          : Math.floor(rand() * 12);
+          : 1 + Math.floor(rand() * 11);
+        // A board shows deals at every stage at once, which is the only way to
+        // see that the flow reads correctly end to end.
+        // One listing is always somebody else's, already voted on by the
+        // reader, and waiting on their answer — otherwise the request flow is
+        // invisible until the random seed happens to produce it, and a flow you
+        // cannot see is a flow nobody reviews.
+        const forcedRequest = n === 2;
+        const stage: DealStage = forcedRequest
+          ? "requested"
+          : taken
+            ? "locked"
+            : rand() > 0.7
+              ? "requested"
+              : "voting";
+        const voters = buildVoters(rand, voteCount, stage);
         return {
           voteCount,
-          voters: buildVoters(rand, voteCount),
+          voters,
           votersOnline: Math.floor(voteCount * (0.15 + rand() * 0.4)),
+          stage,
+          comments: buildComments(rand, voters),
+          youVoted: forcedRequest || rand() > 0.6,
+          // A couple are the reader's own, so My lists has something in it.
+          yours: !forcedRequest && n % 4 === 1,
         };
       })(),
     };
   });
 }
 
-export { findService };
+export { findService, MAX_TEAM };

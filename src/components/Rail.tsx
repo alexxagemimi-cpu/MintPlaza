@@ -36,6 +36,7 @@ export function Rail() {
     { href: `${base}/explore`, label: "Explore", icon: icon("M9 15.5A6.5 6.5 0 1 0 9 2.5a6.5 6.5 0 0 0 0 13ZM17.5 17.5 13.7 13.7") },
     { href: `${base}/trades`, label: "Trades", icon: icon("M3 6.5h11M11.5 4 14 6.5 11.5 9M17 13.5H6M8.5 11 6 13.5 8.5 16"), module: "trades" },
     { href: `${base}/inventory`, label: "Inventory", icon: icon("M3 7.2 10 3.5l7 3.7v5.6L10 16.5l-7-3.7V7.2ZM3 7.2 10 11l7-3.8M10 11v5.5"), module: "inventory" },
+    { href: `${base}/my-lists`, label: "My lists", icon: icon("M4 5h12M4 10h12M4 15h7") },
     { href: "/messages", label: "Messages", icon: icon("M17 9.6c0 3.2-3.1 5.8-7 5.8a8 8 0 0 1-2.1-.3L4 16.5l1.1-2.7A5.5 5.5 0 0 1 3 9.6c0-3.2 3.1-5.8 7-5.8s7 2.6 7 5.8Z") },
   ];
 

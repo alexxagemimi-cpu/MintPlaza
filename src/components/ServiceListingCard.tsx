@@ -1,10 +1,17 @@
+"use client";
+
+import { useState } from "react";
 import { findItem } from "@/lib/items";
 import {
   findService, listingState, timeLeftCopy, expiresAt,
-  type ServiceListing,
+  pickedVoters, agreedVoters,
+  type ServiceListing, type Voter,
 } from "@/lib/sessions";
 import { VoterStack, OnlineDot } from "./VoterStack";
 import { LiveCountdown } from "./LiveCountdown";
+import { VotersSheet, ReplyMark, Face } from "./VotersSheet";
+import { CommentThread } from "./CommentThread";
+import { ReportButton } from "./ReportButton";
 
 /**
  * One listing on the Raids & Services board.
@@ -50,7 +57,20 @@ const KIND_TONE: Record<string, string> = {
   Boss: "#A93226", Unlock: "#0F766E", Grind: "#2F7D57", Island: "#A8501E",
 };
 
-export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
+export function ServiceListingCard({
+  listing,
+  /** Shows the poster's own controls. Used by My lists. */
+  showOwnerControls = false,
+}: {
+  listing: ServiceListing;
+  showOwnerControls?: boolean;
+}) {
+  const [voted, setVoted] = useState(listing.youVoted);
+  const [voteCount, setVoteCount] = useState(listing.voteCount);
+  const [sheet, setSheet] = useState<null | "view" | "choose">(null);
+  const [voters, setVoters] = useState<readonly Voter[]>(listing.voters);
+  const [stage, setStage] = useState(listing.stage);
+
   const services = listing.serviceIds
     .map(findService)
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
@@ -67,7 +87,29 @@ export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
   const termsItem =
     listing.terms.kind === "item" ? findItem(listing.terms.itemId) : undefined;
 
+  function toggleVote() {
+    setVoted((was) => {
+      setVoteCount((n) => n + (was ? -1 : 1));
+      return !was;
+    });
+  }
+
+  /** The poster picked a team and asked them. */
+  function sendRequest(chosen: string[]) {
+    setVoters((prev) =>
+      prev.map((v) =>
+        chosen.includes(v.username) ? { ...v, reply: "waiting" as const } : v,
+      ),
+    );
+    setStage("requested");
+    setSheet(null);
+  }
+
+  const picked = pickedVoters({ ...listing, voters });
+  const agreed = agreedVoters({ ...listing, voters });
+
   return (
+    <>
     <details
       className={`glass group overflow-hidden rounded-[var(--radius-panel)] [&[open]]:bg-surface ${
         state === "live" ? "" : "opacity-70"
@@ -113,9 +155,10 @@ export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
               {isOffer ? "CAN HELP" : "NEEDS HELP"}
             </span>
             <VoterStack
-              voters={listing.voters}
-              total={listing.voteCount}
+              voters={voters}
+              total={voteCount}
               online={listing.votersOnline}
+              onOpen={() => setSheet("view")}
             />
             <svg
               width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -187,6 +230,12 @@ export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
           })}
         </ul>
 
+        {listing.detail && (
+          <p className="mt-3 rounded-[12px] border border-line-soft bg-surface px-3 py-2.5 text-[0.875rem] leading-relaxed text-ink">
+            {listing.detail}
+          </p>
+        )}
+
         <p className="mt-3 text-[0.875rem]">
           <span className="font-mono text-[0.5625rem] tracking-[0.1em] text-ink-faint">
             IN RETURN{" "}
@@ -204,6 +253,29 @@ export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
           </p>
         )}
 
+        {/* ---- who is going, once the poster has chosen ---- */}
+        {picked.length > 0 && (
+          <div className="mt-3 rounded-[12px] border border-line-soft bg-surface p-3">
+            <p className="mb-2 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
+              {stage === "locked" ? "GOING" : "ASKED TO JOIN"}
+              {" · "}
+              <span className="text-mint">{agreed.length} IN</span>
+            </p>
+            <ul className="grid gap-2">
+              {picked.map((v) => (
+                <li key={v.username} className="flex items-center gap-2.5">
+                  <Face voter={v} size={26} />
+                  <span className="min-w-0 flex-1 truncate text-[0.875rem] font-semibold text-ink">
+                    {v.username}
+                  </span>
+                  <ReplyMark reply={v.reply} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ---- the one rule that matters on this tab ---- */}
         <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
           Play it yourself. Nobody should ever ask for your account, your password
           or your login — a run done on your account is not a service, it is how
@@ -213,24 +285,99 @@ export function ServiceListingCard({ listing }: { listing: ServiceListing }) {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
-            disabled={state !== "live"}
-            className="pill pill-ghost flex items-center gap-1.5 py-1.5 text-[0.8125rem] disabled:opacity-50"
+            onClick={toggleVote}
+            disabled={state !== "live" || stage === "locked"}
+            aria-pressed={voted}
+            className={`pill flex items-center gap-1.5 py-1.5 text-[0.8125rem] disabled:opacity-50 ${
+              voted ? "pill-mint" : "pill-ghost"
+            }`}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M8 13.5V4M4.5 7.5 8 4l3.5 3.5" />
             </svg>
-            Vote {listing.voteCount > 0 && `· ${listing.voteCount}`}
+            {voted ? "You're in" : "I want in"}
+            {voteCount > 0 && ` · ${voteCount}`}
           </button>
-          <button
-            type="button"
-            disabled={state !== "live"}
-            className="pill pill-mint py-1.5 text-[0.8125rem] disabled:opacity-50"
-          >
-            {state === "taken" ? "Already taken" : isOffer ? "Ask them" : "Offer to help"}
-          </button>
+          <ReportButton what="listing" subject={`${listing.author} — ${headline}`} />
         </div>
+
+        {/* ---- the thread, for people who put their hand up ---- */}
+        {state === "live" && (
+          <CommentThread
+            comments={listing.comments}
+            youVoted={voted}
+            onVote={toggleVote}
+          />
+        )}
+
+        {/* ---- the poster's own controls ---- */}
+        {showOwnerControls && (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-line-soft pt-3">
+            {stage === "voting" && (
+              <button
+                type="button"
+                onClick={() => setSheet("choose")}
+                disabled={voteCount === 0}
+                className="pill pill-mint py-2 text-[0.8125rem] disabled:opacity-40"
+              >
+                Choose who joins
+              </button>
+            )}
+            {stage === "requested" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSheet("choose")}
+                  className="pill pill-ghost py-2 text-[0.8125rem]"
+                >
+                  Ask more people
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStage("locked")}
+                  disabled={agreed.length === 0}
+                  className="pill pill-mint py-2 text-[0.8125rem] disabled:opacity-40"
+                  title={
+                    agreed.length === 0
+                      ? "Nobody has said yes yet"
+                      : `Lock it in with ${agreed.length}`
+                  }
+                >
+                  Lock it in{agreed.length > 0 && ` · ${agreed.length}`}
+                </button>
+              </>
+            )}
+            {stage === "locked" && (
+              <p className="text-[0.8125rem] font-semibold text-mint">
+                Locked in with {agreed.length}. This closes when the two hours are up.
+              </p>
+            )}
+            <button
+              type="button"
+              className="pill py-2 text-[0.8125rem] text-bad"
+              style={{ borderColor: "currentColor" }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
     </details>
+
+    {/* Outside the <details> on purpose. A closed details hides everything but
+        its summary, and the face stack that opens this sits in the summary — so
+        rendering the sheet inside would make it invisible exactly when it is
+        most likely to be opened. */}
+    {sheet && (
+      <VotersSheet
+        voters={voters}
+        total={voteCount}
+        title={sheet === "choose" ? "Choose who joins" : "Everyone who wants in"}
+        onSendRequest={sheet === "choose" ? sendRequest : undefined}
+        onClose={() => setSheet(null)}
+      />
+    )}
+    </>
   );
 }

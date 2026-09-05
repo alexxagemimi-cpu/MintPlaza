@@ -51,6 +51,12 @@ export interface Service {
   players?: number;
   /** What the person being helped walks away with. */
   gives?: string;
+  /**
+   * True where the entry is a category rather than one fixed thing, and the
+   * poster fills in the specifics. Keeps one row from having to exist for every
+   * boss in the game.
+   */
+  openEnded?: boolean;
   /** Other names people search for. */
   aliases?: readonly string[];
   verified?: boolean;
@@ -142,12 +148,17 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     aliases: ["saber"], verified: true,
   },
   {
-    id: "bf-s-twin-hooks", gameSlug: "blox-fruits", name: "Twin Hooks — Captain Elephant",
+    // Naming one soloable boss was a mistake: Captain Elephant does not need a
+    // second player, so a listing for it was noise. One open entry covers every
+    // ordinary boss instead and the poster says which in their own words — this
+    // list should not grow a row each time somebody finds a boss hard.
+    id: "bf-s-boss-help", gameSlug: "blox-fruits", name: "Help beating a boss",
     kind: "Boss",
-    needs: "Floating Turtle, Third Sea",
+    needs: "Say which boss in your post — whichever one you are stuck on",
     players: 2,
-    gives: "Twin Hooks",
-    aliases: ["twin hooks", "captain elephant"], verified: true,
+    openEnded: true,
+    aliases: ["boss", "carry", "boss carry", "captain elephant", "greybeard"],
+    verified: true,
   },
   {
     id: "bf-s-hallow-scythe", gameSlug: "blox-fruits", name: "Hallow Scythe farming",
@@ -211,25 +222,11 @@ const BLOX_FRUITS_SERVICES: Service[] = [
 
   // ---- Boss carries ----
   {
-    id: "bf-s-don-swan", gameSlug: "blox-fruits", name: "Don Swan carry",
-    kind: "Boss",
-    needs: "Second Sea. Respawns every 30 minutes, unlike the rest of the sea",
-    players: 2,
-    aliases: ["don swan", "swan"], verified: true,
-  },
-  {
     id: "bf-s-rip-indra", gameSlug: "blox-fruits", name: "Rip Indra (True Form)",
     kind: "Boss",
-    needs: "Castle on the Sea, Third Sea",
+    needs: "Castle on the Sea, Third Sea. A step on the Race Awakening puzzle, which is why it is listed separately from the open boss entry",
     players: 3,
     aliases: ["indra", "rip indra"], verified: true,
-  },
-  {
-    id: "bf-s-cake-prince", gameSlug: "blox-fruits", name: "Cake Prince",
-    kind: "Boss",
-    needs: "Cake Land, Third Sea",
-    players: 3,
-    aliases: ["cake prince"], verified: true,
   },
   {
     id: "bf-s-level", gameSlug: "blox-fruits", name: "Level grinding help",
@@ -298,13 +295,70 @@ export type Terms =
   | { kind: "split" }
   | { kind: "item"; itemId: string };
 
-/** Somebody who voted on a listing. */
+/**
+ * Somebody who voted on a listing.
+ *
+ * A vote is not a like. It means "I want to be in on this", so a voter is a
+ * candidate for the deal — which is why every voter carries a reply state.
+ */
 export interface Voter {
   username: string;
   /** The Roblox avatar, once a real account is signed in. */
   avatarUrl?: string;
   online: boolean;
+  /** Minutes since they voted, so the picker can show who is freshest. */
+  votedMinutesAgo: number;
+  /**
+   * Where they stand once the poster has picked their team.
+   *
+   *   not-picked  voted, but the poster did not choose them
+   *   waiting     picked, and the request is with them
+   *   agreed      they said yes
+   *   denied      they said no
+   */
+  reply: "not-picked" | "waiting" | "agreed" | "denied";
 }
+
+/**
+ * A message under a listing.
+ *
+ * Deliberately spare: reply and report, nothing else. No likes, because a like
+ * on "I'm ready, add me" means nothing and a popularity contest is not what
+ * this thread is for. Only people who have voted can write here — it is a room
+ * for the people actually doing the thing, not a comment section.
+ */
+export interface ListingComment {
+  id: string;
+  author: string;
+  avatarUrl?: string;
+  online: boolean;
+  text: string;
+  minutesAgo: number;
+  /** The comment this answers, for a one-level thread. */
+  replyTo?: string;
+}
+
+/**
+ * How far along the deal is.
+ *
+ *   voting     open, collecting people who want in
+ *   requested  the poster picked a team and asked them; replies are coming back
+ *   locked     the poster locked it in. The listing closes to new votes and
+ *              shows who is going
+ *
+ * There is no state after locked. The listing simply stops existing when its
+ * two hours are up, whatever happened.
+ */
+export type DealStage = "voting" | "requested" | "locked";
+
+/**
+ * The most people one deal can involve.
+ *
+ * The board is for help that takes one or two others, so a team of eighteen is
+ * far past what any listing here needs — it is a ceiling to stop a runaway
+ * selection, not a target.
+ */
+export const MAX_TEAM = 18;
 
 export type ListingSide = "offer" | "request";
 
@@ -340,9 +394,43 @@ export interface ServiceListing {
   voteCount: number;
   /** How many of them are on MintPlaza right now. */
   votersOnline: number;
+  /** What the poster wrote about what they need. */
+  detail?: string;
+  stage: DealStage;
+  comments: readonly ListingComment[];
+  /** Whether the person reading this has voted. Gates the thread. */
+  youVoted: boolean;
+  /** Whether the person reading this posted it. */
+  yours: boolean;
 }
 
-/** A listing lives two hours, or until the deal is taken. */
+/** Everyone the poster picked, whatever they have replied. */
+export function pickedVoters(l: ServiceListing): readonly Voter[] {
+  return l.voters.filter((v) => v.reply !== "not-picked");
+}
+
+/** Everyone who said yes. One is enough to lock a deal in. */
+export function agreedVoters(l: ServiceListing): readonly Voter[] {
+  return l.voters.filter((v) => v.reply === "agreed");
+}
+
+/**
+ * Can the poster lock this in?
+ *
+ * One yes is enough. Waiting for everyone would leave a deal hostage to the one
+ * person who wandered off, and the people who did say yes are sitting there
+ * ready to go.
+ */
+export function canLockIn(l: ServiceListing): boolean {
+  return l.stage === "requested" && agreedVoters(l).length > 0;
+}
+
+/**
+ * A listing lives two hours. Not two hours of visibility and then an archive —
+ * two hours, then it is gone from the database entirely, locked deals included.
+ * Nobody benefits from a record of who helped whom last Tuesday, and not
+ * keeping it is the simplest way to never leak it.
+ */
 export const LIVE_WINDOW_MINUTES = 120;
 
 export function minutesLeft(l: ServiceListing): number {
