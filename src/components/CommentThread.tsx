@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type { ListingComment } from "@/lib/sessions";
 import { ReportButton } from "./ReportButton";
+import { addComment } from "@/lib/actions/board";
 
 /**
  * The thread under a listing.
@@ -74,6 +75,7 @@ function Comment({
           <ReportButton
             what="comment"
             subject={`${comment.author}: “${comment.text}”`}
+            subjectId={comment.id}
             compact
           />
         </p>
@@ -83,11 +85,16 @@ function Comment({
 }
 
 export function CommentThread({
+  listingId,
+  isDemo = false,
   comments: initial,
   youVoted,
   onVote,
   you = "you",
 }: {
+  listingId: string;
+  /** Example listings have no row to save to. */
+  isDemo?: boolean;
   comments: readonly ListingComment[];
   youVoted: boolean;
   /** Voting is what opens the thread, so the empty state can do it. */
@@ -97,23 +104,39 @@ export function CommentThread({
   const [comments, setComments] = useState<ListingComment[]>([...initial]);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [, start] = useTransition();
 
+  /**
+   * Shows the message immediately and takes it back if the server refuses.
+   * Typing into a thread and waiting for a round trip before seeing your own
+   * words is the fastest way to make someone type it twice.
+   */
   function send() {
     const text = draft.trim();
     if (!text) return;
-    setComments((prev) => [
-      ...prev,
-      {
-        id: `local-${prev.length}`,
-        author: you,
-        online: true,
-        text: replyTo ? `@${replyTo} ${text}` : text,
-        minutesAgo: 0,
-        replyTo: replyTo ?? undefined,
-      },
-    ]);
+    const optimistic: ListingComment = {
+      id: `pending-${Date.now()}`,
+      author: you,
+      online: true,
+      text: replyTo ? `@${replyTo} ${text}` : text,
+      minutesAgo: 0,
+      replyTo: replyTo ?? undefined,
+    };
+    setComments((prev) => [...prev, optimistic]);
     setDraft("");
     setReplyTo(null);
+    setError(null);
+    if (isDemo) return;
+
+    start(async () => {
+      const result = await addComment(listingId, optimistic.text);
+      if (!result.ok) {
+        setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
+        setDraft(text);
+        setError(result.error);
+      }
+    });
   }
 
   if (!youVoted) {
@@ -156,6 +179,10 @@ export function CommentThread({
             cancel
           </button>
         </p>
+      )}
+
+      {error && (
+        <p role="alert" className="mb-2 text-[0.8125rem] text-bad">{error}</p>
       )}
 
       <div className="flex items-center gap-2">

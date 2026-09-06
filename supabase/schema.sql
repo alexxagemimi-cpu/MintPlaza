@@ -833,3 +833,90 @@ grant execute on function public.recommended_listings(text, int, timestamptz) to
 -- enforce_listing_limits are trigger bodies, and is_participant is a helper
 -- used inside policies. None should be reachable over the REST API, so none
 -- of them are granted to anybody.
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Raids & Services: the board
+--
+-- Applied live as migrations; kept here so the file remains the whole picture.
+-- Five tables, and their shape encodes the rules rather than trusting the
+-- application to remember them.
+-- ===========================================================================
+-- ===========================================================================
+
+create table if not exists public.service_listings (
+  id            uuid primary key default gen_random_uuid(),
+  game_slug     text not null references public.games(slug) on delete cascade,
+  author_id     uuid not null references public.profiles(id) on delete cascade,
+  side          text not null check (side in ('offer', 'request')),
+  service_ids   text[] not null check (cardinality(service_ids) between 1 and 8),
+  terms_kind    text not null default 'free' check (terms_kind in ('free', 'split', 'item')),
+  terms_item_id uuid references public.game_items(id) on delete set null,
+  detail        text check (char_length(detail) <= 280),
+  stage         text not null default 'voting' check (stage in ('voting', 'requested', 'locked')),
+  created_at    timestamptz not null default now(),
+  expires_at    timestamptz not null default now() + interval '2 hours',
+  constraint terms_item_present check (terms_kind <> 'item' or terms_item_id is not null)
+);
+
+-- One person, one listing, one vote. The primary key is the rule.
+create table if not exists public.service_votes (
+  listing_id uuid not null references public.service_listings(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (listing_id, user_id)
+);
+
+-- The composite foreign key into votes is doing real work: you cannot pick
+-- somebody who never put their hand up.
+create table if not exists public.service_picks (
+  listing_id uuid not null,
+  user_id    uuid not null,
+  reply      text not null default 'waiting' check (reply in ('waiting', 'agreed', 'denied')),
+  picked_at  timestamptz not null default now(),
+  replied_at timestamptz,
+  primary key (listing_id, user_id),
+  foreign key (listing_id, user_id)
+    references public.service_votes(listing_id, user_id) on delete cascade
+);
+
+create table if not exists public.service_comments (
+  id         uuid primary key default gen_random_uuid(),
+  listing_id uuid not null references public.service_listings(id) on delete cascade,
+  author_id  uuid not null references public.profiles(id) on delete cascade,
+  body       text not null check (char_length(btrim(body)) between 1 and 400),
+  reply_to   uuid references public.service_comments(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- Presence, for the green dot. A timestamp rather than a websocket: one cheap
+-- write, survives a reconnect, and "seen in the last three minutes" is what a
+-- player means by online.
+alter table public.profiles add column if not exists last_seen_at timestamptz;
+
+-- Full definitions of the triggers, policies, board_listings() and the
+-- two-hour cleanup are in the applied migrations:
+--
+--   service_listings_votes_picks_comments   tables, triggers, cleanup function
+--   service_board_rls                       every policy
+--   service_board_limits_and_reads          3-per-game limit, board_listings()
+--   board_listings_include_voter_id         voter ids, for reporting
+--   reports_use_existing_table              reuse the moderation table
+--   schedule_listing_cleanup_v2             pg_cron, every 5 minutes
+--   harden_board_functions                  trigger functions off the API
+--
+-- The rules those enforce, verified against the live database as the
+-- `authenticated` role:
+--
+--   author cannot vote on their own listing        refused by trigger
+--   a second vote from the same person             refused by primary key
+--   a non-voter cannot comment                     refused by policy
+--   a non-author cannot pick, delete or restage    0 rows
+--   picking somebody who never voted               refused by foreign key
+--   the author cannot answer for a picked player   0 rows
+--   the picked player answers their own row        1 row, replied_at stamped
+--   a vote cannot be withdrawn after being picked  0 rows
+--   a fourth live post in one game                 refused by trigger
+--   an expired listing                             invisible before deletion
+--   a reporter reading reports back                0 rows

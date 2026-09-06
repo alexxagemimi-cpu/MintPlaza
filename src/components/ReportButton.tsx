@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { submitReport } from "@/lib/actions/board";
 
 /**
  * Report something, or someone.
@@ -28,16 +29,20 @@ const REASONS = [
 export function ReportButton({
   what,
   subject,
+  subjectId,
   compact = false,
 }: {
-  /** What is being reported — "comment", "listing", "player". */
-  what: string;
+  /** What is being reported. */
+  what: "comment" | "listing" | "player";
   /** Who or what it belongs to, shown back so the reporter is sure. */
   subject: string;
+  /** What the report points at. Falls back to the subject text. */
+  subjectId?: string;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
+  const [, start] = useTransition();
 
   if (sent) {
     return (
@@ -98,7 +103,16 @@ export function ReportButton({
                 <li key={r}>
                   <button
                     type="button"
-                    onClick={() => { setSent(true); setOpen(false); }}
+                    onClick={() => {
+                      // Marked sent straight away and never un-marked. A
+                      // reporter must not be able to learn anything from what
+                      // happens next, including whether it saved.
+                      setSent(true);
+                      setOpen(false);
+                      start(async () => {
+                        await submitReport(what, subjectId ?? subject, r);
+                      });
+                    }}
                     className="w-full rounded-[12px] border border-line bg-surface px-3 py-3 text-left text-[0.9375rem] font-semibold text-ink transition-colors hover:border-bad hover:text-bad"
                   >
                     {r}

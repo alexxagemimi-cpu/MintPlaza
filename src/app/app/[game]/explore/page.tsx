@@ -6,7 +6,9 @@ import { catalogFor } from "@/lib/items";
 import { ExploreCatalog } from "@/components/ExploreCatalog";
 import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
-import { DEMO_ENABLED, demoListings, demoServiceListings } from "@/lib/demo";
+import { DEMO_ENABLED, demoListings } from "@/lib/demo";
+import { getBoard } from "@/lib/data/board";
+import { touchPresence } from "@/lib/actions/board";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { ServiceListingCard } from "@/components/ServiceListingCard";
 import { servicesFor, PARTIAL_SERVICES, listingState } from "@/lib/sessions";
@@ -120,7 +122,12 @@ export default async function ExplorePage({
     game.exploreTabs.find((t) => t.id === requested) ?? game.exploreTabs[0];
 
   const listings = demoListings(game.slug);
-  const serviceListings = demoServiceListings(game.slug);
+  // Reading the board is also when we mark the reader present, which is what
+  // the green dots elsewhere are reading.
+  const [serviceListings] = await Promise.all([
+    getBoard(game.slug),
+    touchPresence(),
+  ]);
   const services = servicesFor(game.slug);
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.

@@ -302,6 +302,11 @@ export type Terms =
  * candidate for the deal — which is why every voter carries a reply state.
  */
 export interface Voter {
+  /**
+   * The profile id. Present on rows from the database; absent on generated
+   * examples. Reporting needs it — usernames change, ids do not.
+   */
+  userId?: string;
   username: string;
   /** The Roblox avatar, once a real account is signed in. */
   avatarUrl?: string;
@@ -363,8 +368,12 @@ export const MAX_TEAM = 18;
 export type ListingSide = "offer" | "request";
 
 export interface ServiceListing {
-  /** Always true for now. Nothing renders without its badge. */
-  isDemo: true;
+  /**
+   * True only for generated example content, which the interface badges. A row
+   * that came from the database leaves this off — mislabelling a real listing
+   * as an example would be as bad as the reverse.
+   */
+  isDemo?: boolean;
   id: string;
   gameSlug: string;
   side: ListingSide;

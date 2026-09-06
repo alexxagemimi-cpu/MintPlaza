@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type { ServiceListing } from "@/lib/sessions";
 import { findService, timeLeftCopy, expiresAt, listingState } from "@/lib/sessions";
 import { ServiceListingCard } from "./ServiceListingCard";
 import { LiveCountdown } from "./LiveCountdown";
 import { Face } from "./VotersSheet";
+import { answerRequest } from "@/lib/actions/board";
 
 /**
  * Everything you have a stake in, in one place.
@@ -92,6 +93,30 @@ export function MyLists({
 }) {
   const [tab, setTab] = useState<Tab>("mine");
   const [answered, setAnswered] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [, start] = useTransition();
+
+  /**
+   * Answer a request. The reply shows at once and rolls back if the server
+   * refuses — somebody waiting on you should see their answer land, and a
+   * refusal should say why rather than silently doing nothing.
+   */
+  function answer(id: string, agreed: boolean) {
+    setError(null);
+    setAnswered((prev) => ({ ...prev, [id]: agreed }));
+    if (joined.find((l) => l.id === id)?.isDemo) return;
+    start(async () => {
+      const result = await answerRequest(id, agreed);
+      if (!result.ok) {
+        setAnswered((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setError(result.error);
+      }
+    });
+  }
 
   // A request is waiting if they picked you and you have not answered yet.
   const waiting = joined.filter(
@@ -171,14 +196,15 @@ export function MyLists({
               <h2 className="mb-2 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
                 Waiting on you
               </h2>
+              {error && (
+                <p role="alert" className="mb-2 text-[0.8125rem] text-bad">{error}</p>
+              )}
               <ul className="grid gap-2">
                 {waiting.map((l) => (
                   <IncomingRequest
                     key={l.id}
                     listing={l}
-                    onAnswer={(id, agreed) =>
-                      setAnswered((prev) => ({ ...prev, [id]: agreed }))
-                    }
+                    onAnswer={answer}
                   />
                 ))}
               </ul>

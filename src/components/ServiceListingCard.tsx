@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { findItem } from "@/lib/items";
 import {
   findService, listingState, timeLeftCopy, expiresAt,
@@ -12,6 +12,7 @@ import { LiveCountdown } from "./LiveCountdown";
 import { VotersSheet, ReplyMark, Face } from "./VotersSheet";
 import { CommentThread } from "./CommentThread";
 import { ReportButton } from "./ReportButton";
+import { toggleVote, sendRequest, lockIn, deleteListing } from "@/lib/actions/board";
 
 /**
  * One listing on the Raids & Services board.
@@ -70,6 +71,8 @@ export function ServiceListingCard({
   const [sheet, setSheet] = useState<null | "view" | "choose">(null);
   const [voters, setVoters] = useState<readonly Voter[]>(listing.voters);
   const [stage, setStage] = useState(listing.stage);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, start] = useTransition();
 
   const services = listing.serviceIds
     .map(findService)
@@ -87,22 +90,73 @@ export function ServiceListingCard({
   const termsItem =
     listing.terms.kind === "item" ? findItem(listing.terms.itemId) : undefined;
 
-  function toggleVote() {
-    setVoted((was) => {
-      setVoteCount((n) => n + (was ? -1 : 1));
-      return !was;
+  /**
+   * Vote, or take it back.
+   *
+   * The screen moves first and rolls back if the server says no. On a board
+   * where a raid is starting in ten minutes, a button that waits on a round
+   * trip before acknowledging a tap feels broken — but a button that lies is
+   * worse, so a refusal puts it straight back and says why.
+   */
+  function onVote() {
+    if (busy) return;
+    const was = voted;
+    setError(null);
+    setVoted(!was);
+    setVoteCount((n) => n + (was ? -1 : 1));
+
+    // Example listings have no row behind them, so there is nothing to save.
+    // They still behave, because the point of example content is to show how
+    // the thing works — but they never pretend to have reached a server.
+    if (listing.isDemo) return;
+
+    start(async () => {
+      const result = await toggleVote(listing.id);
+      if (!result.ok) {
+        setVoted(was);
+        setVoteCount((n) => n + (was ? 1 : -1));
+        setError(result.error);
+      }
     });
   }
 
   /** The poster picked a team and asked them. */
-  function sendRequest(chosen: string[]) {
+  function onSendRequest(chosen: string[]) {
+    setSheet(null);
+    setError(null);
+    const before = voters;
     setVoters((prev) =>
       prev.map((v) =>
         chosen.includes(v.username) ? { ...v, reply: "waiting" as const } : v,
       ),
     );
     setStage("requested");
-    setSheet(null);
+    if (listing.isDemo) return;
+
+    start(async () => {
+      const result = await sendRequest(listing.id, chosen);
+      if (!result.ok) { setVoters(before); setStage(listing.stage); setError(result.error); }
+    });
+  }
+
+  function onLockIn() {
+    setError(null);
+    const before = stage;
+    setStage("locked");
+    if (listing.isDemo) return;
+    start(async () => {
+      const result = await lockIn(listing.id);
+      if (!result.ok) { setStage(before); setError(result.error); }
+    });
+  }
+
+  function onDelete() {
+    setError(null);
+    if (listing.isDemo) return;
+    start(async () => {
+      const result = await deleteListing(listing.id);
+      if (!result.ok) setError(result.error);
+    });
   }
 
   const picked = pickedVoters({ ...listing, voters });
@@ -185,9 +239,11 @@ export function ServiceListingCard({
           <span className="font-mono text-[0.625rem] text-ink-faint">
             {listing.completed === 0 ? "NEW HERE" : `${listing.completed} HELPED`}
           </span>
-          <span className="rounded-[5px] border border-warn/30 bg-warn-wash px-1.5 py-0.5 font-mono text-[0.5rem] tracking-[0.07em] text-warn">
-            DEMO
-          </span>
+          {listing.isDemo && (
+            <span className="rounded-[5px] border border-warn/30 bg-warn-wash px-1.5 py-0.5 font-mono text-[0.5rem] tracking-[0.07em] text-warn">
+              DEMO
+            </span>
+          )}
         </p>
 
         {/* ---- what, with the game's own requirement on each ---- */}
@@ -285,7 +341,7 @@ export function ServiceListingCard({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
-            onClick={toggleVote}
+            onClick={onVote}
             disabled={state !== "live" || stage === "locked"}
             aria-pressed={voted}
             className={`pill flex items-center gap-1.5 py-1.5 text-[0.8125rem] disabled:opacity-50 ${
@@ -299,15 +355,23 @@ export function ServiceListingCard({
             {voted ? "You're in" : "I want in"}
             {voteCount > 0 && ` · ${voteCount}`}
           </button>
-          <ReportButton what="listing" subject={`${listing.author} — ${headline}`} />
+          <ReportButton what="listing" subject={`${listing.author} — ${headline}`} subjectId={listing.id} />
         </div>
+
+        {error && (
+          <p role="alert" className="mt-2 rounded-[10px] border border-bad/30 bg-bad-wash px-3 py-2 text-[0.8125rem] text-bad">
+            {error}
+          </p>
+        )}
 
         {/* ---- the thread, for people who put their hand up ---- */}
         {state === "live" && (
           <CommentThread
+            listingId={listing.id}
+            isDemo={listing.isDemo}
             comments={listing.comments}
             youVoted={voted}
-            onVote={toggleVote}
+            onVote={onVote}
           />
         )}
 
@@ -335,7 +399,7 @@ export function ServiceListingCard({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStage("locked")}
+                  onClick={onLockIn}
                   disabled={agreed.length === 0}
                   className="pill pill-mint py-2 text-[0.8125rem] disabled:opacity-40"
                   title={
@@ -355,7 +419,9 @@ export function ServiceListingCard({
             )}
             <button
               type="button"
-              className="pill py-2 text-[0.8125rem] text-bad"
+              onClick={onDelete}
+              disabled={busy}
+              className="pill py-2 text-[0.8125rem] text-bad disabled:opacity-50"
               style={{ borderColor: "currentColor" }}
             >
               Delete
@@ -374,7 +440,7 @@ export function ServiceListingCard({
         voters={voters}
         total={voteCount}
         title={sheet === "choose" ? "Choose who joins" : "Everyone who wants in"}
-        onSendRequest={sheet === "choose" ? sendRequest : undefined}
+        onSendRequest={sheet === "choose" ? onSendRequest : undefined}
         onClose={() => setSheet(null)}
       />
     )}

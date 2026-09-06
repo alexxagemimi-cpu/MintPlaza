@@ -204,7 +204,7 @@ export function VotersSheet({
                         {mark.label.toUpperCase()}
                       </span>
                     )}
-                    <ReportButton what="player" subject={v.username} compact />
+                    <ReportButton what="player" subject={v.username} subjectId={v.userId} compact />
                   </span>
                 </span>
 

@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getGame } from "@/lib/games";
-import { demoServiceListings } from "@/lib/demo";
+import { getBoard } from "@/lib/data/board";
+import { touchPresence } from "@/lib/actions/board";
 import { MyLists } from "@/components/MyLists";
 
 /**
@@ -24,7 +25,7 @@ export default async function MyListsPage({
   const game = getGame((await params).game);
   if (!game) notFound();
 
-  const all = demoServiceListings(game.slug, 10);
+  const [all] = await Promise.all([getBoard(game.slug), touchPresence()]);
 
   return (
     <MyLists
