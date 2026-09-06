@@ -80,15 +80,23 @@ export function ServiceListingCard({
   const services = listing.serviceIds
     .map(findService)
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
-  if (services.length === 0) return null;
+
+  // A listing can name a template that no longer exists — removed from the
+  // catalogue while it was up. Rendering nothing would be worse than rendering
+  // something plain: the post still holds one of the author's three live slots
+  // and still collects votes, so it has to stay visible and deletable rather
+  // than becoming an invisible row only the database knows about.
+  const orphaned = services.length === 0;
 
   const state = listingState(listing);
   const isOffer = listing.side === "offer";
-  const headline = isOffer
-    ? services.length === 1
-      ? services[0].name
-      : `${services[0].name} + ${services.length - 1} more`
-    : services[0].name;
+  const headline = orphaned
+    ? "No longer listed"
+    : isOffer
+      ? services.length === 1
+        ? services[0].name
+        : `${services[0].name} + ${services.length - 1} more`
+      : services[0].name;
 
   const termsItem =
     listing.terms.kind === "item" ? findItem(listing.terms.itemId) : undefined;
@@ -258,6 +266,12 @@ export function ServiceListingCard({
         <p className="mb-2 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
           {isOffer ? "CAN RUN THESE" : "STUCK ON"}
         </p>
+        {orphaned && (
+          <p className="rounded-[12px] border border-dashed border-line bg-fill px-3 py-2.5 text-[0.8125rem] leading-relaxed text-ink-mute">
+            What this post was about is no longer on the list. It will clear
+            itself when the two hours are up, or you can delete it now.
+          </p>
+        )}
         <ul className="grid gap-2">
           {services.map((s) => {
             const tone = KIND_TONE[s.kind] ?? "#465650";

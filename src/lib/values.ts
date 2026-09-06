@@ -24,10 +24,10 @@
  * ---------------------------------------------------------------------------
  *
  * There is no official value API. Value lists are community sites that refresh
- * a few times a day, and they disagree with each other — the same fruit was
- * quoted to me at 3.17B on one site and 5.13B on another on the same day.
- * Mixing sources would produce a calculator whose two sides are measured on
- * different rulers, which is worse than no calculator.
+ * a few times a day, and they disagree with each other — sometimes by a factor
+ * of two on the same fruit on the same day. Mixing sources would produce a
+ * calculator whose two sides are measured on different rulers, which is worse
+ * than no calculator.
  *
  * So this table comes from ONE source, kept internally consistent, and it is
  * stamped with the date it was read. It is a snapshot, not a feed, and the
@@ -48,21 +48,38 @@ export const VALUE_SOURCE = {
 } as const;
 
 /**
- * Demand, as the value lists publish it: five steps, not a number. Kept ordinal
- * so it can be sorted and coloured, with the label the community actually uses.
+ * Demand — how badly people want it right now.
+ *
+ * Six named steps, not a score. Traders do not say "demand 4", they say "high
+ * demand", so that is what the interface says. The number behind it exists only
+ * so the levels can be sorted and compared; it is never shown to anybody.
+ *
+ * Extreme is deliberately its own step rather than the top of the same scale.
+ * It marks the handful of things a whole server is chasing at once, and it is
+ * drawn in red with a live glow so it reads differently at a glance — the point
+ * of the level is that you should not have to read the word to notice it.
  */
-export type Demand = 1 | 2 | 3 | 4 | 5;
+export type Demand = 1 | 2 | 3 | 4 | 5 | 6;
 
 export const DEMAND_LABEL: Record<Demand, string> = {
-  1: "Very low", 2: "Low", 3: "Medium", 4: "High", 5: "Very high",
+  1: "Very low",
+  2: "Low",
+  3: "Mid",
+  4: "High",
+  5: "Very high",
+  6: "Extreme",
 };
 
-export const DEMAND_STYLE: Record<Demand, { fg: string; bg: string }> = {
+/** Every step in order, for the admin panel's picker. */
+export const DEMAND_LEVELS: readonly Demand[] = [1, 2, 3, 4, 5, 6];
+
+export const DEMAND_STYLE: Record<Demand, { fg: string; bg: string; glow?: boolean }> = {
   1: { fg: "#6B7A74", bg: "#EEF2F0" },
   2: { fg: "#2C6C9E", bg: "#E7F0F8" },
   3: { fg: "#8A5A12", bg: "#FBF1E0" },
   4: { fg: "#A8501E", bg: "#FBEDE3" },
   5: { fg: "#A93226", bg: "#FBEDEB" },
+  6: { fg: "#FFFFFF", bg: "#D93025", glow: true },
 };
 
 export interface ItemValue {
@@ -136,15 +153,19 @@ export const VALUES: Record<string, ItemValue> = {
   "bf-spirit": { physical: 10 * M, permanent: 3.8 * B, demand: 4 },
   "bf-tiger": { physical: 137.5 * M, permanent: 5.0 * B, demand: 4 },
   "bf-yeti": { physical: 127.5 * M, permanent: 5.0 * B, demand: 4 },
-  "bf-kitsune": { physical: 622.5 * M, permanent: 6.5 * B, demand: 5 },
+  "bf-kitsune": { physical: 622.5 * M, permanent: 6.5 * B, demand: 6 },
   "bf-control": { physical: 156.7 * M, permanent: 6.2 * B, demand: 5 },
-  // Dragon is deliberately absent. The value lists now split it into West and
-  // East forms with very different values, and this catalogue still carries a
-  // single Dragon, so any number here would be one of two. See CATALOG_GAPS.
+  // West and East Dragon are two different fruits, and they trade apart: the
+  // permanent forms are separate items too, which is why each carries its own
+  // permanent figure rather than sharing one. The physical figures are the two
+  // I could not read a consistent number for, so they are absent rather than
+  // guessed — see CATALOG_GAPS.
+  "bf-west-dragon": { permanent: 3.17 * B, demand: 5 },
+  "bf-east-dragon": { permanent: 5.13 * B, demand: 6 },
 
   // ---- Gamepasses ----
   "bf-gp-dark-blade": { physical: 1.1 * B, demand: 5 },
-  "bf-gp-fruit-notifier": { physical: 4.23 * B, demand: 5 },
+  "bf-gp-fruit-notifier": { physical: 4.23 * B, demand: 6 },
   "bf-gp--1-fruit-storage": { physical: 420 * M, demand: 5 },
   "bf-gp-2x-money": { physical: 396.7 * M, demand: 3 },
   "bf-gp-fast-boats": { physical: 305 * M, demand: 3 },
@@ -158,7 +179,7 @@ export const VALUES: Record<string, ItemValue> = {
   // ---- Skins ----
   // These trade far above the fruits they repaint, which is exactly why they
   // had to become catalogue items of their own.
-  "bf-skin-galaxy-empyrean": { physical: 11.0 * B, demand: 5 },
+  "bf-skin-galaxy-empyrean": { physical: 11.0 * B, demand: 6 },
   "bf-skin-crimson-empyrean": { physical: 6.91 * B, demand: 5 },
   "bf-skin-ember-dragon": { physical: 5.62 * B, demand: 5 },
   "bf-skin-divine-portal": { physical: 1.4 * B, demand: 5 },
@@ -173,8 +194,8 @@ export const VALUES: Record<string, ItemValue> = {
  * filled deliberately instead of being discovered by a player mid-trade.
  */
 export const CATALOG_GAPS: readonly string[] = [
-  "Dragon now trades as two separate items, West and East, at very different values. The catalogue still has one Dragon, so it carries no value until that is split.",
-  "Most skins have no published value yet — only the eight best-known ones do.",
+  "West Dragon and East Dragon have no physical value yet — only the Permanent figures are known. A physical Dragon on either side of a trade will not get a verdict until those are filled in.",
+  "Most skins have no published value yet — only the eight best-known ones do. Eclipse, Blood Moon, Violet Night, Phoenix Sky and Parrot are in the catalogue and tradeable, but carry no value or rarity yet.",
   "The cheapest fruits have no Permanent value published.",
 ];
 

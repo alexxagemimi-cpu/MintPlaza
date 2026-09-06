@@ -69,11 +69,20 @@ function VerdictChip({ calc }: { calc: Calculation }) {
   );
 }
 
+/**
+ * Demand, as a word.
+ *
+ * Extreme gets solid red and a slow pulse. That is the one step where the
+ * information is "drop what you are doing", and a trader scanning nine rows on
+ * a phone should catch it without reading a single label.
+ */
 function DemandChip({ demand }: { demand: Demand }) {
   const s = DEMAND_STYLE[demand];
   return (
     <span
-      className="rounded-[5px] px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em]"
+      className={`rounded-[5px] px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em] ${
+        s.glow ? "demand-extreme font-bold" : ""
+      }`}
       style={{ color: s.fg, background: s.bg }}
     >
       {DEMAND_LABEL[demand].toUpperCase()} DEMAND

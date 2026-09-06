@@ -77,8 +77,8 @@ function validate(d: ItemDraft): string | null {
   if (d.name.length > 80) return "That name is too long to fit a tile.";
   if (!d.gameSlug) return "The item needs a game.";
   if (!d.category?.trim()) return "The item needs a category, such as Fruit or Gamepass.";
-  if (d.demand != null && (d.demand < 1 || d.demand > 5))
-    return "Demand runs from 1 (very low) to 5 (very high).";
+  if (d.demand != null && (d.demand < 1 || d.demand > 6))
+    return "Demand runs from Very low up to Extreme.";
   for (const [k, label] of [
     ["beli", "Beli price"], ["robux", "Robux price"],
     ["valuePhysical", "Physical value"], ["valuePermanent", "Permanent value"],

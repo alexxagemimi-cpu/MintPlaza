@@ -5,7 +5,7 @@ import { browserSupabase } from "@/lib/supabase/client";
 import { saveItem, setItemActive, saveGame, type ItemDraft } from "@/lib/admin/actions";
 import { lockConsole } from "@/lib/admin/gate";
 import { MoneyInput } from "./MoneyInput";
-import { DEMAND_LABEL, formatValue, type Demand } from "@/lib/values";
+import { DEMAND_LABEL, DEMAND_LEVELS, formatValue, type Demand } from "@/lib/values";
 import type { Rarity } from "@/lib/items";
 
 /**
@@ -243,7 +243,7 @@ function ItemEditor({
             <select className={inputClass} value={draft.demand ?? ""}
               onChange={(e) => set("demand", e.target.value === "" ? null : Number(e.target.value))}>
               <option value="">Not set</option>
-              {([1, 2, 3, 4, 5] as Demand[]).map((d) =>
+              {DEMAND_LEVELS.map((d) =>
                 <option key={d} value={d}>{DEMAND_LABEL[d]}</option>)}
             </select>
           </Field>

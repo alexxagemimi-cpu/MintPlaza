@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { servicesFor, type Service, type ListingSide } from "@/lib/sessions";
 import { postListing } from "@/lib/actions/board";
@@ -87,13 +87,23 @@ export function PostListing({
     });
   }
 
+  // Escape closes it. A full-screen form with no way out but one small button
+  // is a trap on a phone and worse on a keyboard.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-[70] grid place-items-end sm:place-items-center"
       role="dialog" aria-modal="true" aria-label={`Post to ${gameName}`}
     >
-      <button type="button" aria-label="Close" onClick={onClose}
-              className="absolute inset-0 bg-ink/30" />
+      {/* The scrim is a click target, not a second "Close" button — naming it
+          one would give a screen reader two identical controls to choose
+          between. The X below is the labelled one. */}
+      <div aria-hidden="true" onClick={onClose} className="absolute inset-0 bg-ink/30" />
 
       <div className="glass-overlay relative flex max-h-[88vh] w-full max-w-md flex-col rounded-t-[var(--radius-panel)] sm:rounded-[var(--radius-panel)]">
         <div className="shrink-0 border-b border-line-soft px-4 pb-3 pt-4">

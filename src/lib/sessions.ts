@@ -110,7 +110,7 @@ export interface Service {
  * Sourced from the wiki: the raid microchips and their level gate, the V4
  * trial's three races, the Cursed Dual Katana step that needs another player to
  * deal you damage, Yama's thirty Elite Hunter quests, Saber V2's player kill,
- * Instinct V2's prerequisites, and the island spawn conditions.
+ * the Citizen Quest, and the island spawn conditions.
  */
 const BLOX_FRUITS_SERVICES: Service[] = [
   // ---- Raids and awakening ----
@@ -145,18 +145,23 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     needs: "Exactly 3 players of 3 different races, all activating V3 at the same moment",
     players: 3,
     gives: "Race V4",
+    // The picture says which race you are; the description says what you are
+    // actually missing, which is never the same twice.
     // Which race you are decides who you still need, so the picker is the
     // fastest way to say it.
     refs: RACES,
     aliases: ["v4", "race v4", "race awakening"], verified: true,
   },
   {
-    id: "bf-s-carnage", gameSlug: "blox-fruits", name: "Trial of Carnage (Ghoul)",
+    id: "bf-s-v3", gameSlug: "blox-fruits", name: "Race V3 trial",
     kind: "Trial",
-    needs: "Every wave of Ancient Zombies and Ancient Vampires down in under one minute. Two to four waves, five zombies each",
+    // Every race gets a different task from Arowe, and two of them cannot be
+    // done alone at all.
+    needs: "Second Sea, and Arowe gives you a different task depending on your race. Angel: kill another Angel player. Ghoul: kill 5 players — the same person five times counts. Human: kill Diamond, Jeremy and Orbitus. Shark: kill a naturally spawned Sea Beast, summoned ones do not count. Rabbit: 30 chests. Cyborg: show Arowe any physical fruit. V3 costs 2,000,000",
     players: 2,
-    gives: "Ghoul race awakening",
-    aliases: ["ghoul", "carnage"], verified: true,
+    gives: "Race V3",
+    refs: RACES,
+    aliases: ["v3", "arowe", "race v3", "angel v3", "ghoul v3"], verified: true,
   },
   {
     id: "bf-s-temple", gameSlug: "blox-fruits", name: "Temple of Time access",
@@ -230,27 +235,6 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     aliases: ["shark anchor", "terrorshark", "monster magnet"], verified: true,
   },
 
-  // ---- Race V2 and V3 ----
-  {
-    id: "bf-s-v2-flower", gameSlug: "blox-fruits", name: "Race V2 — the Flower Quest",
-    kind: "Unlock",
-    needs: "Level 850+ and the Colosseum Quest done. Then the Alchemist in the Green Zone wants a Blue Flower (night only), a Red Flower (day only) and a Yellow Flower. V2 costs 500,000",
-    players: 2,
-    gives: "Race V2",
-    refs: RACES,
-    aliases: ["v2", "flower quest", "alchemist", "colosseum"], verified: true,
-  },
-  {
-    id: "bf-s-v3", gameSlug: "blox-fruits", name: "Race V3 quest",
-    kind: "Unlock",
-    // Every race gets a different task from Arowe, and two of them cannot be
-    // done alone at all.
-    needs: "Second Sea, and Arowe gives you a different task depending on your race. Angel: kill another Angel player. Ghoul: kill 5 players — the same person five times counts. Human: kill Diamond, Jeremy and Orbitus. Shark: kill a naturally spawned Sea Beast, summoned ones do not count. Rabbit: 30 chests. Cyborg: show Arowe any physical fruit. V3 costs 2,000,000",
-    players: 2,
-    gives: "Race V3",
-    refs: RACES,
-    aliases: ["v3", "arowe", "race v3", "angel v3", "ghoul v3"], verified: true,
-  },
 
   // ---- Second Sea ----
   {
@@ -312,12 +296,12 @@ const BLOX_FRUITS_SERVICES: Service[] = [
 
   // ---- Haki and styles ----
   {
-    id: "bf-s-instinct-v2", gameSlug: "blox-fruits", name: "Instinct V2 (Observation V2)",
+    id: "bf-s-citizen-quest", gameSlug: "blox-fruits", name: "Citizen Quest",
     kind: "Unlock",
-    needs: "Level 1800+, 5,000 EXP on Instinct V1, and the Musketeer Hat from the Citizen's Quest. Then the Hungry Man quest",
+    needs: "The Citizen in the Second Sea wants you to find him a Musketeer Hat. Say in your post which part you are stuck on",
     players: 2,
-    gives: "Instinct V2",
-    aliases: ["observation", "observation v2", "ken", "instinct"], verified: true,
+    gives: "The Musketeer Hat — the gate on Instinct V2",
+    aliases: ["citizen", "citizen quest", "musketeer hat", "instinct", "observation"], verified: true,
   },
   {
     id: "bf-s-godhuman", gameSlug: "blox-fruits", name: "Godhuman mastery grind",
@@ -337,13 +321,6 @@ const BLOX_FRUITS_SERVICES: Service[] = [
   },
 
   // ---- Islands ----
-  {
-    id: "bf-s-kitsune-island", gameSlug: "blox-fruits", name: "Kitsune Island spawn help",
-    kind: "Island",
-    needs: "Sail into Sea Danger Level 6 in daytime and wait for the Full Moon, or sit at Level 5 and move up when it rises",
-    players: 2,
-    aliases: ["kitsune island", "full moon"], verified: true,
-  },
   {
     id: "bf-s-mirage", gameSlug: "blox-fruits", name: "Mirage Island — Mirror Fractal",
     kind: "Island",

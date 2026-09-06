@@ -97,7 +97,7 @@ export function Rail() {
               key={item.label}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-w-[3.5rem] flex-col items-center gap-1 rounded-[15px] px-3 py-2 transition-colors duration-200 ${
+              className={`flex min-w-[3.5rem] flex-col items-center gap-1 whitespace-nowrap rounded-[15px] px-2.5 py-2 transition-colors duration-200 ${
                 active ? "bg-mint-wash text-mint" : "text-ink-mute"
               }`}
             >

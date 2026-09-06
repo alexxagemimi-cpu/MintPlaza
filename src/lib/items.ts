@@ -143,11 +143,12 @@ const f = (
 });
 
 /**
- * Blox Fruits — 41 fruits, read off the in-game wiki list.
+ * Blox Fruits — 42 fruits, read off the in-game wiki list.
  *
  * Order and rarity follow the wiki's own grid, where the tile border is the
  * rarity: grey Common, cyan Uncommon, purple Rare, magenta Legendary, red
- * Mythical. That gives 7 / 6 / 4 / 11 / 13, totalling 41.
+ * Mythical. That gives 7 / 6 / 4 / 11 / 14, totalling 42 — 14 Mythical because
+ * West Dragon and East Dragon are two fruits, not one with two forms.
  *
  * Four entries are renames rather than separate fruits, and each keeps its old
  * name as a searchable alias because players go on using them for years:
@@ -197,7 +198,7 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Pain", "Legendary", "Natural", 2200),
   f("Blizzard", "Legendary", "Elemental", 2250, undefined, 2_400_000),
 
-  // ---- Mythical (13) ----
+  // ---- Mythical (14) ----
   f("Gravity", "Mythical", "Natural", 2300),
   f("Mammoth", "Mythical", "Beast", 2350),
   f("T-Rex", "Mythical", "Beast", 2350),
@@ -210,7 +211,13 @@ const BLOX_FRUITS: CatalogItem[] = [
   f("Yeti", "Mythical", "Beast", 3000),
   f("Kitsune", "Mythical", "Beast", 4000),
   f("Control", "Mythical", "Natural", 4000),
-  f("Dragon", "Mythical", "Beast", 5000),
+  // West and East are two separate fruits with separate moves, separate values
+  // and separate Permanent forms — a Permanent West is not a Permanent East.
+  // Listing them as one "Dragon" would silently price one as the other.
+  // "Dragon" on its own is an alias for both, so searching it finds the pair
+  // and the player picks — better than guessing which one they meant.
+  { ...f("West Dragon", "Mythical", "Beast", 5000), aliases: ["Dragon", "West", "Dragon West"] },
+  { ...f("East Dragon", "Mythical", "Beast", 5000), aliases: ["Dragon", "East", "Dragon East"] },
 ];
 
 /**
@@ -307,7 +314,7 @@ const skin = (
   name: string,
   rarity: Rarity | undefined,
   chromatic: boolean,
-  opts: { base?: boolean; note?: string } = {},
+  opts: { base?: boolean; note?: string; unverified?: boolean } = {},
 ): CatalogItem => ({
   id: `bf-skin-${(name === fruit ? fruit + "-base" : name + "-" + fruit)
     .toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -325,7 +332,10 @@ const skin = (
   note: opts.base
     ? "The fruit's default look — comes with the fruit, not traded separately."
     : opts.note,
-  verified: true,
+  // A skin that is definitely in the game but whose tier I have not read is
+  // still a real, tradeable item — it just gets flagged in admin so the gap
+  // gets filled deliberately rather than discovered by a player mid-trade.
+  verified: opts.unverified ? false : true,
 });
 
 const BLOX_SKINS: CatalogItem[] = [
@@ -373,9 +383,19 @@ const BLOX_SKINS: CatalogItem[] = [
   skin("Empyrean", "bf-kitsune", "Galaxy", "Mythical", true),
 
   // ---- Dragon ----
-  skin("Dragon", "bf-dragon", "Ember", undefined, true, {
+  // These hang off West Dragon, which is the fruit the skins were released for.
+  // Rarity is left blank on the ones I could not read a tier for rather than
+  // guessed — blank shows as "not set" in admin and is one tap to fill in.
+  skin("Dragon", "bf-west-dragon", "Ember", undefined, true, {
     note: "Winter 2025 Fruit Box, 1% chance.",
   }),
+  skin("Dragon", "bf-west-dragon", "Eclipse", undefined, true, { unverified: true }),
+  skin("Dragon", "bf-west-dragon", "Blood Moon", undefined, true, { unverified: true }),
+  skin("Dragon", "bf-west-dragon", "Violet Night", undefined, true, { unverified: true }),
+  skin("Dragon", "bf-west-dragon", "Phoenix Sky", undefined, true, { unverified: true }),
+
+  // ---- Eagle, continued ----
+  skin("Eagle", "bf-eagle", "Parrot", undefined, true, { unverified: true }),
 ];
 
 const make = (
