@@ -33,6 +33,38 @@
  * ---------------------------------------------------------------------------
  */
 
+/**
+ * One pickable reference picture.
+ *
+ * `art` is optional and empty for now, exactly like the item catalogue: until
+ * real artwork exists a reference renders as a typographic tile, which reads
+ * cleanly and never pretends to be a picture it is not. Dropping files into
+ * /public/refs and filling the field in is the only change needed, and the
+ * control panel can do it without a deploy.
+ */
+export interface ServiceRef {
+  id: string;
+  label: string;
+  art?: string;
+  /** Colour for the fallback tile, so the six races stay distinguishable. */
+  hue?: string;
+}
+
+/**
+ * The races, as the game names them today.
+ *
+ * Worth stating plainly because two of them are commonly called something else:
+ * the Sky race is Angel, and the Mink race is Rabbit. Draco arrives with V4.
+ */
+export const RACES: readonly ServiceRef[] = [
+  { id: "race-human",  label: "Human",  hue: "#8A5A12" },
+  { id: "race-shark",  label: "Shark",  hue: "#2C6C9E" },
+  { id: "race-angel",  label: "Angel",  hue: "#6B4CA8" },
+  { id: "race-rabbit", label: "Rabbit", hue: "#2F7D57" },
+  { id: "race-ghoul",  label: "Ghoul",  hue: "#A93226" },
+  { id: "race-cyborg", label: "Cyborg", hue: "#465650" },
+];
+
 /** What kind of help this is. Named the way the game names things. */
 export type ServiceKind =
   | "Raid" | "Trial" | "Puzzle" | "Boss" | "Unlock" | "Grind" | "Island";
@@ -57,6 +89,16 @@ export interface Service {
    * boss in the game.
    */
   openEnded?: boolean;
+  /**
+   * Pictures the poster can pick one of, shown on the listing as a reference.
+   *
+   * A V3 listing means something different depending on the race — the Angel
+   * quest needs another Angel, the Ghoul one needs somebody willing to be
+   * killed five times — and a picture says which faster than a sentence does.
+   * It is a reference only: it never changes what the listing means, and the
+   * description is still where the poster says what they actually need.
+   */
+  refs?: readonly ServiceRef[];
   /** Other names people search for. */
   aliases?: readonly string[];
   verified?: boolean;
@@ -103,6 +145,9 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     needs: "Exactly 3 players of 3 different races, all activating V3 at the same moment",
     players: 3,
     gives: "Race V4",
+    // Which race you are decides who you still need, so the picker is the
+    // fastest way to say it.
+    refs: RACES,
     aliases: ["v4", "race v4", "race awakening"], verified: true,
   },
   {
@@ -129,6 +174,14 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     needs: "Level 2200+ and 350 mastery on both Yama and Tushita. One trial needs you to take 8,000–10,000 damage from another player while holding Yama — that is the part you need a helper for",
     players: 2,
     gives: "Cursed Dual Katana",
+    // The puzzle is a chain, and people get stuck at different links — one
+    // needs Yama, another Tushita, another the trial itself.
+    refs: [
+      { id: "cdk-yama",    label: "Yama",    hue: "#8A5A12" },
+      { id: "cdk-tushita", label: "Tushita", hue: "#2C6C9E" },
+      { id: "cdk-trial",   label: "The CDK trial", hue: "#6B4CA8" },
+      { id: "cdk-cdk",     label: "Cursed Dual Katana", hue: "#A93226" },
+    ],
     aliases: ["cdk", "cursed dual katana", "alucard"], verified: true,
   },
   {
@@ -175,6 +228,86 @@ const BLOX_FRUITS_SERVICES: Service[] = [
     players: 2,
     gives: "Shark Anchor",
     aliases: ["shark anchor", "terrorshark", "monster magnet"], verified: true,
+  },
+
+  // ---- Race V2 and V3 ----
+  {
+    id: "bf-s-v2-flower", gameSlug: "blox-fruits", name: "Race V2 — the Flower Quest",
+    kind: "Unlock",
+    needs: "Level 850+ and the Colosseum Quest done. Then the Alchemist in the Green Zone wants a Blue Flower (night only), a Red Flower (day only) and a Yellow Flower. V2 costs 500,000",
+    players: 2,
+    gives: "Race V2",
+    refs: RACES,
+    aliases: ["v2", "flower quest", "alchemist", "colosseum"], verified: true,
+  },
+  {
+    id: "bf-s-v3", gameSlug: "blox-fruits", name: "Race V3 quest",
+    kind: "Unlock",
+    // Every race gets a different task from Arowe, and two of them cannot be
+    // done alone at all.
+    needs: "Second Sea, and Arowe gives you a different task depending on your race. Angel: kill another Angel player. Ghoul: kill 5 players — the same person five times counts. Human: kill Diamond, Jeremy and Orbitus. Shark: kill a naturally spawned Sea Beast, summoned ones do not count. Rabbit: 30 chests. Cyborg: show Arowe any physical fruit. V3 costs 2,000,000",
+    players: 2,
+    gives: "Race V3",
+    refs: RACES,
+    aliases: ["v3", "arowe", "race v3", "angel v3", "ghoul v3"], verified: true,
+  },
+
+  // ---- Second Sea ----
+  {
+    id: "bf-s-darkbeard", gameSlug: "blox-fruits", name: "Darkbeard",
+    kind: "Boss",
+    needs: "A Fist of Darkness, used at the altar in the middle of the Dark Arena. He despawns 15 minutes after spawning, so people need to already be there",
+    players: 3,
+    gives: "A Dark Fragment, Fragments and Beli",
+    aliases: ["darkbeard", "fist of darkness", "dark arena"], verified: true,
+  },
+  {
+    id: "bf-s-fist-of-darkness", gameSlug: "blox-fruits", name: "Fist of Darkness hunting",
+    kind: "Grind",
+    needs: "A random chest every four hours, or a Sea Beast. Second Sea's answer to the God's Chalice",
+    players: 2,
+    aliases: ["fist of darkness", "fod"], verified: true,
+  },
+  {
+    id: "bf-s-slayer-skin", gameSlug: "blox-fruits", name: "Slayer Skin (Dark Blade V3)",
+    kind: "Puzzle",
+    // The two-fist rule is the whole reason this is on a services board.
+    needs: "Human, Rabbit, Shark and Angel all at V3 — the four races you can reroll into. Cyborg, Ghoul and Draco do not count. It also needs two Fists of Darkness, and one player cannot hold both, so somebody else has to carry the second",
+    players: 3,
+    gives: "The Slayer Skin for Dark Blade",
+    refs: [
+      { id: "slayer-human",  label: "Human V3",  hue: "#8A5A12" },
+      { id: "slayer-rabbit", label: "Rabbit V3", hue: "#2F7D57" },
+      { id: "slayer-shark",  label: "Shark V3",  hue: "#2C6C9E" },
+      { id: "slayer-angel",  label: "Angel V3",  hue: "#6B4CA8" },
+    ],
+    aliases: ["slayer", "dark blade v3", "db v3", "slayer skin"], verified: true,
+  },
+  {
+    id: "bf-s-cursed-captain", gameSlug: "blox-fruits", name: "Cursed Captain",
+    kind: "Boss",
+    needs: "Second floor of the Cursed Ship, Second Sea. Spawns roughly every 60 to 72 minutes. You need 10% of the damage to get a drop, and going alone under Level 1300 is not advised",
+    players: 3,
+    aliases: ["cursed captain", "cursed ship"], verified: true,
+  },
+
+  // ---- Third Sea ----
+  {
+    id: "bf-s-skull-guitar", gameSlug: "blox-fruits", name: "Skull Guitar (Soul Guitar)",
+    kind: "Puzzle",
+    needs: "Level 2300+. Pray at the Gravestone at night during a Full Moon, then craft it with 500 Bones, 1 Dark Fragment, 250 Ectoplasm and 5,000 Fragments",
+    players: 2,
+    gives: "Skull Guitar",
+    aliases: ["soul guitar", "skull guitar", "guitar", "gravestone"], verified: true,
+  },
+  {
+    id: "bf-s-materials", gameSlug: "blox-fruits", name: "Material farming",
+    kind: "Grind",
+    needs: "Say which in your post — Bones, Ectoplasm, Mystic Droplets, Dark Fragments and the rest all come from different places",
+    players: 2,
+    openEnded: true,
+    aliases: ["bones", "ectoplasm", "materials", "mystic droplet", "dark fragment"],
+    verified: true,
   },
 
   // ---- Haki and styles ----
@@ -275,6 +408,18 @@ export function servicesFor(gameSlug: string): readonly Service[] {
 
 export function findService(id: string): Service | undefined {
   return SERVICES.find((s) => s.id === id);
+}
+
+/** The reference a listing picked, looked up across the services it names. */
+export function findRef(
+  serviceIds: readonly string[], refId?: string,
+): ServiceRef | undefined {
+  if (!refId) return undefined;
+  for (const id of serviceIds) {
+    const hit = findService(id)?.refs?.find((r) => r.id === refId);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 /** Games whose service list is knowingly short. Surfaced in the interface. */
@@ -405,6 +550,8 @@ export interface ServiceListing {
   votersOnline: number;
   /** What the poster wrote about what they need. */
   detail?: string;
+  /** Which reference picture they picked, where the service offers a choice. */
+  refId?: string;
   stage: DealStage;
   comments: readonly ListingComment[];
   /** Whether the person reading this has voted. Gates the thread. */

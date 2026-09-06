@@ -63,6 +63,8 @@ export interface NewListing {
   serviceIds: string[];
   terms: { kind: "free" | "split" } | { kind: "item"; itemId: string };
   detail?: string;
+  /** The reference picture they picked, if the service offers a choice. */
+  refId?: string;
 }
 
 export async function postListing(input: NewListing): Promise<Result<string>> {
@@ -83,6 +85,7 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
       terms_kind: input.terms.kind,
       terms_item_id: input.terms.kind === "item" ? input.terms.itemId : null,
       detail: input.detail?.trim() || null,
+      ref_id: input.refId ?? null,
     })
     .select("id")
     .single();

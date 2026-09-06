@@ -11,6 +11,7 @@ import { getBoard } from "@/lib/data/board";
 import { touchPresence } from "@/lib/actions/board";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { ServiceListingCard } from "@/components/ServiceListingCard";
+import { PostListingButtons } from "@/components/PostListingButtons";
 import { servicesFor, PARTIAL_SERVICES, listingState } from "@/lib/sessions";
 import { currentProfile } from "@/lib/supabase/server";
 
@@ -205,14 +206,7 @@ export default async function ExplorePage({
               <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
                 Live right now
               </h2>
-              <div className="flex gap-2">
-                <button type="button" className="pill pill-ghost py-2.5 text-[0.8125rem]">
-                  I need help
-                </button>
-                <button type="button" className="pill pill-mint py-2.5 text-[0.8125rem]">
-                  I can help
-                </button>
-              </div>
+              <PostListingButtons gameSlug={game.slug} gameName={game.shortName} />
             </div>
             <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
               Posts stay up for two hours, or until the deal is taken.

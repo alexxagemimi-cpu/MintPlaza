@@ -20,6 +20,7 @@ interface Row {
   terms_kind: "free" | "split" | "item";
   terms_item_id: string | null;
   detail: string | null;
+  ref_id: string | null;
   stage: "voting" | "requested" | "locked";
   created_at: string;
   expires_at: string;
@@ -79,6 +80,7 @@ function toListing(row: Row): ServiceListing {
         ? { kind: "item", itemId: row.terms_item_id }
         : { kind: row.terms_kind === "split" ? "split" : "free" },
     detail: row.detail ?? undefined,
+    refId: row.ref_id ?? undefined,
     // The card works in minutes-since-posting, which is what the two-hour
     // window is measured against.
     postedMinutesAgo: Math.max(

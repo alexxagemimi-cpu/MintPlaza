@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { findItem } from "@/lib/items";
 import {
-  findService, listingState, timeLeftCopy, expiresAt,
+  findService, findRef, listingState, timeLeftCopy, expiresAt,
   pickedVoters, agreedVoters,
   type ServiceListing, type Voter,
 } from "@/lib/sessions";
@@ -12,6 +12,7 @@ import { LiveCountdown } from "./LiveCountdown";
 import { VotersSheet, ReplyMark, Face } from "./VotersSheet";
 import { CommentThread } from "./CommentThread";
 import { ReportButton } from "./ReportButton";
+import { RefTile } from "./RefTile";
 import { toggleVote, sendRequest, lockIn, deleteListing } from "@/lib/actions/board";
 
 /**
@@ -73,6 +74,8 @@ export function ServiceListingCard({
   const [stage, setStage] = useState(listing.stage);
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
+
+  const reference = findRef(listing.serviceIds, listing.refId);
 
   const services = listing.serviceIds
     .map(findService)
@@ -170,7 +173,12 @@ export function ServiceListingCard({
       }`}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 marker:hidden [&::-webkit-details-marker]:hidden">
-        <Avatar name={listing.author} url={listing.authorAvatarUrl} />
+        {/* The reference where there is one, the poster otherwise. A V3 listing
+            is a different job for an Angel than for a Ghoul, and the picture
+            says which before anybody reads a word. */}
+        {reference
+          ? <RefTile item={reference} size={34} />
+          : <Avatar name={listing.author} url={listing.authorAvatarUrl} />}
 
         <span className="min-w-0 flex-1">
           {/* Line one is the title's alone. Everything that competed with it
@@ -285,6 +293,18 @@ export function ServiceListingCard({
             );
           })}
         </ul>
+
+        {reference && (
+          <p className="mt-3 flex items-center gap-2.5 rounded-[12px] border border-line-soft bg-fill px-3 py-2.5">
+            <RefTile item={reference} size={32} />
+            <span className="min-w-0">
+              <span className="block font-mono text-[0.5625rem] tracking-[0.1em] text-ink-faint">
+                ABOUT
+              </span>
+              <span className="block text-[0.875rem] font-bold text-ink">{reference.label}</span>
+            </span>
+          </p>
+        )}
 
         {listing.detail && (
           <p className="mt-3 rounded-[12px] border border-line-soft bg-surface px-3 py-2.5 text-[0.875rem] leading-relaxed text-ink">
