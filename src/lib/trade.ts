@@ -106,10 +106,15 @@ export interface Calculation {
 }
 
 /**
- * Anything inside this band is a fair trade. Value lists are estimates read off
- * a moving market, so calling a 3% gap a "win" would be false precision.
+ * Anything inside this band is a fair trade — 15% either way.
+ *
+ * Wide on purpose. These values are one site's read of a market that moves
+ * daily, and two of them are routinely a few percent apart on the same fruit,
+ * so a narrow band would spend its time calling coin-flips. A band this size
+ * says "close enough to shake on", which is the question a trader is actually
+ * asking, and leaves W and L for gaps big enough to be real.
  */
-const FAIR_BAND_PERCENT = 5;
+const FAIR_BAND_PERCENT = 15;
 
 /**
  * Whose eyes this is calculated through.

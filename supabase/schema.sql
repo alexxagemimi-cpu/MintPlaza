@@ -135,10 +135,16 @@ begin
     end
   )
   on conflict (id) do nothing;
+
+  -- Runs on every sign-in, not only the one that creates the profile: the
+  -- owner may well have signed in before the allowlist row existed. Defined
+  -- further down; see "Binding the owner's account".
+  perform mintplaza.bind_admin_on_first_signin();
 exception
   -- Another Roblox id already claimed: leave the existing row alone rather
   -- than failing the sign-in.
   when unique_violation then
+    perform mintplaza.bind_admin_on_first_signin();
     return;
 end $$;
 
@@ -920,3 +926,32 @@ alter table public.profiles add column if not exists last_seen_at timestamptz;
 --   a fourth live post in one game                 refused by trigger
 --   an expired listing                             invisible before deletion
 --   a reporter reading reports back                0 rows
+
+-- ---------------------------------------------------------------------------
+-- Binding the owner's account to the control panel
+-- ---------------------------------------------------------------------------
+--
+-- The allowlist is seeded with a Roblox *username*, because that is the only
+-- thing a person knows about their own account before they have ever signed in.
+-- A username is a poor permanent key, though: Roblox lets you change one, and
+-- releases the old one for anybody to claim. So it is used exactly once.
+--
+-- The first sign-in whose username matches pins the numeric Roblox id, and
+-- every check from then on is against that id alone. Somebody who later renames
+-- themselves to the seeded username matches nothing.
+create or replace function mintplaza.bind_admin_on_first_signin()
+returns void language plpgsql security definer
+set search_path = mintplaza, public, pg_catalog as $$
+begin
+  update mintplaza.admin_allowlist a
+     set roblox_user_id = p.roblox_user_id,
+         bound_at       = now()
+    from public.profiles p
+   where p.id = auth.uid()
+     and a.roblox_user_id is null
+     and lower(a.roblox_username) = lower(p.username);
+end $$;
+
+-- Not callable by a signed-in user directly. ensure_profile() is SECURITY
+-- DEFINER and runs it as the owner, which is the only route in.
+revoke all on function mintplaza.bind_admin_on_first_signin() from public, anon, authenticated;

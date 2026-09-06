@@ -13,13 +13,22 @@ export const SUPABASE_READY =
   SUPABASE_URL.length > 0 && SUPABASE_ANON_KEY.length > 0;
 
 /**
- * The Roblox OIDC provider, registered in the Supabase dashboard as a custom
- * provider against issuer https://apis.roblox.com/oauth/ — Supabase reads the
- * endpoints from its discovery document, so nothing else is hardcoded here.
+ * The Roblox OIDC provider.
  *
- * The slug must match what the provider was named in the dashboard.
+ * Registered in the Supabase dashboard as a custom provider against issuer
+ * https://apis.roblox.com/oauth/ — Supabase fetches the discovery document and
+ * resolves every endpoint and the JWKS itself, so no Roblox URL is hardcoded
+ * anywhere in this repo.
+ *
+ * The "custom:" prefix is required by Supabase, not decoration: identifiers
+ * without it are read as built-in providers, and there is no built-in Roblox.
+ * The rest must match the identifier typed into the dashboard exactly.
+ *
+ * The client secret lives in Supabase and nowhere else. Supabase performs the
+ * token exchange, so this application never holds it, never reads it from an
+ * environment variable, and cannot leak it.
  */
-export const ROBLOX_PROVIDER = "roblox";
+export const ROBLOX_PROVIDER = "custom:roblox";
 
 
 /**

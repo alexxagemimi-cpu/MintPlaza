@@ -1,7 +1,7 @@
 import { ItemTile } from "./ItemTile";
 import { REASON_COPY, type DemoListing, type ListingItem } from "@/lib/demo";
 import {
-  DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, formatValue, type Demand,
+  DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, demandOf, formatValue, type Demand,
 } from "@/lib/values";
 import {
   VERDICT_COPY, VERDICT_STYLE, calculate,
@@ -112,6 +112,16 @@ function MiniSide({ entries }: { entries: readonly ListingItem[] }) {
       {shown.map((e) => (
         <span key={`${e.item.id}-${e.variant ?? ""}`} className="relative">
           <ItemTile item={e.item} size={22} />
+          {/* Extreme demand, on the closed row. Someone thumbing past nine
+              listings should catch the red without opening anything — the full
+              chip is still inside, this is only the flag that says look. */}
+          {demandOf(e.item) === 6 && (
+            <span
+              aria-label={`${e.item.name} is in extreme demand`}
+              title={`${e.item.name} — extreme demand`}
+              className="demand-extreme absolute -right-0.5 -top-0.5 h-[7px] w-[7px] rounded-full border border-surface bg-[#D93025]"
+            />
+          )}
           {e.quantity > 1 && (
             <span className="absolute -bottom-1 -right-1 grid h-[13px] min-w-[13px] place-items-center rounded-full border border-line bg-surface px-[2px] font-mono text-[0.4375rem] font-bold text-ink">
               {e.quantity}
