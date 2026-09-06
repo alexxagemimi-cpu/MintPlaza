@@ -26,6 +26,32 @@ const REASONS = [
   "Something else",
 ] as const;
 
+/**
+ * The report mark.
+ *
+ * A triangle rather than the word, in the muted red every site uses for this,
+ * because it has to be recognisable at a glance in a row of comments without
+ * competing with the comment itself. It sits at 55% opacity until touched and
+ * goes full red on hover — present, not shouting, and never mistaken for a
+ * decoration.
+ *
+ * Drawn rather than an emoji: an emoji renders differently on every phone,
+ * takes the system's colour instead of ours, and cannot be dimmed.
+ */
+function WarnIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"
+      fill="none" stroke="currentColor" strokeWidth="1.6"
+      strokeLinecap="round" strokeLinejoin="round"
+    >
+      <path d="M8 2.2 1.6 13.2a.9.9 0 0 0 .78 1.35h11.24a.9.9 0 0 0 .78-1.35L8 2.2Z" />
+      <path d="M8 6.3v3.2" />
+      <path d="M8 11.9h.01" strokeWidth="2" />
+    </svg>
+  );
+}
+
 export function ReportButton({
   what,
   subject,
@@ -57,13 +83,16 @@ export function ReportButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-label={`Report this ${what}`}
+        title={`Report this ${what}`}
         className={
           compact
-            ? "font-semibold text-ink-faint transition-colors hover:text-bad"
-            : "pill pill-ghost py-1.5 text-[0.8125rem] text-ink-mute"
+            ? "grid h-7 w-7 shrink-0 place-items-center rounded-full text-bad/55 transition-colors hover:bg-bad-wash hover:text-bad"
+            : "pill pill-ghost inline-flex items-center gap-1.5 py-1.5 text-[0.8125rem] text-ink-mute"
         }
       >
-        Report
+        <WarnIcon size={compact ? 15 : 14} />
+        {!compact && "Report"}
       </button>
 
       {open && (

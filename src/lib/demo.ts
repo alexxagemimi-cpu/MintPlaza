@@ -344,11 +344,13 @@ export function demoServiceListings(gameSlug: string, count = 12): readonly Serv
 
   return Array.from({ length: count }, (_, n) => {
     const rand = seededRandom(`${gameSlug}:service:${n}`);
-    const side: ListingSide = rand() > 0.45 ? "offer" : "request";
+    let side: ListingSide = rand() > 0.45 ? "offer" : "request";
 
     // A helper advertises a handful; someone stuck names one thing.
     // Every third post is a crew call, so both boards have something on them.
     const recruiting = crew.length > 0 && n % 3 === 2;
+    // The recruitment board has one direction: somebody is starting a crew.
+    if (recruiting) side = "request";
     const pool = recruiting ? crew : help.length > 0 ? help : services;
     // A crew call names one thing — you are sailing for the Leviathan or you
     // are not — so it never advertises a handful the way a helper does.

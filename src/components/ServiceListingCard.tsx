@@ -226,7 +226,7 @@ export function ServiceListingCard({
               }
             >
               {recruiting
-                ? isOffer ? "JOINING" : "NEEDS TEAM"
+                ? "NEEDS TEAM"
                 : isOffer ? "CAN HELP" : "NEEDS HELP"}
             </span>
             <VoterStack
@@ -270,7 +270,7 @@ export function ServiceListingCard({
         {/* ---- what, with the game's own requirement on each ---- */}
         <p className="mb-2 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
           {recruiting
-            ? isOffer ? "WILL JOIN" : "GATHERING FOR"
+            ? "GATHERING FOR"
             : isOffer ? "CAN RUN THESE" : "STUCK ON"}
         </p>
         {orphaned && (

@@ -22,32 +22,39 @@ import { RefTile } from "./RefTile";
  * where the real ask goes.
  */
 
-const SIDES: Record<Section, { id: ListingSide; label: string; blurb: string }[]> = {
-  services: [
-    { id: "request", label: "I need help", blurb: "You are stuck on one thing." },
-    { id: "offer", label: "I can help", blurb: "You have time, and can run several." },
-  ],
-  // On the recruitment board the two sides are not helper and helped — nobody
-  // is stuck. They are the person starting a crew and the person joining one.
-  recruit: [
-    { id: "request", label: "I need a team", blurb: "You are starting it and need people." },
-    { id: "offer", label: "I'll join", blurb: "You are free now and will fill a slot." },
-  ],
-};
+/**
+ * The two sides of a favour.
+ *
+ * Only the services board has them. On the recruitment board every post is one
+ * direction — you are starting a crew — because the other direction does not
+ * describe anything anybody can act on: "I am free to join something" with no
+ * raid attached is a post with no answer to it. People join by voting on a
+ * real crew call instead.
+ */
+const SIDES: { id: ListingSide; label: string; blurb: string }[] = [
+  { id: "request", label: "I need help", blurb: "You are stuck on one thing." },
+  { id: "offer", label: "I can help", blurb: "You have time, and can run several." },
+];
 
 export function PostListing({
-  gameSlug, gameName, section = "services", onClose,
+  gameSlug, gameName, section = "services", preselect, onClose,
 }: {
   gameSlug: string;
   gameName: string;
   /** Which board this post is going on. Decides the wording and the clock. */
   section?: Section;
+  /**
+   * A template chosen before the form opened, from tapping one in the
+   * reference list. Saves the one step that made those cards look decorative.
+   */
+  preselect?: string;
   onClose: () => void;
 }) {
   const all = useMemo(() => servicesFor(gameSlug, section), [gameSlug, section]);
   const recruiting = section === "recruit";
   const [side, setSide] = useState<ListingSide>("request");
-  const [picked, setPicked] = useState<string[]>([]);
+
+  const [picked, setPicked] = useState<string[]>(preselect ? [preselect] : []);
   const [refId, setRefId] = useState<string>("");
   const [detail, setDetail] = useState("");
   const [terms, setTerms] = useState<"free" | "split">("free");
@@ -56,8 +63,9 @@ export function PostListing({
   const [busy, start] = useTransition();
   const router = useRouter();
 
-  // A request is about one thing. An offer can advertise several.
-  const many = side === "offer";
+  // A request is about one thing. An offer can advertise several. A crew
+  // call is always one thing — you are sailing for the Leviathan or you are not.
+  const many = !recruiting && side === "offer";
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return all;
@@ -121,7 +129,7 @@ export function PostListing({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
-                Post to {gameName}
+                {recruiting ? `Start a crew · ${gameName}` : `Post to ${gameName}`}
               </h2>
               <p className="mt-0.5 text-[0.8125rem] text-ink-mute">
                 {recruiting
@@ -147,9 +155,10 @@ export function PostListing({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {/* ---- which way round ---- */}
+          {/* ---- which way round: services only ---- */}
+          {!recruiting && (
           <div className="grid grid-cols-2 gap-2">
-            {SIDES[section].map((s) => (
+            {SIDES.map((s) => (
               <button
                 key={s.id} type="button"
                 onClick={() => { setSide(s.id); setPicked([]); setRefId(""); }}
@@ -165,11 +174,12 @@ export function PostListing({
               </button>
             ))}
           </div>
+          )}
 
           {/* ---- what it is about ---- */}
           <p className="mb-2 mt-4 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
             {recruiting
-              ? many ? "WHAT WILL YOU JOIN?" : "WHAT NEEDS A TEAM?"
+              ? "WHAT NEEDS A TEAM?"
               : many ? "WHAT CAN YOU RUN?" : "WHAT ARE YOU STUCK ON?"}
           </p>
           <input

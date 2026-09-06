@@ -12,6 +12,7 @@ import { touchPresence } from "@/lib/actions/board";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { ServiceListingCard } from "@/components/ServiceListingCard";
 import { PostListingButtons } from "@/components/PostListingButtons";
+import { TemplateList } from "@/components/TemplateList";
 import { servicesFor, PARTIAL_SERVICES, listingState } from "@/lib/sessions";
 import { currentProfile } from "@/lib/supabase/server";
 
@@ -250,29 +251,14 @@ export default async function ExplorePage({
                 What you can get help with
               </h2>
               <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
-                Posts are built from this list rather than typed out, so the
-                requirements come from the game rather than from whoever posted.
+                Tap any of these to post it. Posts are built from this list
+                rather than typed out, so the requirements come from the game
+                rather than from whoever posted.
                 {PARTIAL_SERVICES.includes(game.slug) &&
                   " This list is still short for this game."}
               </p>
-              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {services.map((sv) => (
-                  <li key={sv.id} className="glass-quiet rounded-[var(--radius-inner)] p-3">
-                    <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
-                      {sv.name}
-                    </p>
-                    <p className="mt-0.5 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
-                      {sv.kind.toUpperCase()}
-                      {sv.players ? ` · ${sv.players} PLAYERS` : ""}
-                    </p>
-                    {sv.needs && (
-                      <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-mute">
-                        {sv.needs}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <TemplateList templates={services} gameSlug={game.slug}
+                            gameName={game.shortName} section="services" />
             </section>
           )}
         </div>
@@ -324,27 +310,12 @@ export default async function ExplorePage({
                 What needs a team
               </h2>
               <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
-                Everything here takes three or more. Not because it is hard —
-                because the game will not start it with fewer.
+                Tap any of these to start a crew for it. Everything here takes
+                three or more — not because it is hard, but because the game
+                will not start it with fewer.
               </p>
-              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {recruitTemplates.map((sv) => (
-                  <li key={sv.id} className="glass-quiet rounded-[var(--radius-inner)] p-3">
-                    <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
-                      {sv.name}
-                    </p>
-                    <p className="mt-0.5 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
-                      {sv.kind.toUpperCase()}
-                      {sv.players ? ` · ${sv.players} PLAYERS` : ""}
-                    </p>
-                    {sv.needs && (
-                      <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-mute">
-                        {sv.needs}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <TemplateList templates={recruitTemplates} gameSlug={game.slug}
+                            gameName={game.shortName} section="recruit" />
             </section>
           )}
 
