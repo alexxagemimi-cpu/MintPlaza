@@ -42,9 +42,10 @@ export function DevSignIn({ next = "/app" }: { next?: string }) {
     <div className="mt-8 rounded-[var(--radius-inner)] border border-dashed border-warn/40 bg-warn-wash p-5">
       <p className="font-mono text-[0.625rem] tracking-[0.1em] text-warn">DEVELOPMENT ONLY</p>
       <p className="mt-2 text-[0.875rem] leading-relaxed text-ink-soft">
-        Roblox sign-in needs an ID-verified developer account, which is not set
-        up yet. These accounts exist so the rest of the site can be built and
-        tested meanwhile. They never appear in a production build.
+        Two accounts for testing the signed-in half of the site without
+        going out to Roblox and back every time. They never appear in a
+        production build, and switching NEXT_PUBLIC_DEV_LOGIN to off removes
+        them here too.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         {DEV_ACCOUNTS.map((a) => (
