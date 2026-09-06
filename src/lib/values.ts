@@ -196,6 +196,7 @@ export const VALUES: Record<string, ItemValue> = {
 export const CATALOG_GAPS: readonly string[] = [
   "West Dragon and East Dragon have no physical value yet — only the Permanent figures are known. A physical Dragon on either side of a trade will not get a verdict until those are filled in.",
   "Most skins have no published value yet — only the eight best-known ones do. Eclipse, Blood Moon, Violet Night, Phoenix Sky and Parrot are in the catalogue and tradeable, but carry no value or rarity yet.",
+  "Spirit's value is wrong — reported by the owner, not yet re-read. Treat every figure in this table the same way: it is one site's snapshot, and the panel is the place to correct it.",
   "The cheapest fruits have no Permanent value published.",
 ];
 

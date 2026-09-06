@@ -97,7 +97,7 @@ export const GAMES: readonly Game[] = [
       { label: "Terrorshark hunt, who's in?", kind: "group" },
       { label: "Anyone got Mirage Island up?", kind: "help" },
       { label: "Bounty hunting partner", kind: "group" },
-      { label: "Perm Kitsune for Perm Dragon", kind: "trade" },
+      { label: "Perm Kitsune for Perm East Dragon", kind: "trade" },
       { label: "Is this W/F/L?", kind: "check" },
       { label: "Third Sea level grind help", kind: "help" },
     ],

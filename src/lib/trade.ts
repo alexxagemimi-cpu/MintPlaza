@@ -10,6 +10,11 @@
  *   3. It refuses to guess. If any item on either side has no published value,
  *      the totals are incomplete and it says so instead of quietly summing the
  *      items it happens to know.
+ *
+ * The answer is one of three words and nothing more. There is no percentage and
+ * no "+1.33B", because a score implies the inputs are exact and they are not:
+ * they are one community site's read of a market that moves every day. W, F or
+ * L is the most a value estimate can honestly support.
  */
 
 import type { ListingItem } from "./demo";
@@ -77,10 +82,10 @@ export function priceSide(entries: readonly ListingItem[]): SideTotal {
 export type Verdict = "W" | "L" | "F" | "?";
 
 export const VERDICT_COPY: Record<Verdict, { short: string; long: string }> = {
-  W: { short: "WIN", long: "You come out ahead on value" },
-  L: { short: "LOSS", long: "You come out behind on value" },
-  F: { short: "FAIR", long: "Both sides are within a few percent" },
-  "?": { short: "NO CALL", long: "Some items have no published value" },
+  W: { short: "WIN", long: "the side you receive is worth more" },
+  L: { short: "LOSS", long: "the side you give is worth more" },
+  F: { short: "FAIR", long: "both sides come out about the same" },
+  "?": { short: "NO CALL", long: "some items have no published value" },
 };
 
 export const VERDICT_STYLE: Record<Verdict, { fg: string; bg: string; ring: string }> = {
@@ -90,38 +95,11 @@ export const VERDICT_STYLE: Record<Verdict, { fg: string; bg: string; ring: stri
   "?": { fg: "#8A5A12", bg: "#FBF1E0", ring: "#8A5A1233" },
 };
 
-/**
- * How lopsided a trade is, in words a trader would use.
- *
- * A percentage stops meaning anything past a certain point — "+4055%" tells you
- * nothing you did not already know from "LOSS". Past double, the ratio is the
- * number people actually say out loud: "that is four times my side".
- */
-export function gapLabel(calc: Calculation): { short: string; long: string } {
-  if (calc.verdict === "?" || calc.verdict === "F") return { short: "", long: "" };
-  const ratio =
-    calc.outgoing.total > 0 ? calc.incoming.total / calc.outgoing.total : 0;
-  if (ratio > 3) {
-    const n = ratio.toFixed(1);
-    return { short: `${n}×`, long: `what you receive is ${n} times what you give` };
-  }
-  if (ratio > 0 && ratio < 1 / 3) {
-    const n = (1 / ratio).toFixed(1);
-    return { short: `1/${n}`, long: `what you give is ${n} times what you receive` };
-  }
-  const pct = `${calc.percent > 0 ? "+" : "−"}${Math.abs(Math.round(calc.percent))}%`;
-  return { short: pct, long: `${pct} on value` };
-}
-
 export interface Calculation {
   /** What the viewer would receive. */
   incoming: SideTotal;
   /** What the viewer would hand over. */
   outgoing: SideTotal;
-  /** incoming − outgoing. Positive is in the viewer's favour. */
-  difference: number;
-  /** Difference as a percentage of the outgoing side. */
-  percent: number;
   verdict: Verdict;
   /** True when the listing asks for nothing specific. */
   openToOffers: boolean;
@@ -157,8 +135,14 @@ export function calculate(
   const outgoing = perspective === "owner" ? offered : wanted;
 
   const openToOffers = wanting.length === 0;
-  const difference = incoming.total - outgoing.total;
-  const percent = outgoing.total > 0 ? (difference / outgoing.total) * 100 : 0;
+
+  // The gap decides which of the three words it is, and then it is thrown
+  // away. A percentage or a "+1.33B" reads as precision the underlying numbers
+  // do not have — they are one site's estimate of a market that moves daily —
+  // and a trader who is told "W" and shown both totals has everything the
+  // arithmetic can honestly give them.
+  const percent =
+    outgoing.total > 0 ? ((incoming.total - outgoing.total) / outgoing.total) * 100 : 0;
 
   // A listing open to offers has nothing to weigh against, and an incomplete
   // side makes any verdict a guess. Both get "?" rather than a confident lie.
@@ -174,5 +158,5 @@ export function calculate(
           ? "W"
           : "L";
 
-  return { incoming, outgoing, difference, percent, verdict, openToOffers };
+  return { incoming, outgoing, verdict, openToOffers };
 }

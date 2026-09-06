@@ -4,7 +4,7 @@ import {
   DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, formatValue, type Demand,
 } from "@/lib/values";
 import {
-  VERDICT_COPY, VERDICT_STYLE, calculate, gapLabel,
+  VERDICT_COPY, VERDICT_STYLE, calculate,
   type Calculation, type Perspective, type SideTotal,
 } from "@/lib/trade";
 
@@ -22,8 +22,8 @@ import {
  * The second is that the numbers behind the verdict have to be inspectable.
  * A calculator that shows only "LOSS" is a black box, and players do not trust
  * black boxes with items worth months of grinding. So every row opens into the
- * full arithmetic — every item, its price, its value, its demand, the subtotals
- * and the difference.
+ * full arithmetic — every item, its price, its value, its demand and the
+ * subtotals. Not a margin: the verdict is W, F or L and nothing finer.
  *
  * A <details> element does both without a byte of JavaScript, which keeps this
  * a server component and makes it behave identically on every device.
@@ -54,17 +54,24 @@ function Avatar({ name, size = 34 }: { name: string; size?: number }) {
   );
 }
 
+/**
+ * The verdict, and only the verdict.
+ *
+ * No percentage and no margin. The values underneath are one site's estimate of
+ * a market that moves daily, and dressing that up as "+35%" invites a trader to
+ * argue about a decimal point that was never real. Three words, and both totals
+ * shown in full below for anyone who wants to check the working.
+ */
 function VerdictChip({ calc }: { calc: Calculation }) {
   const s = VERDICT_STYLE[calc.verdict];
   const copy = VERDICT_COPY[calc.verdict];
-  const gap = gapLabel(calc);
   return (
     <span
-      title={gap.long ? `${copy.long} — ${gap.long}` : copy.long}
-      className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[0.5625rem] font-bold tracking-[0.08em] tabular-nums"
+      title={copy.long}
+      className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[0.5625rem] font-bold tracking-[0.08em]"
       style={{ color: s.fg, background: s.bg, boxShadow: `inset 0 0 0 1px ${s.ring}` }}
     >
-      {copy.short}{gap.short && ` ${gap.short}`}
+      {copy.short}
     </span>
   );
 }
@@ -217,7 +224,6 @@ export function TradeListingCard({
   // What the viewer receives and gives, in their own terms.
   const youGet = perspective === "owner" ? listing.wanting : listing.offering;
   const youGive = perspective === "owner" ? listing.offering : listing.wanting;
-  const gap = gapLabel(calc);
 
   return (
     <details className="glass group overflow-hidden rounded-[var(--radius-panel)] [&[open]]:bg-surface">
@@ -299,9 +305,7 @@ export function TradeListingCard({
               : calc.verdict === "?"
                 ? "Some items here have no published value, so this is not a call anyone should trade on."
                 : `${formatValue(calc.incoming.total)} in, ${formatValue(calc.outgoing.total)} out — ` +
-                  `a ${calc.difference >= 0 ? "gain" : "shortfall"} of ` +
-                  `${formatValue(Math.abs(calc.difference))}` +
-                  `${gap.long ? ` — ${gap.long}` : ""}.`}
+                  `${VERDICT_COPY[calc.verdict].long}.`}
           </span>
         </div>
 
