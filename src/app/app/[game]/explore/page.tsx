@@ -130,6 +130,16 @@ export default async function ExplorePage({
     touchPresence(),
   ]);
   const services = servicesFor(game.slug);
+  const recruitTemplates = servicesFor(game.slug, "recruit");
+
+  // One board, split by which template each post was built from. Splitting here
+  // rather than in two queries keeps the two tabs reading the same rows, so a
+  // post can never be live on one board and missing from the other.
+  const recruitIds = new Set(recruitTemplates.map((t) => t.id));
+  const isRecruit = (l: { serviceIds: readonly string[] }) =>
+    l.serviceIds.some((id) => recruitIds.has(id));
+  const recruitListings = serviceListings.filter(isRecruit);
+  const helpListings = serviceListings.filter((l) => !isRecruit(l));
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
@@ -212,9 +222,9 @@ export default async function ExplorePage({
               Posts stay up for two hours, or until the deal is taken.
             </p>
 
-            {serviceListings.length > 0 ? (
+            {helpListings.length > 0 ? (
               <div className="grid gap-2 md:grid-cols-2">
-                {serviceListings
+                {helpListings
                   .slice()
                   .sort((a, b) => {
                     // Live first, then whoever is online, then most voted.
@@ -268,23 +278,85 @@ export default async function ExplorePage({
         </div>
       )}
 
-      {/* ---------- COMMUNITY ---------- */}
+      {/* ---------- COMMUNITY / RECRUITMENT ---------- */}
       {active.kind === "community" && (
-        <div className="mt-7">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">Asking for help</h2>
-            <button type="button" className="pill pill-mint py-2.5">Ask for help</button>
-          </div>
-
-          {communityWants.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {communityWants.map((w) => <RequestCard key={w.label} want={w} game={game} />)}
+        <div className="mt-7 grid gap-8">
+          <section>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                Crews forming now
+              </h2>
+              <PostListingButtons gameSlug={game.slug} gameName={game.shortName}
+                                  section="recruit" />
             </div>
-          ) : (
-            <EmptyPanel
-              title="Nobody has asked yet"
-              body="Requests for help, value checks and company appear here as players post them."
-            />
+            <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
+              Forty minutes, then the post is gone. A crew call still up after an
+              hour is a lie that wastes the time of everybody who answers it —
+              so these run on a much shorter clock than the services board.
+            </p>
+
+            {recruitListings.length > 0 ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {recruitListings
+                  .slice()
+                  .sort((a, b) => {
+                    const live = Number(listingState(b) === "live") - Number(listingState(a) === "live");
+                    if (live !== 0) return live;
+                    const on = Number(b.authorOnline) - Number(a.authorOnline);
+                    if (on !== 0) return on;
+                    // Then the crew closest to being full, because that is the
+                    // one a person joining can actually get playing tonight.
+                    return b.voters.length - a.voters.length;
+                  })
+                  .map((l) => <ServiceListingCard key={l.id} listing={l} />)}
+              </div>
+            ) : (
+              <EmptyPanel
+                title="No crews forming"
+                body="When somebody needs a team for a raid, a sea event or an island hunt, it appears here for forty minutes."
+              />
+            )}
+          </section>
+
+          {recruitTemplates.length > 0 && (
+            <section>
+              <h2 className="mb-1 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                What needs a team
+              </h2>
+              <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
+                Everything here takes three or more. Not because it is hard —
+                because the game will not start it with fewer.
+              </p>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {recruitTemplates.map((sv) => (
+                  <li key={sv.id} className="glass-quiet rounded-[var(--radius-inner)] p-3">
+                    <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
+                      {sv.name}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+                      {sv.kind.toUpperCase()}
+                      {sv.players ? ` · ${sv.players} PLAYERS` : ""}
+                    </p>
+                    {sv.needs && (
+                      <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-mute">
+                        {sv.needs}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {communityWants.length > 0 && (
+            <section>
+              <h2 className="mb-4 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                Asking for help
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {communityWants.map((w) => <RequestCard key={w.label} want={w} game={game} />)}
+              </div>
+            </section>
           )}
         </div>
       )}

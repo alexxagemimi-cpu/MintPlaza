@@ -37,7 +37,10 @@ export function Rail() {
     { href: `${base}/trades`, label: "Trades", icon: icon("M3 6.5h11M11.5 4 14 6.5 11.5 9M17 13.5H6M8.5 11 6 13.5 8.5 16"), module: "trades" },
     { href: `${base}/inventory`, label: "Inventory", icon: icon("M3 7.2 10 3.5l7 3.7v5.6L10 16.5l-7-3.7V7.2ZM3 7.2 10 11l7-3.8M10 11v5.5"), module: "inventory" },
     { href: `${base}/my-lists`, label: "My lists", icon: icon("M4 5h12M4 10h12M4 15h7") },
-    { href: "/messages", label: "Messages", icon: icon("M17 9.6c0 3.2-3.1 5.8-7 5.8a8 8 0 0 1-2.1-.3L4 16.5l1.1-2.7A5.5 5.5 0 0 1 3 9.6c0-3.2 3.1-5.8 7-5.8s7 2.6 7 5.8Z") },
+    // Contacts absorbs what a separate Messages tab would have been: the people
+    // and the conversation with them are the same thing, and two tabs that both
+    // open a list of names is one tab too many on a 390px bar.
+    { href: `${base}/contacts`, label: "Contacts", icon: icon("M13 16.5v-1.2a3 3 0 0 0-3-3H5.5a3 3 0 0 0-3 3v1.2M7.75 9.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM17.5 16.5v-1.2a3 3 0 0 0-2.25-2.9M12.75 3.7a3 3 0 0 1 0 5.8") },
   ];
 
   const items = allItems.filter((i) => !i.module || hasModule(game, i.module));

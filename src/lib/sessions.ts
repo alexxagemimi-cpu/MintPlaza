@@ -67,18 +67,35 @@ export const RACES: readonly ServiceRef[] = [
 
 /** What kind of help this is. Named the way the game names things. */
 export type ServiceKind =
-  | "Raid" | "Trial" | "Puzzle" | "Boss" | "Unlock" | "Grind" | "Island";
+  | "Raid" | "Trial" | "Puzzle" | "Boss" | "Unlock" | "Grind" | "Island"
+  | "Crew" | "Event" | "Hunt";
+
+/**
+ * Which board a template belongs to.
+ *
+ *   "services" — one or two people. You are stuck, somebody unsticks you.
+ *   "recruit"  — three or more. Nobody is stuck; the thing simply cannot be
+ *                started until enough people are standing in the same place.
+ *
+ * The split is not cosmetic. A service is a favour and is over in minutes; a
+ * recruitment is a crew that has to assemble, which is why its board runs on a
+ * much shorter clock and shows who is in as they join.
+ */
+export type Section = "services" | "recruit";
 
 export interface Service {
   id: string;
   gameSlug: string;
   name: string;
   kind: ServiceKind;
+  /** Defaults to "services" so every existing template keeps its board. */
+  section?: Section;
   /** The game's own requirement. Only stated where it was confirmed. */
   needs?: string;
   /**
-   * Total players including the one being helped. Capped at 3 by the scope of
-   * this tab — anything needing more is recruitment, not a service.
+   * Total players including the one being helped. On the services board this
+   * is capped at 3 by the scope of the tab; on the recruitment board it is the
+   * size of crew the game actually requires, and the reason the post exists.
    */
   players?: number;
   /** What the person being helped walks away with. */
@@ -112,6 +129,183 @@ export interface Service {
  * deal you damage, Yama's thirty Elite Hunter quests, Saber V2's player kill,
  * the Citizen Quest, and the island spawn conditions.
  */
+/**
+ * Blox Fruits — recruitment.
+ *
+ * Everything here needs three or more people, and none of it is a favour. The
+ * distinction that decides which board a thing belongs on is not difficulty,
+ * it is this: on the services board somebody is stuck and one helper unsticks
+ * them; here nobody is stuck, the content simply will not start until enough
+ * people are in the same server, on the same boat, at the same time.
+ *
+ * Crew sizes are the game's, where the game states one. Where it does not, the
+ * number is what the content actually takes rather than a guess dressed up as
+ * a requirement — Leviathan says five on one boat, so it says five; Dough King
+ * says only "do not try this alone", so it says four and explains why.
+ *
+ * Sourced from the wiki's Sea Events and Raid Bosses pages and the boss guides
+ * that agree with them. Where sources disagree — the moon Kitsune Island wants
+ * is written up as both Full and Blue — the card leads with the part nobody
+ * disputes and leaves the disputed detail out of the requirement.
+ */
+const BLOX_FRUITS_RECRUIT: Service[] = [
+  // ---- Sea and island hunts: a boat, and enough people on it ----
+  {
+    id: "bf-r-leviathan", gameSlug: "blox-fruits", section: "recruit",
+    name: "Leviathan hunt", kind: "Hunt",
+    needs: "Five players on the same boat — the game will not start the hunt with fewer. Everyone needs 10% of the damage on a segment to get anything from it",
+    players: 5,
+    gives: "Leviathan Heart, the Sanguine Art unlock, and Leviathan Scales",
+    aliases: ["leviathan", "levi", "sea beast", "sanguine"], verified: true,
+  },
+  {
+    id: "bf-r-kitsune-island", gameSlug: "blox-fruits", section: "recruit",
+    name: "Kitsune Island spawn crew", kind: "Island",
+    needs: "A boat sitting at Sea Danger Level 6 and people willing to wait. It only surfaces on the right moon, so this is a shift, not a trip",
+    players: 5,
+    gives: "Kitsune, and the Kitsune Mask",
+    aliases: ["kitsune", "kitsune island", "moon"], verified: true,
+  },
+  {
+    id: "bf-r-prehistoric", gameSlug: "blox-fruits", section: "recruit",
+    name: "Prehistoric Island hunt", kind: "Island",
+    needs: "It can surface without one, but somebody bringing a Volcanic Magnet makes the whole hunt worth doing",
+    players: 4,
+    aliases: ["prehistoric", "dino", "volcanic magnet"], verified: true,
+  },
+  {
+    id: "bf-r-mirage", gameSlug: "blox-fruits", section: "recruit",
+    name: "Mirage Island hunt", kind: "Island",
+    needs: "Night only. More people sailing means more servers checked, which is the whole trick to finding it",
+    players: 4,
+    gives: "The Mirror Fractal, and the Blue Gear",
+    aliases: ["mirage", "mirage island", "blue gear"], verified: true,
+  },
+  {
+    id: "bf-r-sea-events", gameSlug: "blox-fruits", section: "recruit",
+    name: "Sea event team", kind: "Event",
+    needs: "Sail and take whatever surfaces — Ship Raids, Ghost Ships, Sea Beasts, Terrorsharks. Say in your post which sea and which Danger Level you are running",
+    players: 4,
+    gives: "Fragments and materials. A Ship Raid pays up to 100 Fragments",
+    openEnded: true,
+    aliases: ["sea event", "ship raid", "ghost ship", "danger level"], verified: true,
+  },
+  {
+    id: "bf-r-terrorshark", gameSlug: "blox-fruits", section: "recruit",
+    name: "Terrorshark run", kind: "Hunt",
+    needs: "Third Sea. Bring your own Monster Magnet if you want the Shark Anchor — only the player whose magnet was eaten gets the drop",
+    players: 3,
+    gives: "1,000 Valor a kill in the Third Sea",
+    aliases: ["terrorshark", "shark anchor", "valor"], verified: true,
+  },
+  {
+    id: "bf-r-ghost-ship", gameSlug: "blox-fruits", section: "recruit",
+    name: "Haunted Shipwreck crew", kind: "Event",
+    needs: "Ghost Ship Raids, Ghost Sharks and Haunted Crew Members. They hit hard and they sink your boat, so bring people who can take a hit",
+    players: 4,
+    aliases: ["ghost ship", "haunted", "shipwreck"], verified: true,
+  },
+
+  // ---- Raid bosses that will not go down to one person ----
+  {
+    id: "bf-r-dough-king", gameSlug: "blox-fruits", section: "recruit",
+    name: "Dough King raid", kind: "Raid",
+    needs: "The Advanced Dough raid, all five islands, then the King on a timer. This is the raid people burn a whole evening failing alone",
+    players: 4,
+    gives: "Dough Awakening and Dough Remnant",
+    aliases: ["dough king", "dough", "advanced raid"], verified: true,
+  },
+  {
+    id: "bf-r-cake-prince", gameSlug: "blox-fruits", section: "recruit",
+    name: "Cake Prince raid", kind: "Raid",
+    needs: "At least three people — he has the health and the move spam to outlast anything smaller",
+    players: 3,
+    gives: "The Dough Fruit chance, and Cake Prince drops",
+    aliases: ["cake prince", "cake", "dough fruit"], verified: true,
+  },
+  {
+    id: "bf-r-rip-indra", gameSlug: "blox-fruits", section: "recruit",
+    name: "Rip Indra (True Form) raid", kind: "Raid",
+    needs: "Castle on the Sea, Third Sea. Not to be attempted alone unless you are max level with everything maxed, which is why this is here and not on the services board",
+    players: 4,
+    gives: "A step on Race Awakening, and Indra's drops",
+    aliases: ["rip indra", "indra", "castle on the sea"], verified: true,
+  },
+  {
+    id: "bf-r-darkbeard", gameSlug: "blox-fruits", section: "recruit",
+    name: "Darkbeard raid", kind: "Raid",
+    needs: "Somebody brings a Fist of Darkness and uses it at the Dark Arena altar. He despawns fifteen minutes after spawning, so the crew has to be standing there before it is used",
+    players: 4,
+    gives: "A Dark Fragment, Fragments and Beli",
+    aliases: ["darkbeard", "fist of darkness", "dark arena"], verified: true,
+  },
+  {
+    id: "bf-r-cursed-captain", gameSlug: "blox-fruits", section: "recruit",
+    name: "Cursed Captain raid", kind: "Raid",
+    needs: "Second floor of the Cursed Ship. Spawns roughly every hour, and everybody needs 10% of the damage to see a drop",
+    players: 3,
+    aliases: ["cursed captain", "cursed ship"], verified: true,
+  },
+  {
+    id: "bf-r-longma", gameSlug: "blox-fruits", section: "recruit",
+    name: "Boss hunt — say which", kind: "Raid",
+    needs: "For any boss not listed here. Name it in your post, with the sea and the level you expect people to be",
+    players: 3,
+    openEnded: true,
+    aliases: ["boss", "raid boss", "hunt"], verified: true,
+  },
+
+  // ---- Farming crews ----
+  {
+    id: "bf-r-fragments", gameSlug: "blox-fruits", section: "recruit",
+    name: "Fragment farm — raid team", kind: "Raid",
+    needs: "Chip holders and a team that will keep going back in. About 14,500 Fragments awakens most fruits, which is nobody's single sitting",
+    players: 4,
+    gives: "Fragments, and awakenings at the end of them",
+    aliases: ["fragments", "frags", "raid farm", "awakening"], verified: true,
+  },
+  {
+    id: "bf-r-bounty", gameSlug: "blox-fruits", section: "recruit",
+    name: "Bounty / Honour hunt squad", kind: "Hunt",
+    needs: "Say whether you are hunting Pirates or Marines, and roughly what level. A squad that does not agree on the side it is on spends the night fighting itself",
+    players: 3,
+    aliases: ["bounty", "honour", "honor", "pvp", "marines", "pirates"], verified: true,
+  },
+  {
+    id: "bf-r-elite", gameSlug: "blox-fruits", section: "recruit",
+    name: "Elite Hunter grind squad", kind: "Grind",
+    needs: "Third Sea. Thirty quests guarantees Yama, and it goes a great deal faster with people",
+    players: 3,
+    gives: "Yama, and the Pretty Helmet at five Elite Pirates",
+    aliases: ["elite", "elite pirates", "yama", "elite hunter"], verified: true,
+  },
+  {
+    id: "bf-r-level-grind", gameSlug: "blox-fruits", section: "recruit",
+    name: "Level grinding party", kind: "Grind",
+    needs: "Say which sea and roughly what level, so people turn up somewhere useful to them too",
+    players: 3,
+    aliases: ["level", "grind", "xp", "party"], verified: true,
+  },
+
+  // ---- The game's own crew system ----
+  {
+    id: "bf-r-crew", gameSlug: "blox-fruits", section: "recruit",
+    name: "Crew recruiting members", kind: "Crew",
+    needs: "An actual in-game Crew, not a one-off team. Say the crew name, what it is for, and whether there is a level you expect",
+    players: 5,
+    openEnded: true,
+    aliases: ["crew", "guild", "clan", "captain"], verified: true,
+  },
+  {
+    id: "bf-r-looking-for-crew", gameSlug: "blox-fruits", section: "recruit",
+    name: "Looking for a crew", kind: "Crew",
+    needs: "The other way round — you want in. Say your level, your fruit and when you actually play",
+    players: 3,
+    openEnded: true,
+    aliases: ["lfc", "looking for crew", "join crew"], verified: true,
+  },
+];
+
 const BLOX_FRUITS_SERVICES: Service[] = [
   // ---- Raids and awakening ----
   {
@@ -376,11 +570,16 @@ const OTHER_SERVICES: Service[] = [
 ];
 
 export const SERVICES: readonly Service[] = [
-  ...BLOX_FRUITS_SERVICES, ...OTHER_SERVICES,
+  ...BLOX_FRUITS_SERVICES, ...BLOX_FRUITS_RECRUIT, ...OTHER_SERVICES,
 ];
 
-export function servicesFor(gameSlug: string): readonly Service[] {
-  return SERVICES.filter((s) => s.gameSlug === gameSlug);
+export function servicesFor(
+  gameSlug: string,
+  section: Section = "services",
+): readonly Service[] {
+  return SERVICES.filter(
+    (s) => s.gameSlug === gameSlug && (s.section ?? "services") === section,
+  );
 }
 
 export function findService(id: string): Service | undefined {
@@ -566,8 +765,27 @@ export function canLockIn(l: ServiceListing): boolean {
  */
 export const LIVE_WINDOW_MINUTES = 120;
 
+/**
+ * A recruitment post lives forty minutes, not two hours.
+ *
+ * The difference is what the two boards are for. A service post is somebody
+ * saying "I need this done sometime today"; it can sit for two hours and still
+ * be true. A recruitment post is somebody saying "I am sailing now, who is
+ * coming" — and a crew call that is ninety minutes old is a lie that wastes
+ * the time of everybody who answers it. Forty minutes is long enough to gather
+ * five people and short enough that anything still on the board is real.
+ */
+export const RECRUIT_WINDOW_MINUTES = 40;
+
+/** How long this particular listing gets, decided by the board it is on. */
+export function windowFor(l: ServiceListing): number {
+  return findService(l.serviceIds[0])?.section === "recruit"
+    ? RECRUIT_WINDOW_MINUTES
+    : LIVE_WINDOW_MINUTES;
+}
+
 export function minutesLeft(l: ServiceListing): number {
-  return Math.max(0, LIVE_WINDOW_MINUTES - l.postedMinutesAgo);
+  return Math.max(0, windowFor(l) - l.postedMinutesAgo);
 }
 
 export function listingState(l: ServiceListing): "live" | "taken" | "expired" {

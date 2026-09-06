@@ -21,6 +21,7 @@
 
 import { tradableFor, ITEM_VARIANTS, type CatalogItem } from "./items";
 import { VALUES, valueOf } from "./values";
+import type { Contact, ContactSuggestion, DirectMessage } from "./contacts";
 
 export const DEMO_ENABLED =
   process.env.NEXT_PUBLIC_DEMO_MODE === "on" &&
@@ -225,7 +226,7 @@ export const REASON_COPY: Record<ReasonCode, string> = {
  * ==================================================================== */
 
 import {
-  servicesFor, findService, LIVE_WINDOW_MINUTES, MAX_TEAM,
+  servicesFor, findService, LIVE_WINDOW_MINUTES, RECRUIT_WINDOW_MINUTES, MAX_TEAM,
   type ServiceListing, type Terms, type Voter, type ListingSide,
   type DealStage, type ListingComment,
 } from "./sessions";
@@ -328,10 +329,15 @@ const DETAILS = [
  * one person advertising everything they can run. Requests carry one, because
  * somebody stuck on Yama is stuck on Yama.
  */
-export function demoServiceListings(gameSlug: string, count = 8): readonly ServiceListing[] {
+export function demoServiceListings(gameSlug: string, count = 12): readonly ServiceListing[] {
   if (!DEMO_ENABLED) return [];
 
-  const services = servicesFor(gameSlug);
+  // Both boards are drawn from one pool, because the explore page splits them
+  // by template and an example set that only covered one would leave the other
+  // looking broken rather than empty.
+  const help = servicesFor(gameSlug);
+  const crew = servicesFor(gameSlug, "recruit");
+  const services = [...help, ...crew];
   if (services.length === 0) return [];
 
   const items = tradableItems(gameSlug);
@@ -341,8 +347,13 @@ export function demoServiceListings(gameSlug: string, count = 8): readonly Servi
     const side: ListingSide = rand() > 0.45 ? "offer" : "request";
 
     // A helper advertises a handful; someone stuck names one thing.
-    const howMany = side === "offer" ? 2 + Math.floor(rand() * 4) : 1;
-    const chosen = pickMany(rand, services, Math.min(howMany, services.length));
+    // Every third post is a crew call, so both boards have something on them.
+    const recruiting = crew.length > 0 && n % 3 === 2;
+    const pool = recruiting ? crew : help.length > 0 ? help : services;
+    // A crew call names one thing — you are sailing for the Leviathan or you
+    // are not — so it never advertises a handful the way a helper does.
+    const howMany = !recruiting && side === "offer" ? 2 + Math.floor(rand() * 4) : 1;
+    const chosen = pickMany(rand, pool, Math.min(howMany, pool.length));
 
     const roll = rand();
     const terms: Terms =
@@ -367,7 +378,10 @@ export function demoServiceListings(gameSlug: string, count = 8): readonly Servi
       note: pick(rand, side === "offer" ? OFFER_NOTES : REQUEST_NOTES) || undefined,
       // Inside the two-hour window, so the board shows what a live board looks
       // like rather than a wall of expired posts.
-      postedMinutesAgo: Math.floor(rand() * (LIVE_WINDOW_MINUTES - 4)),
+      // Inside whichever window this board runs on, so nothing is born expired.
+      postedMinutesAgo: Math.floor(
+        rand() * ((recruiting ? RECRUIT_WINDOW_MINUTES : LIVE_WINDOW_MINUTES) - 4),
+      ),
       taken,
       detail: pick(rand, DETAILS) || undefined,
       ...(() => {
@@ -407,3 +421,87 @@ export function demoServiceListings(gameSlug: string, count = 8): readonly Servi
 }
 
 export { findService, MAX_TEAM };
+
+/* ------------------------------------------------------------------ */
+/*  Contacts — example people, so the tab can be reviewed empty-handed */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Suggestions and contacts for one game.
+ *
+ * Built from the recruitment templates rather than invented, so the "you were
+ * on this together" line on every card names something that genuinely exists
+ * on the board next door. A suggestion that says "Leviathan hunt" when there is
+ * no Leviathan hunt would make the whole feature read as decoration.
+ */
+export function demoSuggestions(gameSlug: string): readonly ContactSuggestion[] {
+  if (!DEMO_ENABLED) return [];
+  const crew = servicesFor(gameSlug, "recruit");
+  if (crew.length === 0) return [];
+
+  const rand = seededRandom(`${gameSlug}:suggest`);
+  const names = [...USERNAMES];
+  const service = crew[Math.floor(rand() * crew.length)];
+  const team = names.slice(0, 4);
+
+  return team.slice(0, 3).map((username, n) => ({
+    id: `${gameSlug}-suggest-${n}`,
+    person: { username, online: rand() > 0.45 },
+    serviceId: service.id,
+    alongside: team.filter((t) => t !== username),
+    // Spread across the window so the countdown reads differently on each,
+    // which is the only way to see that the "clears in" line works.
+    metMinutesAgo: 6 + n * 27,
+    isDemo: true as const,
+  }));
+}
+
+export function demoContacts(gameSlug: string): readonly Contact[] {
+  if (!DEMO_ENABLED) return [];
+  const crew = servicesFor(gameSlug, "recruit");
+  if (crew.length === 0) return [];
+
+  const rand = seededRandom(`${gameSlug}:contacts`);
+  return USERNAMES.slice(4, 9).map((username, n) => {
+    const service = crew[(n * 3) % crew.length];
+    const said = rand() > 0.35;
+    return {
+      id: `${gameSlug}-contact-${n}`,
+      person: { username, online: rand() > 0.55 },
+      metServiceId: service.id,
+      metDaysAgo: n,
+      lastMessage: said
+        ? pick(rand, [
+            "on now if you still need it",
+            "that worked, thanks",
+            "give me 10 and I'm free",
+            "which server are you in?",
+            "got the chip, ready when you are",
+          ])
+        : undefined,
+      lastMessageMinutesAgo: said ? Math.floor(rand() * 900) : undefined,
+      unread: rand() > 0.75 ? 1 + Math.floor(rand() * 3) : 0,
+      isDemo: true as const,
+    };
+  });
+}
+
+export function demoThread(contactId: string): readonly DirectMessage[] {
+  if (!DEMO_ENABLED) return [];
+  const rand = seededRandom(`thread:${contactId}`);
+  const lines: [boolean, string][] = [
+    [false, "hey, that was a good run"],
+    [true, "yeah it was. same time tomorrow?"],
+    [false, "should be on after school"],
+    [true, "cool, I'll post it again around then"],
+    [false, "sounds good, ping me here"],
+  ];
+  const n = 2 + Math.floor(rand() * (lines.length - 1));
+  return lines.slice(0, n).map(([them, text], i) => ({
+    id: `${contactId}-m${i}`,
+    mine: !them,
+    text,
+    minutesAgo: (n - i) * 7 + Math.floor(rand() * 5),
+    isDemo: true as const,
+  }));
+}

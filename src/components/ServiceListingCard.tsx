@@ -90,6 +90,9 @@ export function ServiceListingCard({
 
   const state = listingState(listing);
   const isOffer = listing.side === "offer";
+  // A crew call is not a favour, so it does not get the favour's vocabulary:
+  // nobody on the recruitment board is helping anybody, they are turning up.
+  const recruiting = services[0]?.section === "recruit";
   const headline = orphaned
     ? "No longer listed"
     : isOffer
@@ -222,7 +225,9 @@ export function ServiceListingCard({
                   : { color: "#8A5A12", background: "#FBF1E0" }
               }
             >
-              {isOffer ? "CAN HELP" : "NEEDS HELP"}
+              {recruiting
+                ? isOffer ? "JOINING" : "NEEDS TEAM"
+                : isOffer ? "CAN HELP" : "NEEDS HELP"}
             </span>
             <VoterStack
               voters={voters}
@@ -264,7 +269,9 @@ export function ServiceListingCard({
 
         {/* ---- what, with the game's own requirement on each ---- */}
         <p className="mb-2 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
-          {isOffer ? "CAN RUN THESE" : "STUCK ON"}
+          {recruiting
+            ? isOffer ? "WILL JOIN" : "GATHERING FOR"
+            : isOffer ? "CAN RUN THESE" : "STUCK ON"}
         </p>
         {orphaned && (
           <p className="rounded-[12px] border border-dashed border-line bg-fill px-3 py-2.5 text-[0.8125rem] leading-relaxed text-ink-mute">

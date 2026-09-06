@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { servicesFor, type Service, type ListingSide } from "@/lib/sessions";
+import { servicesFor, type Section, type Service, type ListingSide } from "@/lib/sessions";
 import { postListing } from "@/lib/actions/board";
 import { RefTile } from "./RefTile";
 
@@ -22,19 +22,30 @@ import { RefTile } from "./RefTile";
  * where the real ask goes.
  */
 
-const SIDES: { id: ListingSide; label: string; blurb: string }[] = [
-  { id: "request", label: "I need help", blurb: "You are stuck on one thing." },
-  { id: "offer", label: "I can help", blurb: "You have time, and can run several." },
-];
+const SIDES: Record<Section, { id: ListingSide; label: string; blurb: string }[]> = {
+  services: [
+    { id: "request", label: "I need help", blurb: "You are stuck on one thing." },
+    { id: "offer", label: "I can help", blurb: "You have time, and can run several." },
+  ],
+  // On the recruitment board the two sides are not helper and helped — nobody
+  // is stuck. They are the person starting a crew and the person joining one.
+  recruit: [
+    { id: "request", label: "I need a team", blurb: "You are starting it and need people." },
+    { id: "offer", label: "I'll join", blurb: "You are free now and will fill a slot." },
+  ],
+};
 
 export function PostListing({
-  gameSlug, gameName, onClose,
+  gameSlug, gameName, section = "services", onClose,
 }: {
   gameSlug: string;
   gameName: string;
+  /** Which board this post is going on. Decides the wording and the clock. */
+  section?: Section;
   onClose: () => void;
 }) {
-  const all = useMemo(() => servicesFor(gameSlug), [gameSlug]);
+  const all = useMemo(() => servicesFor(gameSlug, section), [gameSlug, section]);
+  const recruiting = section === "recruit";
   const [side, setSide] = useState<ListingSide>("request");
   const [picked, setPicked] = useState<string[]>([]);
   const [refId, setRefId] = useState<string>("");
@@ -113,7 +124,9 @@ export function PostListing({
                 Post to {gameName}
               </h2>
               <p className="mt-0.5 text-[0.8125rem] text-ink-mute">
-                Stays up for two hours, then disappears.
+                {recruiting
+                  ? "Stays up for forty minutes, then disappears."
+                  : "Stays up for two hours, then disappears."}
               </p>
             </div>
             <button type="button" onClick={onClose} aria-label="Close"
@@ -136,7 +149,7 @@ export function PostListing({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {/* ---- which way round ---- */}
           <div className="grid grid-cols-2 gap-2">
-            {SIDES.map((s) => (
+            {SIDES[section].map((s) => (
               <button
                 key={s.id} type="button"
                 onClick={() => { setSide(s.id); setPicked([]); setRefId(""); }}
@@ -155,7 +168,9 @@ export function PostListing({
 
           {/* ---- what it is about ---- */}
           <p className="mb-2 mt-4 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
-            {many ? "WHAT CAN YOU RUN?" : "WHAT ARE YOU STUCK ON?"}
+            {recruiting
+              ? many ? "WHAT WILL YOU JOIN?" : "WHAT NEEDS A TEAM?"
+              : many ? "WHAT CAN YOU RUN?" : "WHAT ARE YOU STUCK ON?"}
           </p>
           <input
             value={query} onChange={(e) => setQuery(e.target.value)}
