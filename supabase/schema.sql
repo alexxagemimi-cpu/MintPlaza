@@ -975,7 +975,10 @@ begin
      set last_seen_at = now()
    where id = auth.uid() and hide_presence = false;
 end $$;
-revoke all on function public.touch_presence() from public;
+-- Supabase grants EXECUTE to anon and authenticated by default on anything
+-- created in `public`, so anon has to be named: revoking from PUBLIC alone
+-- leaves the account functions reachable by a signed-out visitor.
+revoke all on function public.touch_presence() from public, anon;
 grant execute on function public.touch_presence() to authenticated;
 
 -- Going invisible clears the dot already showing, or you stay lit for the rest
@@ -988,7 +991,10 @@ begin
          last_seen_at  = case when p_hide then null else now() end
    where id = auth.uid();
 end $$;
-revoke all on function public.set_hide_presence(boolean) from public;
+-- Supabase grants EXECUTE to anon and authenticated by default on anything
+-- created in `public`, so anon has to be named: revoking from PUBLIC alone
+-- leaves the account functions reachable by a signed-out visitor.
+revoke all on function public.set_hide_presence(boolean) from public, anon;
 grant execute on function public.set_hide_presence(boolean) to authenticated;
 
 -- The Roblox username is never editable: it is the account's identity and the
@@ -1015,7 +1021,10 @@ begin
    where id = auth.uid();
   return v_clean;
 end $$;
-revoke all on function public.set_display_name(text) from public;
+-- Supabase grants EXECUTE to anon and authenticated by default on anything
+-- created in `public`, so anon has to be named: revoking from PUBLIC alone
+-- leaves the account functions reachable by a signed-out visitor.
+revoke all on function public.set_display_name(text) from public, anon;
 grant execute on function public.set_display_name(text) to authenticated;
 
 -- Leaving for good. Deleting the profile cascades to listings, votes, picks,
@@ -1027,5 +1036,8 @@ begin
   if auth.uid() is null then return; end if;
   delete from public.profiles where id = auth.uid();
 end $$;
-revoke all on function public.delete_my_account() from public;
+-- Supabase grants EXECUTE to anon and authenticated by default on anything
+-- created in `public`, so anon has to be named: revoking from PUBLIC alone
+-- leaves the account functions reachable by a signed-out visitor.
+revoke all on function public.delete_my_account() from public, anon;
 grant execute on function public.delete_my_account() to authenticated;
