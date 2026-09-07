@@ -88,6 +88,17 @@ export interface Service {
   gameSlug: string;
   name: string;
   kind: ServiceKind;
+  /**
+   * The thing itself, photographed in game.
+   *
+   * On the recruitment board this carries most of the recognition: a player
+   * knows the Leviathan's silhouette long before they read the word, and a
+   * board of crew calls with pictures is scannable in a way a board of
+   * paragraphs never is. Absent where I do not have a real screenshot — an
+   * approximate picture of the wrong boss is worse than none, so the tile
+   * falls back to type rather than borrowing something that nearly fits.
+   */
+  art?: string;
   /** Defaults to "services" so every existing template keeps its board. */
   section?: Section;
   /** The game's own requirement. Only stated where it was confirmed. */
@@ -152,6 +163,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   // ---- Sea and island hunts: a boat, and enough people on it ----
   {
     id: "bf-r-leviathan", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/leviathan.jpg",
     name: "Leviathan hunt", kind: "Hunt",
     needs: "Five players on the same boat — the game will not start the hunt with fewer. Everyone needs 10% of the damage on a segment to get anything from it",
     players: 5,
@@ -160,6 +172,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-kitsune-island", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/kitsune-island.jpg",
     name: "Kitsune Island spawn crew", kind: "Island",
     needs: "A boat sitting at Sea Danger Level 6 and people willing to wait. It only surfaces on the right moon, so this is a shift, not a trip",
     players: 5,
@@ -168,6 +181,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-prehistoric", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/prehistoric-island.jpg",
     name: "Prehistoric Island hunt", kind: "Island",
     needs: "It can surface without one, but somebody bringing a Volcanic Magnet makes the whole hunt worth doing",
     players: 4,
@@ -183,6 +197,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-sea-events", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/sea-beast.jpg",
     name: "Sea event team", kind: "Event",
     needs: "Sail and take whatever surfaces — Ship Raids, Ghost Ships, Sea Beasts, Terrorsharks. Say in your post which sea and which Danger Level you are running",
     players: 4,
@@ -192,6 +207,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-terrorshark", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/terrorshark.jpg",
     name: "Terrorshark run", kind: "Hunt",
     needs: "Third Sea. Bring your own Monster Magnet if you want the Shark Anchor — only the player whose magnet was eaten gets the drop",
     players: 3,
@@ -209,6 +225,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   // ---- Raid bosses that will not go down to one person ----
   {
     id: "bf-r-dough-king", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/dough-king.jpg",
     name: "Dough King raid", kind: "Raid",
     needs: "The Advanced Dough raid, all five islands, then the King on a timer. This is the raid people burn a whole evening failing alone",
     players: 4,
@@ -217,6 +234,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-cake-prince", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/cake-prince.jpg",
     name: "Cake Prince raid", kind: "Raid",
     needs: "At least three people — he has the health and the move spam to outlast anything smaller",
     players: 3,

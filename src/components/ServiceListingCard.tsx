@@ -13,6 +13,7 @@ import { VotersSheet, ReplyMark, Face } from "./VotersSheet";
 import { CommentThread } from "./CommentThread";
 import { ReportButton } from "./ReportButton";
 import { RefTile } from "./RefTile";
+import { ServiceArt } from "./ServiceArt";
 import { toggleVote, sendRequest, lockIn, deleteListing } from "@/lib/actions/board";
 
 /**
@@ -184,12 +185,20 @@ export function ServiceListingCard({
       }`}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 marker:hidden [&::-webkit-details-marker]:hidden">
-        {/* The reference where there is one, the poster otherwise. A V3 listing
-            is a different job for an Angel than for a Ghoul, and the picture
-            says which before anybody reads a word. */}
-        {reference
-          ? <RefTile item={reference} size={34} />
-          : <Avatar name={listing.author} url={listing.authorAvatarUrl} />}
+        {/* What this post is about, ranked by what identifies it fastest.
+            A reference picture first, because a V3 listing is a different job
+            for an Angel than for a Ghoul. Then, on a crew call, the raid
+            itself: nobody joins the Leviathan because of who posted it, and
+            the silhouette is recognised before the words are read. Only on the
+            services board does the poster lead, because there the question
+            genuinely is who is offering. */}
+        {reference ? (
+          <RefTile item={reference} size={34} />
+        ) : recruiting && services[0] ? (
+          <ServiceArt service={services[0]} size={44} rounded={11} />
+        ) : (
+          <Avatar name={listing.author} url={listing.authorAvatarUrl} />
+        )}
 
         <span className="min-w-0 flex-1">
           {/* Line one is the title's alone. Everything that competed with it
@@ -217,16 +226,22 @@ export function ServiceListingCard({
           </span>
 
           <span className="mt-1 flex items-center gap-2">
+            {/* A crew call reads as its own kind of thing: red rather than the
+                services board's amber, and the crew size on the badge, because
+                "needs 5" is the single fact that decides whether somebody
+                scrolling can actually help. */}
             <span
               className="shrink-0 rounded-[5px] px-1.5 py-0.5 font-mono text-[0.5rem] font-bold tracking-[0.07em]"
               style={
-                isOffer
-                  ? { color: "#0B6157", background: "#DFF3F1" }
-                  : { color: "#8A5A12", background: "#FBF1E0" }
+                recruiting
+                  ? { color: "#A93226", background: "#FBEDEB" }
+                  : isOffer
+                    ? { color: "#0B6157", background: "#DFF3F1" }
+                    : { color: "#8A5A12", background: "#FBF1E0" }
               }
             >
               {recruiting
-                ? "NEEDS TEAM"
+                ? `CREW OF ${services[0]?.players ?? "?"}`
                 : isOffer ? "CAN HELP" : "NEEDS HELP"}
             </span>
             <VoterStack

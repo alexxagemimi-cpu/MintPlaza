@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { servicesFor, type Section, type Service, type ListingSide } from "@/lib/sessions";
 import { postListing } from "@/lib/actions/board";
 import { RefTile } from "./RefTile";
+import { ServiceArt } from "./ServiceArt";
 
 /**
  * Posting a listing.
@@ -187,6 +188,12 @@ export function PostListing({
             placeholder="Search" aria-label="Search what you can get help with"
             className="mb-2 w-full rounded-[10px] border border-line bg-surface px-3 py-2.5 text-[0.9375rem] text-ink outline-none focus:border-mint"
           />
+          {/* Picture, name, crew size. Nothing else.
+              The game's requirement used to sit under every row here, and it
+              turned choosing between twenty things into reading twenty
+              paragraphs — the requirement matters once you have posted, not
+              while you are still scanning for the right one. It is still on the
+              listing itself, where somebody deciding whether to join needs it. */}
           <ul className="grid gap-1.5">
             {shown.map((s) => {
               const on = picked.includes(s.id);
@@ -194,21 +201,27 @@ export function PostListing({
                 <li key={s.id}>
                   <button
                     type="button" onClick={() => toggle(s.id)} aria-pressed={on}
-                    className={`w-full rounded-[12px] border px-3 py-2.5 text-left transition-colors ${
+                    className={`flex w-full items-center gap-2.5 rounded-[12px] border p-2 text-left transition-colors ${
                       on ? "border-mint bg-mint-wash" : "border-line-soft bg-surface"
                     }`}
                   >
-                    <span className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 text-[0.875rem] font-bold text-ink">
+                    <ServiceArt service={s} size={40} rounded={10} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[0.875rem] font-bold text-ink">
                         {s.name}
                       </span>
-                      <span className="shrink-0 font-mono text-[0.5rem] tracking-[0.07em] text-ink-faint">
+                      <span className="mt-0.5 block font-mono text-[0.5rem] tracking-[0.08em] text-ink-faint">
                         {s.kind.toUpperCase()}
+                        {s.players ? ` · ${s.players} PLAYERS` : ""}
                       </span>
                     </span>
-                    {s.needs && (
-                      <span className="mt-1 block text-[0.75rem] leading-relaxed text-ink-mute">
-                        {s.needs}
+                    {on && (
+                      <span aria-hidden="true" className="shrink-0 text-mint">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                             stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+                             strokeLinejoin="round">
+                          <path d="m3.5 8.5 3 3 6-6.5" />
+                        </svg>
                       </span>
                     )}
                   </button>
