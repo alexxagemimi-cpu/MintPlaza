@@ -24,6 +24,9 @@ interface Row {
   stage: "voting" | "requested" | "locked";
   created_at: string;
   expires_at: string;
+  vote_cap: number | null;
+  slots: number | null;
+  window_minutes: number;
   vote_count: number;
   voters_online: number;
   you_voted: boolean;
@@ -81,14 +84,15 @@ function toListing(row: Row): ServiceListing {
         : { kind: row.terms_kind === "split" ? "split" : "free" },
     detail: row.detail ?? undefined,
     refId: row.ref_id ?? undefined,
-    // The card works in minutes-since-posting, which is what the two-hour
-    // window is measured against.
-    postedMinutesAgo: Math.max(
-      0,
-      LIVE_WINDOW_MINUTES - Math.max(0, Math.round(
-        (new Date(row.expires_at).getTime() - Date.now()) / 60_000,
-      )),
-    ),
+    // The card works in minutes-since-posting, measured against whatever window
+    // the poster chose — which is why this reads created_at directly rather
+    // than subtracting from a constant, as it used to. Doing it the old way
+    // now would show a listing as half-expired the moment somebody picked a
+    // thirty-minute window.
+    postedMinutesAgo: minutesSince(row.created_at),
+    windowMinutes: row.window_minutes,
+    voteCap: row.vote_cap ?? undefined,
+    slots: row.slots ?? undefined,
     taken: row.stage === "locked",
     voters,
     voteCount: row.vote_count,

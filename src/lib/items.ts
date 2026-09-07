@@ -104,6 +104,18 @@ export interface CatalogItem {
    * presented as fact.
    */
   verified?: boolean;
+  /**
+   * When this row's numbers were last touched, ISO.
+   *
+   * Values are a snapshot of a market that moves daily, and a snapshot with no
+   * date on it is indistinguishable from a fact. Shown beside the value as
+   * "checked 3 days ago" so a trader can weigh it — and it moves every time the
+   * control panel saves, so it stays true without anybody maintaining it.
+   *
+   * Only rows from the database carry one. The seeded catalogue falls back to
+   * the date stamped on VALUE_SOURCE.
+   */
+  checkedAt?: string;
 }
 
 /** Tile colours by rarity. Restrained — this is a label, not a rainbow. */

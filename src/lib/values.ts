@@ -225,6 +225,31 @@ export function demandOf(item: { id: string; demand?: Demand }): Demand | undefi
  * Compact money, the way trading communities write it: 622.5M, 3.4B, 80K.
  * Trailing ".0" is dropped because "3.0B" reads like a measurement.
  */
+/**
+ * "checked today" / "checked 3 days ago" / "checked 2 weeks ago".
+ *
+ * Shown wherever a value is. A number with no date on it is indistinguishable
+ * from a fact, and these are a snapshot of a market that moves daily — the age
+ * is the part that tells a trader how much to trust it.
+ */
+export function checkedLabel(iso?: string): string {
+  if (!iso) return `checked ${VALUE_SOURCE.checked}`;
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (!Number.isFinite(days) || days < 0) return `checked ${VALUE_SOURCE.checked}`;
+  if (days === 0) return "checked today";
+  if (days === 1) return "checked yesterday";
+  if (days < 14) return `checked ${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 9) return `checked ${weeks} weeks ago`;
+  return `checked ${Math.floor(days / 30)} months ago`;
+}
+
+/** True once a value is old enough that the interface should say so loudly. */
+export function isStale(iso?: string): boolean {
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() > 14 * 86_400_000;
+}
+
 export function formatValue(n: number): string {
   const [div, suffix] =
     n >= B ? [B, "B"] : n >= M ? [M, "M"] : n >= K ? [K, "K"] : [1, ""];

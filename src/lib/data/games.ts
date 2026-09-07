@@ -53,7 +53,7 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
 
   const { data, error } = await supabase
     .from("game_items")
-    .select("id, game_slug, name, category, attributes")
+    .select("id, game_slug, name, category, attributes, verified_at")
     .eq("game_slug", gameSlug)
     .eq("is_active", true)
     .order("name");
@@ -99,13 +99,19 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
               permanent: typeof attrs.valuePermanent === "number" ? attrs.valuePermanent : undefined,
             }
           : undefined,
+      // Six, not five. Extreme was added as its own level and this reader was
+      // still capping at the old top, which silently dropped it on the way back
+      // out — an admin could set Extreme, see it save, and never see it again.
       demand:
-        typeof attrs.demand === "number" && attrs.demand >= 1 && attrs.demand <= 5
+        typeof attrs.demand === "number" && attrs.demand >= 1 && attrs.demand <= 6
           ? (attrs.demand as CatalogItem["demand"])
           : undefined,
       note: attrs.note as string | undefined,
       verified: attrs.verified === false ? false : undefined,
       art: attrs.art as string | undefined,
+      // Stamped by every save in the panel, which is what keeps "checked 3 days
+      // ago" honest without anybody having to maintain it.
+      checkedAt: (row as { verified_at?: string | null }).verified_at ?? undefined,
     };
   });
 }

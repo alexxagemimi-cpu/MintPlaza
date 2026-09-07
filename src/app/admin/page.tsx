@@ -5,6 +5,7 @@ import { isUnlocked } from "@/lib/admin/gate";
 import { PasscodeScreen } from "@/components/admin/PasscodeScreen";
 import { serverSupabase } from "@/lib/supabase/server";
 import { ConsolePanel, type ConsoleGame, type ConsoleItem } from "@/components/admin/ConsolePanel";
+import { listReports } from "@/lib/admin/actions";
 
 /**
  * The admin surface.
@@ -37,13 +38,14 @@ export default async function AdminPage() {
   const supabase = await serverSupabase();
   if (!supabase) notFound();
 
-  const [{ data: games }, { data: items }] = await Promise.all([
+  const [{ data: games }, { data: items }, reports] = await Promise.all([
     supabase.from("games")
-      .select("slug, name, short_name, blurb, hue, art, sort_order")
+      .select("slug, name, short_name, blurb, hue, art, sort_order, explore_tabs")
       .order("sort_order"),
     supabase.from("game_items")
       .select("id, game_slug, name, category, attributes, is_active")
       .order("name"),
+    listReports("open"),
   ]);
 
   return (
@@ -51,6 +53,7 @@ export default async function AdminPage() {
       who={profile.display_name ?? profile.username}
       games={(games ?? []) as ConsoleGame[]}
       items={(items ?? []) as ConsoleItem[]}
+      reports={reports}
     />
   );
 }

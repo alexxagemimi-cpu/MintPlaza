@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { findItem } from "@/lib/items";
 import {
   findService, findRef, listingState, timeLeftCopy, expiresAt,
-  pickedVoters, agreedVoters,
+  pickedVoters, agreedVoters, votingFull,
   type ServiceListing, type Voter,
 } from "@/lib/sessions";
 import { VoterStack, OnlineDot } from "./VoterStack";
@@ -398,7 +398,12 @@ export function ServiceListingCard({
           <button
             type="button"
             onClick={onVote}
-            disabled={state !== "live" || stage === "locked"}
+            disabled={
+              state !== "live" || stage === "locked" ||
+              // Full, and you are not already in it. Somebody who did get in
+              // must still be able to take their hand back down.
+              (!voted && votingFull({ ...listing, voteCount }))
+            }
             aria-pressed={voted}
             className={`pill flex items-center gap-1.5 py-1.5 text-[0.8125rem] disabled:opacity-50 ${
               voted ? "pill-mint" : "pill-ghost"
@@ -408,8 +413,11 @@ export function ServiceListingCard({
                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M8 13.5V4M4.5 7.5 8 4l3.5 3.5" />
             </svg>
-            {voted ? "You're in" : "I want in"}
-            {voteCount > 0 && ` · ${voteCount}`}
+            {voted
+              ? "You're in"
+              : votingFull({ ...listing, voteCount }) ? "Full" : "I want in"}
+            {voteCount > 0 &&
+              ` · ${voteCount}${listing.voteCap ? `/${listing.voteCap}` : ""}`}
           </button>
           <ReportButton what="listing" subject={`${listing.author} — ${headline}`} subjectId={listing.id} />
         </div>
@@ -429,6 +437,31 @@ export function ServiceListingCard({
             youVoted={voted}
             onVote={onVote}
           />
+        )}
+
+        {/* ---- what the poster said their limits are ----
+
+            "12 voted" means something completely different when ten will be
+            taken than when one will, so the odds go on the card rather than
+            leaving people to wait and find out. */}
+        {(listing.slots || listing.voteCap) && (
+          <p className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+            {listing.slots && (
+              <span className="text-ink-mute">
+                PICKING {listing.slots}
+                {voteCount > 0 && ` OF ${voteCount}`}
+              </span>
+            )}
+            {listing.voteCap && (
+              <span>
+                {votingFull({ ...listing, voteCount })
+                  ? "VOTING CLOSED"
+                  : `${listing.voteCap - voteCount} SPOT${
+                      listing.voteCap - voteCount === 1 ? "" : "S"
+                    } LEFT`}
+              </span>
+            )}
+          </p>
         )}
 
         {/* ---- the poster's own controls ---- */}

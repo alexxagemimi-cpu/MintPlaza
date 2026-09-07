@@ -67,6 +67,7 @@ export function ReportButton({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [evidence, setEvidence] = useState("");
   const [sent, setSent] = useState(false);
   const [, start] = useTransition();
 
@@ -125,7 +126,31 @@ export function ReportButton({
                 </svg>
               </button>
             </div>
-            <p className="mb-4 text-[0.875rem] text-ink-mute">{subject}</p>
+            <p className="mb-3 text-[0.875rem] text-ink-mute">{subject}</p>
+
+            {/* ---- the recording ----
+
+                The site tells people to record before they hand anything over.
+                Until now a report threw that away, which made the advice
+                pointless: the only evidence that will ever exist, discarded at
+                the one moment it mattered. A link rather than an upload,
+                because video is what people record and Medal, YouTube and
+                Streamable all hand them a URL in two taps. */}
+            <label className="mb-1 block text-[0.75rem] font-semibold text-ink">
+              Link to your recording <span className="font-normal text-ink-faint">— optional</span>
+            </label>
+            <input
+              value={evidence}
+              onChange={(e) => setEvidence(e.target.value.slice(0, 500))}
+              inputMode="url"
+              placeholder="https://medal.tv/…"
+              aria-label="Link to your recording"
+              className="mb-1 w-full rounded-[10px] border border-line bg-surface px-3 py-2 text-[0.875rem] text-ink outline-none focus:border-bad"
+            />
+            <p className="mb-4 text-[0.6875rem] leading-relaxed text-ink-faint">
+              A report with a recording gets dealt with. One without is one
+              person's word.
+            </p>
 
             <ul className="grid gap-1.5">
               {REASONS.map((r) => (
@@ -139,7 +164,10 @@ export function ReportButton({
                       setSent(true);
                       setOpen(false);
                       start(async () => {
-                        await submitReport(what, subjectId ?? subject, r);
+                        await submitReport(what, subjectId ?? subject, r, {
+                          evidenceUrl: evidence.trim() || undefined,
+                          subjectLabel: subject,
+                        });
                       });
                     }}
                     className="w-full rounded-[12px] border border-line bg-surface px-3 py-3 text-left text-[0.9375rem] font-semibold text-ink transition-colors hover:border-bad hover:text-bad"

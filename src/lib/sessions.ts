@@ -684,8 +684,24 @@ export interface ServiceListing {
   serviceIds: readonly string[];
   terms: Terms;
   note?: string;
-  /** Minutes since posting. Drives the two-hour window. */
+  /** Minutes since posting. */
   postedMinutesAgo: number;
+  /**
+   * How long the poster said it should stay up, in minutes.
+   *
+   * The clock used to be ours. It should never have been: the person who knows
+   * how long they will be online is the person posting, and a fixed window
+   * either cuts them off early or leaves a dead post on the board. Absent on
+   * older rows and on trades, which fall back to the board's default.
+   */
+  windowMinutes?: number;
+  /** Most people who may put their hand up. Absent means no limit. */
+  voteCap?: number;
+  /**
+   * How many the poster intends to pick. Shown to voters, because "12 voted"
+   * means something completely different when 10 will be taken than when 2 will.
+   */
+  slots?: number;
   /** Set once somebody's offer is taken, which closes the listing early. */
   taken: boolean;
   /**
@@ -751,11 +767,60 @@ export const LIVE_WINDOW_MINUTES = 120;
  */
 export const RECRUIT_WINDOW_MINUTES = 40;
 
-/** How long this particular listing gets, decided by the board it is on. */
+/**
+ * What the poster can choose from.
+ *
+ * Bounded on both ends, and the bounds are the point. Ten minutes is the
+ * shortest post anybody can realistically answer; four hours is the longest
+ * that can still honestly be called live. Between those the choice is theirs —
+ * a person who knows they are on for twenty minutes should be able to say so
+ * rather than leaving a post that outlives them by an hour and forty.
+ *
+ * The database enforces the same bounds, so a hand-made request cannot post a
+ * listing that sits on the board for a week.
+ */
+export const WINDOW_CHOICES: Readonly<Record<Section, readonly number[]>> = {
+  services: [30, 60, 120, 240],
+  // Shorter across the board: a crew call is "I am sailing now", and the answer
+  // stops being true much faster than "I need this done today" does.
+  recruit: [15, 30, 40, 60, 120],
+};
+
+/** Most people who may put their hand up. `null` is the no-limit choice. */
+export const VOTE_CAP_CHOICES: readonly (number | null)[] = [5, 10, 25, 50, null];
+
+export const MIN_WINDOW_MINUTES = 10;
+export const MAX_WINDOW_MINUTES = 240;
+
+/** The board a listing belongs to, from the template it was built on. */
+export function sectionOf(l: Pick<ServiceListing, "serviceIds">): Section {
+  return findService(l.serviceIds[0])?.section === "recruit" ? "recruit" : "services";
+}
+
+/**
+ * How long this particular listing gets.
+ *
+ * The poster's choice where they made one, the board's default otherwise —
+ * clamped either way, so a row written before these columns existed, or by
+ * something that bypassed the form, still cannot outlive the bounds.
+ */
 export function windowFor(l: ServiceListing): number {
-  return findService(l.serviceIds[0])?.section === "recruit"
-    ? RECRUIT_WINDOW_MINUTES
-    : LIVE_WINDOW_MINUTES;
+  const fallback =
+    sectionOf(l) === "recruit" ? RECRUIT_WINDOW_MINUTES : LIVE_WINDOW_MINUTES;
+  const chosen = l.windowMinutes ?? fallback;
+  return Math.min(MAX_WINDOW_MINUTES, Math.max(MIN_WINDOW_MINUTES, chosen));
+}
+
+/** "40 minutes", "2 hours" — for the picker and the card. */
+export function windowLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const h = minutes / 60;
+  return h === 1 ? "1 hour" : `${Number.isInteger(h) ? h : h.toFixed(1)} hours`;
+}
+
+/** True once the cap is reached and nobody else can put their hand up. */
+export function votingFull(l: ServiceListing): boolean {
+  return l.voteCap !== undefined && l.voteCount >= l.voteCap;
 }
 
 export function minutesLeft(l: ServiceListing): number {

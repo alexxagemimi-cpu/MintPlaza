@@ -1041,3 +1041,98 @@ end $$;
 -- leaves the account functions reachable by a signed-out visitor.
 revoke all on function public.delete_my_account() from public, anon;
 grant execute on function public.delete_my_account() to authenticated;
+
+
+-- ===========================================================================
+-- Limits the poster sets, reports the owner can act on, per-game tab names
+-- ===========================================================================
+
+-- The clock used to be ours on every post. It should never have been: the
+-- person who knows how long they will be online is the person posting, and one
+-- fixed window either cuts them off early or leaves a dead post on the board.
+-- Trades get none of this — one person to one person, so there is no voting to
+-- cap and no team to size.
+alter table public.service_listings
+  add column if not exists vote_cap integer,
+  add column if not exists slots    integer;
+
+alter table public.service_listings
+  drop constraint if exists service_listings_vote_cap_check,
+  drop constraint if exists service_listings_slots_check,
+  drop constraint if exists service_listings_window_check;
+
+alter table public.service_listings
+  add constraint service_listings_vote_cap_check
+    check (vote_cap is null or (vote_cap between 1 and 500)),
+  add constraint service_listings_slots_check
+    check (slots is null or (slots between 1 and 18)),
+  -- Ten minutes is the shortest post anybody can answer in time; four hours the
+  -- longest that can still honestly be called live.
+  add constraint service_listings_window_check
+    check (expires_at > created_at + interval '10 minutes'
+       and expires_at <= created_at + interval '4 hours');
+
+-- Voting closes at the cap. In a trigger rather than the app, because two people
+-- tapping at the same moment is exactly when an app-level count is wrong, and
+-- the row lock is what makes the answer true rather than usually true.
+create or replace function public.enforce_vote_cap()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_cap int; v_now int;
+begin
+  select vote_cap into v_cap
+    from public.service_listings where id = new.listing_id for update;
+  if v_cap is null then return new; end if;
+  select count(*) into v_now from public.service_votes where listing_id = new.listing_id;
+  if v_now >= v_cap then
+    raise exception 'This one is full — % % already put their hand up.',
+      v_cap, case when v_cap = 1 then 'person' else 'people' end;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists service_votes_cap on public.service_votes;
+create trigger service_votes_cap
+  before insert on public.service_votes
+  for each row execute function public.enforce_vote_cap();
+revoke all on function public.enforce_vote_cap() from public, anon, authenticated;
+
+-- The site tells people to record before they hand anything over. A report with
+-- nowhere to put that recording throws away the only evidence there will be.
+-- A link, not an upload: video is what people record, and every platform they
+-- already use hands them a URL in two taps.
+alter table public.reports
+  add column if not exists evidence_url  text,
+  add column if not exists subject_label text,
+  add column if not exists reviewed_by   uuid references public.profiles(id) on delete set null,
+  add column if not exists admin_note    text;
+
+alter table public.reports drop constraint if exists reports_evidence_url_check;
+alter table public.reports add constraint reports_evidence_url_check
+  check (evidence_url is null
+         or (length(evidence_url) <= 500 and evidence_url ~* '^https?://'));
+
+-- The three boards are fixed, because the code behind each is different. What a
+-- game *calls* them is content: a fishing game forced to advertise raids reads
+-- as somebody else's furniture. A CHECK cannot hold a subquery, so the shape
+-- test lives in an IMMUTABLE function the constraint calls — in the constraint
+-- rather than only the setter, because a constraint is every write path.
+alter table public.games
+  add column if not exists explore_tabs jsonb not null default '[]'::jsonb;
+
+create or replace function public.valid_explore_tabs(p jsonb)
+returns boolean language sql immutable set search_path = pg_catalog as $$
+  select jsonb_typeof(p) = 'array'
+     and jsonb_array_length(p) <= 6
+     and not exists (
+       select 1 from jsonb_array_elements(p) t
+        where jsonb_typeof(t) <> 'object'
+           or coalesce(t->>'id', '')    = ''
+           or coalesce(t->>'label', '') = ''
+           or length(t->>'label') > 40
+           or coalesce(t->>'kind', '') not in ('trades', 'services', 'community')
+     );
+$$;
+
+alter table public.games drop constraint if exists games_explore_tabs_check;
+alter table public.games
+  add constraint games_explore_tabs_check check (public.valid_explore_tabs(explore_tabs));

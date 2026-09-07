@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { servicesFor, type Section, type Service, type ListingSide } from "@/lib/sessions";
+import {
+  servicesFor, windowLabel, WINDOW_CHOICES, VOTE_CAP_CHOICES, MAX_TEAM,
+  RECRUIT_WINDOW_MINUTES, LIVE_WINDOW_MINUTES,
+  type Section, type Service, type ListingSide,
+} from "@/lib/sessions";
 import { postListing } from "@/lib/actions/board";
 import { RefTile } from "./RefTile";
 import { ServiceArt } from "./ServiceArt";
@@ -59,6 +63,15 @@ export function PostListing({
   const [refId, setRefId] = useState<string>("");
   const [detail, setDetail] = useState("");
   const [terms, setTerms] = useState<"free" | "split">("free");
+
+  // The three limits the poster sets. Defaults are the board's old fixed
+  // behaviour, so somebody who changes nothing gets exactly what they got
+  // before and never has to think about any of this.
+  const [windowMinutes, setWindowMinutes] = useState<number>(
+    section === "recruit" ? RECRUIT_WINDOW_MINUTES : LIVE_WINDOW_MINUTES,
+  );
+  const [voteCap, setVoteCap] = useState<number | null>(null);
+  const [slots, setSlots] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
@@ -100,6 +113,9 @@ export function PostListing({
         terms: { kind: terms },
         detail: detail.trim() || undefined,
         refId: refId || undefined,
+        windowMinutes,
+        voteCap,
+        slots,
       });
       if (!result.ok) { setError(result.error); return; }
       onClose();
@@ -275,6 +291,85 @@ export function PostListing({
           <p className="mt-1 text-right font-mono text-[0.625rem] text-ink-faint">
             {detail.length}/280
           </p>
+
+          {/* ---- your limits ----
+
+              Three questions the site used to answer on the poster's behalf,
+              and got wrong in both directions: cutting short somebody who was
+              on all evening, and leaving a crew call up long after the crew
+              sailed. Trades never see this block — a trade is one person to one
+              person, so there is no voting to cap and no team to size. */}
+          <p className="mb-1 mt-4 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
+            YOUR LIMITS
+          </p>
+          <p className="mb-2 text-[0.75rem] leading-relaxed text-ink-mute">
+            Leave these alone and you get the usual. Change them if you know
+            better — you do.
+          </p>
+
+          <p className="mb-1.5 text-[0.8125rem] font-semibold text-ink">
+            Keep it up for
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {WINDOW_CHOICES[section].map((mins) => (
+              <button
+                key={mins} type="button" onClick={() => setWindowMinutes(mins)}
+                aria-pressed={windowMinutes === mins}
+                className={`rounded-full border px-3 py-1.5 text-[0.8125rem] font-semibold transition-colors ${
+                  windowMinutes === mins
+                    ? "border-mint bg-mint-wash text-ink"
+                    : "border-line bg-surface text-ink-mute"
+                }`}
+              >
+                {windowLabel(mins)}
+              </button>
+            ))}
+          </div>
+
+          <p className="mb-1.5 text-[0.8125rem] font-semibold text-ink">
+            Let at most this many vote
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {VOTE_CAP_CHOICES.map((cap) => (
+              <button
+                key={String(cap)} type="button" onClick={() => setVoteCap(cap)}
+                aria-pressed={voteCap === cap}
+                className={`rounded-full border px-3 py-1.5 text-[0.8125rem] font-semibold transition-colors ${
+                  voteCap === cap
+                    ? "border-mint bg-mint-wash text-ink"
+                    : "border-line bg-surface text-ink-mute"
+                }`}
+              >
+                {cap === null ? "No limit" : cap}
+              </button>
+            ))}
+          </div>
+
+          <p className="mb-1 text-[0.8125rem] font-semibold text-ink">
+            How many will you pick?
+          </p>
+          <p className="mb-2 text-[0.75rem] leading-relaxed text-ink-mute">
+            Shown on your post. &ldquo;12 voted&rdquo; means something very
+            different when you are taking ten than when you are taking one, and
+            people deserve to know which before they wait.
+          </p>
+          <div className="mb-1 flex flex-wrap gap-1.5">
+            {([null, 1, 2, 3, 4, 5, 6, 8, 10] as (number | null)[])
+              .filter((n) => n === null || n <= MAX_TEAM)
+              .map((n) => (
+                <button
+                  key={String(n)} type="button" onClick={() => setSlots(n)}
+                  aria-pressed={slots === n}
+                  className={`rounded-full border px-3 py-1.5 text-[0.8125rem] font-semibold transition-colors ${
+                    slots === n
+                      ? "border-mint bg-mint-wash text-ink"
+                      : "border-line bg-surface text-ink-mute"
+                  }`}
+                >
+                  {n === null ? "Not sure yet" : n}
+                </button>
+              ))}
+          </div>
 
           {/* ---- in return ---- */}
           <p className="mb-2 mt-3 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">

@@ -1,7 +1,8 @@
 import { ItemTile } from "./ItemTile";
 import { REASON_COPY, type DemoListing, type ListingItem } from "@/lib/demo";
 import {
-  DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, demandOf, formatValue, type Demand,
+  DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, checkedLabel, demandOf, formatValue,
+  isStale, type Demand,
 } from "@/lib/values";
 import {
   VERDICT_COPY, VERDICT_STYLE, calculate,
@@ -235,6 +236,14 @@ export function TradeListingCard({
   const youGet = perspective === "owner" ? listing.wanting : listing.offering;
   const youGive = perspective === "owner" ? listing.offering : listing.wanting;
 
+  // The oldest reading on the card, because a trade is only as fresh as its
+  // stalest side: one item checked this morning does not make a three-week-old
+  // number on the other side any more current.
+  const oldest = [...listing.offering, ...listing.wanting]
+    .map((e) => e.item.checkedAt)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0];
+
   return (
     <details className="glass group overflow-hidden rounded-[var(--radius-panel)] [&[open]]:bg-surface">
       {/* ---- the resting row: everything needed to skip or open ---- */}
@@ -325,14 +334,20 @@ export function TradeListingCard({
           </p>
         )}
 
-        {/* ---- provenance. A value nobody can source is a rumour. ---- */}
+        {/* ---- provenance. A value nobody can source is a rumour, and one
+             with no date on it is indistinguishable from a fact. ---- */}
         <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
           Value and demand are community estimates from{" "}
           <a href={VALUE_SOURCE.url} target="_blank" rel="noopener noreferrer" className="underline">
             {VALUE_SOURCE.name}
           </a>
-          , read {VALUE_SOURCE.checked}. They are not official, they move daily, and
-          they are a starting point for a conversation rather than a price.
+          . They are not official, they move daily, and they are a starting point
+          for a conversation rather than a price.{" "}
+          <span className={oldest && isStale(oldest) ? "font-semibold text-warn" : ""}>
+            {checkedLabel(oldest)}
+            {oldest && isStale(oldest) && " — treat these as rough"}
+          </span>
+          .
         </p>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

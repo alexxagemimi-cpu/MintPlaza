@@ -2,7 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { browserSupabase } from "@/lib/supabase/client";
-import { saveItem, setItemActive, saveGame, type ItemDraft } from "@/lib/admin/actions";
+import {
+  saveItem, setItemActive, saveGame, saveExploreTabs,
+  type ItemDraft, type AdminReport, type ExploreTabDraft,
+} from "@/lib/admin/actions";
+import { ReportsPanel } from "./ReportsPanel";
 import { lockConsole } from "@/lib/admin/gate";
 import { MoneyInput } from "./MoneyInput";
 import { DEMAND_LABEL, DEMAND_LEVELS, formatValue, type Demand } from "@/lib/values";
@@ -36,6 +40,15 @@ const RARITIES: Rarity[] = [
 export interface ConsoleGame {
   slug: string; name: string; short_name: string;
   blurb: string | null; hue: string | null; art: string | null; sort_order: number;
+  /**
+   * What this game calls each of the three boards.
+   *
+   * The `kind` picks the engine behind a tab and is not editable — there are
+   * three engines and no fourth. The label is content: Blox Fruits says "Raids
+   * & Services", and a fishing game forced to advertise raids reads as somebody
+   * else's furniture.
+   */
+  explore_tabs?: { id: string; label: string; blurb?: string; kind: string }[] | null;
 }
 
 export interface ConsoleItem {
@@ -326,8 +339,13 @@ function ItemEditor({
 /* ------------------------------------------------------------------ */
 
 export function ConsolePanel({
-  who, games, items,
-}: { who: string; games: ConsoleGame[]; items: ConsoleItem[] }) {
+  who, games, items, reports = [],
+}: {
+  who: string;
+  games: ConsoleGame[];
+  items: ConsoleItem[];
+  reports?: readonly AdminReport[];
+}) {
   const [rows, setRows] = useState(items);
   const [game, setGame] = useState(games[0]?.slug ?? "");
   const [query, setQuery] = useState("");
@@ -560,6 +578,8 @@ export function ConsolePanel({
           </p>
         )}
       </section>
+
+      <ReportsPanel reports={reports} />
     </div>
   );
 }
@@ -573,6 +593,15 @@ function GameSettings({ game }: { game: ConsoleGame }) {
   const [hue, setHue] = useState(game.hue ?? "");
   const [art, setArt] = useState(game.art ?? "");
   const [saved, setSaved] = useState(false);
+  const [tabs, setTabs] = useState<ExploreTabDraft[]>(
+    (game.explore_tabs ?? []).map((t) => ({
+      id: t.id,
+      label: t.label,
+      blurb: t.blurb ?? "",
+      kind: (t.kind as ExploreTabDraft["kind"]) ?? "trades",
+    })),
+  );
+  const [error, setError] = useState<string | null>(null);
   const [saving, start] = useTransition();
 
   return (
@@ -604,16 +633,58 @@ function GameSettings({ game }: { game: ConsoleGame }) {
             <ArtUpload value={art} onChange={(url) => { setArt(url); setSaved(false); }}
               itemName={`${game.slug}-cover`} /></Field>
         </div>
+
+        {/* ---- what this game calls its three tabs ----
+
+            Only the names change. What sits behind each tab is one of three
+            engines and there is no fourth, so the kind is shown and locked
+            while the label is yours. */}
+        {tabs.length > 0 && (
+          <div className="mt-4">
+            <p className="mb-1 text-[0.8125rem] font-semibold text-ink">Tab names</p>
+            <p className="mb-2 text-[0.75rem] leading-relaxed text-ink-mute">
+              What this game calls each board. A fishing game does not have to
+              say &ldquo;raids&rdquo; just because another game does.
+            </p>
+            <div className="grid gap-2">
+              {tabs.map((t, i) => (
+                <div key={t.id} className="flex items-center gap-2">
+                  <span className="w-[4.5rem] shrink-0 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+                    {t.kind.toUpperCase()}
+                  </span>
+                  <input
+                    className={inputClass}
+                    value={t.label}
+                    aria-label={`Name for the ${t.kind} tab`}
+                    maxLength={40}
+                    onChange={(e) => {
+                      const next = [...tabs];
+                      next[i] = { ...t, label: e.target.value };
+                      setTabs(next);
+                      setSaved(false);
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-4 flex items-center gap-3">
           <button type="button" disabled={saving}
             onClick={() => start(async () => {
+              setError(null);
               await saveGame(game.slug, { name, blurb, hue, art });
+              if (tabs.length > 0) {
+                const r = await saveExploreTabs(game.slug, tabs);
+                if (!r.ok) { setError(r.error); return; }
+              }
               setSaved(true);
             })}
             className="pill pill-mint py-2 text-[0.875rem] disabled:opacity-60">
             {saving ? "Saving…" : "Save"}
           </button>
           {saved && <span className="font-mono text-[0.625rem] tracking-[0.08em] text-mint">SAVED</span>}
+          {error && <span role="alert" className="text-[0.8125rem] text-bad">{error}</span>}
         </div>
       </div>
     </details>

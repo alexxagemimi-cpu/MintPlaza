@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { serverSupabase, currentProfile } from "@/lib/supabase/server";
+import {
+  LIVE_WINDOW_MINUTES, MIN_WINDOW_MINUTES, MAX_WINDOW_MINUTES, MAX_TEAM,
+} from "@/lib/sessions";
 
 /**
  * Everything you can do on the Raids & Services board.
@@ -65,6 +68,12 @@ export interface NewListing {
   detail?: string;
   /** The reference picture they picked, if the service offers a choice. */
   refId?: string;
+  /** How long the poster wants it up. Bounded by the database either way. */
+  windowMinutes?: number;
+  /** Most people who may put their hand up. Null or absent means no limit. */
+  voteCap?: number | null;
+  /** How many the poster intends to pick. Null means they have not decided. */
+  slots?: number | null;
 }
 
 export async function postListing(input: NewListing): Promise<Result<string>> {
@@ -74,6 +83,20 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
   if (input.serviceIds.length === 0) return fail("Pick at least one thing.");
   if (input.serviceIds.length > 8) return fail("That is too many for one post.");
   if ((input.detail?.length ?? 0) > 280) return fail("Keep the description under 280 characters.");
+
+  // Clamped rather than rejected: these come from buttons with fixed values, so
+  // anything outside the range arrived some other way and the right answer is a
+  // sane post, not an error message nobody will see. The database enforces the
+  // same bounds underneath, which is what actually makes them true.
+  const minutes = Math.min(
+    MAX_WINDOW_MINUTES,
+    Math.max(MIN_WINDOW_MINUTES, Math.round(input.windowMinutes ?? LIVE_WINDOW_MINUTES)),
+  );
+  const expiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
+  const voteCap =
+    input.voteCap == null ? null : Math.min(500, Math.max(1, Math.round(input.voteCap)));
+  const slots =
+    input.slots == null ? null : Math.min(MAX_TEAM, Math.max(1, Math.round(input.slots)));
 
   const { data, error } = await a.supabase
     .from("service_listings")
@@ -86,6 +109,9 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
       terms_item_id: input.terms.kind === "item" ? input.terms.itemId : null,
       detail: input.detail?.trim() || null,
       ref_id: input.refId ?? null,
+      expires_at: expiresAt,
+      vote_cap: voteCap,
+      slots,
     })
     .select("id")
     .single();
@@ -135,7 +161,9 @@ export async function toggleVote(listingId: string): Promise<Result<{ voted: boo
   const { error } = await a.supabase
     .from("service_votes")
     .insert({ listing_id: listingId, user_id: a.profile.id });
-  if (error) return fail(error.message);
+  // The full-listing message is raised by the trigger and written for a person,
+  // so it goes straight through rather than being replaced by something vaguer.
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
   refresh();
   return { ok: true, data: { voted: true } };
 }
@@ -256,6 +284,7 @@ export async function lockIn(listingId: string): Promise<Result> {
  */
 export async function submitReport(
   kind: "comment" | "listing" | "player", subjectId: string, reason: string,
+  extra?: { evidenceUrl?: string; subjectLabel?: string },
 ): Promise<Result> {
   const a = await actor();
   if (!a) return fail("Sign in first.");
@@ -268,11 +297,25 @@ export async function submitReport(
 
   // Uses the moderation table that already existed rather than a second one —
   // reports split across two tables would leave half of them unlooked-at.
+  // Only http(s), and length-capped, matching the database's own constraint.
+  // A report is read by the owner in a panel, and a javascript: or data: URL
+  // arriving there would be a link the owner is invited to trust.
+  const evidence = extra?.evidenceUrl?.trim();
+  const evidenceUrl =
+    evidence && /^https?:\/\//i.test(evidence) && evidence.length <= 500
+      ? evidence
+      : null;
+
   const { error } = await a.supabase.from("reports").insert({
     reporter_id: a.profile.id,
     subject_type: kind,
     subject_id: subjectId,
     reason,
+    evidence_url: evidenceUrl,
+    // Captured now, in words, because the listing this is about is hard-deleted
+    // when its window closes — an id alone would age into a report about
+    // nothing.
+    subject_label: extra?.subjectLabel?.slice(0, 200) ?? null,
   });
   if (error) return fail("Could not send that report. Try again.");
   return { ok: true };
