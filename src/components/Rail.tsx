@@ -78,7 +78,7 @@ export function Rail() {
         <span aria-hidden="true" className="my-1 h-px w-6 bg-line" />
 
         <Link
-          href="/settings"
+          href={`${base}?settings=1`}
           aria-label="Settings"
           title="Settings"
           className="grid h-11 w-11 place-items-center rounded-[15px] text-ink-mute transition-colors duration-200 hover:bg-line hover:text-ink"

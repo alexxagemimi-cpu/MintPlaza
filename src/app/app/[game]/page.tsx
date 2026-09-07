@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { GAMES, getGame, type Game } from "@/lib/games";
 import { GameSwitcher } from "@/components/GameSwitcher";
+import { SettingsButton } from "@/components/SettingsButton";
+import type { SettingsProfile } from "@/components/SettingsSheet";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { currentProfile } from "@/lib/supabase/server";
@@ -22,7 +24,7 @@ export async function generateMetadata({
 
 /* ------------------------------------------------------------------ */
 
-function TopBar({ game }: { game: Game }) {
+function TopBar({ game, settings }: { game: Game; settings: SettingsProfile | null }) {
   return (
     <div className="mb-8 flex items-center justify-between gap-4">
       <div className="min-w-0">
@@ -43,16 +45,7 @@ function TopBar({ game }: { game: Game }) {
             <path d="M17.5 17.5 13.7 13.7" />
           </svg>
         </Link>
-        <Link
-          href="/settings"
-          aria-label="Your account"
-          className="grid h-10 w-10 place-items-center rounded-full border border-line bg-fill text-[0.6875rem] font-bold text-ink-mute transition-colors hover:text-ink"
-        >
-          <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            <circle cx="10" cy="7" r="3.2" />
-            <path d="M4 16.5c.9-2.6 3.2-4 6-4s5.1 1.4 6 4" />
-          </svg>
-        </Link>
+        <SettingsButton profile={settings} />
       </div>
     </div>
   );
@@ -237,9 +230,22 @@ export default async function GameDashboard({
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
 
+  // Only the fields the panel actually renders cross into the client. A profile
+  // row carries more than the settings screen needs, and sending the whole
+  // thing would put it in the page source for no reason.
+  const settings: SettingsProfile | null = profile
+    ? {
+        username: profile.username,
+        displayName: profile.display_name ?? null,
+        avatarUrl: profile.avatar_url ?? null,
+        robloxUserId: profile.roblox_user_id,
+        hidePresence: profile.hide_presence ?? false,
+      }
+    : null;
+
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8 sm:px-8 sm:pt-12">
-      <TopBar game={game} />
+      <TopBar game={game} settings={settings} />
       <DemoBanner />
 
       <div className="grid gap-4 lg:grid-cols-[21rem_minmax(0,1fr)] lg:items-start lg:gap-5">

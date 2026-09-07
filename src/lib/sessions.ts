@@ -189,6 +189,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-mirage", gameSlug: "blox-fruits", section: "recruit",
+    art: "/art/services/mirage-island.jpg",
     name: "Mirage Island hunt", kind: "Island",
     needs: "Night only. More people sailing means more servers checked, which is the whole trick to finding it",
     players: 4,
@@ -250,22 +251,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["rip indra", "indra", "castle on the sea"], verified: true,
   },
   {
-    id: "bf-r-darkbeard", gameSlug: "blox-fruits", section: "recruit",
-    name: "Darkbeard raid", kind: "Raid",
-    needs: "Somebody brings a Fist of Darkness and uses it at the Dark Arena altar. He despawns fifteen minutes after spawning, so the crew has to be standing there before it is used",
-    players: 4,
-    gives: "A Dark Fragment, Fragments and Beli",
-    aliases: ["darkbeard", "fist of darkness", "dark arena"], verified: true,
-  },
-  {
-    id: "bf-r-cursed-captain", gameSlug: "blox-fruits", section: "recruit",
-    name: "Cursed Captain raid", kind: "Raid",
-    needs: "Second floor of the Cursed Ship. Spawns roughly every hour, and everybody needs 10% of the damage to see a drop",
-    players: 3,
-    aliases: ["cursed captain", "cursed ship"], verified: true,
-  },
-  {
-    id: "bf-r-longma", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-boss", gameSlug: "blox-fruits", section: "recruit",
     name: "Boss hunt — say which", kind: "Raid",
     needs: "For any boss not listed here. Name it in your post, with the sea and the level you expect people to be",
     players: 3,
@@ -291,7 +277,8 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
   {
     id: "bf-r-elite", gameSlug: "blox-fruits", section: "recruit",
-    name: "Elite Hunter grind squad", kind: "Grind",
+    art: "/art/services/elite-diablo.jpg",
+    name: "Elite Pirates hunter squad", kind: "Hunt",
     needs: "Third Sea. Thirty quests guarantees Yama, and it goes a great deal faster with people",
     players: 3,
     gives: "Yama, and the Pretty Helmet at five Elite Pirates",
@@ -306,22 +293,6 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
   },
 
   // ---- The game's own crew system ----
-  {
-    id: "bf-r-crew", gameSlug: "blox-fruits", section: "recruit",
-    name: "Crew recruiting members", kind: "Crew",
-    needs: "An actual in-game Crew, not a one-off team. Say the crew name, what it is for, and whether there is a level you expect",
-    players: 5,
-    openEnded: true,
-    aliases: ["crew", "guild", "clan", "captain"], verified: true,
-  },
-  {
-    id: "bf-r-looking-for-crew", gameSlug: "blox-fruits", section: "recruit",
-    name: "Looking for a crew", kind: "Crew",
-    needs: "The other way round — you want in. Say your level, your fruit and when you actually play",
-    players: 3,
-    openEnded: true,
-    aliases: ["lfc", "looking for crew", "join crew"], verified: true,
-  },
 ];
 
 const BLOX_FRUITS_SERVICES: Service[] = [
@@ -450,14 +421,6 @@ const BLOX_FRUITS_SERVICES: Service[] = [
 
   // ---- Second Sea ----
   {
-    id: "bf-s-darkbeard", gameSlug: "blox-fruits", name: "Darkbeard",
-    kind: "Boss",
-    needs: "A Fist of Darkness, used at the altar in the middle of the Dark Arena. He despawns 15 minutes after spawning, so people need to already be there",
-    players: 3,
-    gives: "A Dark Fragment, Fragments and Beli",
-    aliases: ["darkbeard", "fist of darkness", "dark arena"], verified: true,
-  },
-  {
     id: "bf-s-fist-of-darkness", gameSlug: "blox-fruits", name: "Fist of Darkness hunting",
     kind: "Grind",
     needs: "A random chest every four hours, or a Sea Beast. Second Sea's answer to the God's Chalice",
@@ -478,13 +441,6 @@ const BLOX_FRUITS_SERVICES: Service[] = [
       { id: "slayer-angel",  label: "Angel V3",  hue: "#6B4CA8" },
     ],
     aliases: ["slayer", "dark blade v3", "db v3", "slayer skin"], verified: true,
-  },
-  {
-    id: "bf-s-cursed-captain", gameSlug: "blox-fruits", name: "Cursed Captain",
-    kind: "Boss",
-    needs: "Second floor of the Cursed Ship, Second Sea. Spawns roughly every 60 to 72 minutes. You need 10% of the damage to get a drop, and going alone under Level 1300 is not advised",
-    players: 3,
-    aliases: ["cursed captain", "cursed ship"], verified: true,
   },
 
   // ---- Third Sea ----

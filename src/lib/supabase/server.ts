@@ -46,7 +46,7 @@ export async function currentProfile() {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, roblox_user_id, username, display_name, avatar_url, roblox_created_at, status")
+    .select("id, roblox_user_id, username, display_name, avatar_url, roblox_created_at, status, hide_presence")
     .eq("id", user.id)
     .maybeSingle();
 

@@ -955,3 +955,77 @@ end $$;
 -- Not callable by a signed-in user directly. ensure_profile() is SECURITY
 -- DEFINER and runs it as the owner, which is the only route in.
 revoke all on function mintplaza.bind_admin_on_first_signin() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Your own account
+-- ---------------------------------------------------------------------------
+
+-- Appearing offline is stored on the profile, not in the browser: the green dot
+-- is something *other people* see, so a per-device setting would show you
+-- hidden to yourself while everybody else watched you come online.
+alter table public.profiles
+  add column if not exists hide_presence boolean not null default false;
+
+-- The switch is enforced here rather than at the call site, so no future caller
+-- can forget it and quietly light somebody back up.
+create or replace function public.touch_presence()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.profiles
+     set last_seen_at = now()
+   where id = auth.uid() and hide_presence = false;
+end $$;
+revoke all on function public.touch_presence() from public;
+grant execute on function public.touch_presence() to authenticated;
+
+-- Going invisible clears the dot already showing, or you stay lit for the rest
+-- of the presence window after asking not to be.
+create or replace function public.set_hide_presence(p_hide boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.profiles
+     set hide_presence = p_hide,
+         last_seen_at  = case when p_hide then null else now() end
+   where id = auth.uid();
+end $$;
+revoke all on function public.set_hide_presence(boolean) from public;
+grant execute on function public.set_hide_presence(boolean) to authenticated;
+
+-- The Roblox username is never editable: it is the account's identity and the
+-- only thing another player can verify. A display name sits beside it, and may
+-- not be a name somebody else signs in under — otherwise anyone could wear a
+-- trusted trader's name. The character class also blocks the zero-width tricks
+-- used to build a lookalike.
+create or replace function public.set_display_name(p_name text)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_clean text := nullif(btrim(p_name), '');
+begin
+  if v_clean is not null then
+    if length(v_clean) > 24 then raise exception 'That name is too long — 24 characters at most.'; end if;
+    if length(v_clean) < 2  then raise exception 'That name is too short.'; end if;
+    if v_clean !~ '^[[:alnum:] _''.\-]+$' then
+      raise exception 'Letters, numbers, spaces, apostrophes, dots and dashes only.';
+    end if;
+    if exists (select 1 from public.profiles
+                where lower(username) = lower(v_clean) and id <> auth.uid()) then
+      raise exception 'Another player signs in under that name.';
+    end if;
+  end if;
+  update public.profiles set display_name = v_clean, updated_at = now()
+   where id = auth.uid();
+  return v_clean;
+end $$;
+revoke all on function public.set_display_name(text) from public;
+grant execute on function public.set_display_name(text) to authenticated;
+
+-- Leaving for good. Deleting the profile cascades to listings, votes, picks,
+-- comments and contacts. The Roblox account is untouched — MintPlaza only ever
+-- held a name and a picture, and this hands both back.
+create or replace function public.delete_my_account()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return; end if;
+  delete from public.profiles where id = auth.uid();
+end $$;
+revoke all on function public.delete_my_account() from public;
+grant execute on function public.delete_my_account() to authenticated;
