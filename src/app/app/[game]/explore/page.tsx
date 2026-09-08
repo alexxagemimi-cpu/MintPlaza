@@ -13,7 +13,8 @@ import { TradeListingCard } from "@/components/TradeListingCard";
 import { ServiceListingCard } from "@/components/ServiceListingCard";
 import { PostListingButtons } from "@/components/PostListingButtons";
 import { TemplateList } from "@/components/TemplateList";
-import { servicesFor, PARTIAL_SERVICES, listingState } from "@/lib/sessions";
+import { PARTIAL_SERVICES, listingState } from "@/lib/sessions";
+import { liveTemplates } from "@/lib/data/templates";
 import { currentProfile } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
@@ -130,8 +131,12 @@ export default async function ExplorePage({
     getBoard(game.slug),
     touchPresence(),
   ]);
-  const services = servicesFor(game.slug);
-  const recruitTemplates = servicesFor(game.slug, "recruit");
+  // From the merge, so a template edited or invented in the Studio shows up
+  // here without a deploy — and a retired one stops being offered.
+  const [services, recruitTemplates] = await Promise.all([
+    liveTemplates(game.slug, "services"),
+    liveTemplates(game.slug, "recruit"),
+  ]);
 
   // One board, split by which template each post was built from. Splitting here
   // rather than in two queries keeps the two tabs reading the same rows, so a

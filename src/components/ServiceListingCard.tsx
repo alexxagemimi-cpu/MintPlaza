@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 import { findItem } from "@/lib/items";
 import {
-  findService, findRef, listingState, timeLeftCopy, expiresAt,
+  findRef, listingState, timeLeftCopy, expiresAt,
   pickedVoters, agreedVoters, votingFull,
   type ServiceListing, type Voter,
 } from "@/lib/sessions";
 import { VoterStack, OnlineDot } from "./VoterStack";
+import { useFindTemplate } from "./TemplateProvider";
 import { LiveCountdown } from "./LiveCountdown";
 import { VotersSheet, ReplyMark, Face } from "./VotersSheet";
 import { CommentThread } from "./CommentThread";
@@ -76,10 +77,11 @@ export function ServiceListingCard({
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
 
+  const findTemplate = useFindTemplate();
   const reference = findRef(listing.serviceIds, listing.refId);
 
   const services = listing.serviceIds
-    .map(findService)
+    .map(findTemplate)
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
 
   // A listing can name a template that no longer exists — removed from the

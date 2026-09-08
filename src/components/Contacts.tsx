@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { findService } from "@/lib/sessions";
+import { useFindTemplate } from "./TemplateProvider";
 import {
   agoLabel, shortLeft, suggestionMinutesLeft, MESSAGE_MAX,
   type Contact, type ContactSuggestion, type DirectMessage,
@@ -74,7 +74,8 @@ function SuggestionCard({
   onAdd: (id: string) => void;
   onDeny: (id: string) => void;
 }) {
-  const service = findService(suggestion.serviceId);
+  const findTemplate = useFindTemplate();
+  const service = findTemplate(suggestion.serviceId);
   const left = suggestionMinutesLeft(suggestion);
   const others = suggestion.alongside;
 
@@ -134,7 +135,8 @@ function Thread({
 }) {
   const [sent, setSent] = useState<DirectMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const service = findService(contact.metServiceId);
+  const findTemplate = useFindTemplate();
+  const service = findTemplate(contact.metServiceId);
   const all = [...messages, ...sent];
 
   function send() {
@@ -238,6 +240,7 @@ export function Contacts({
   const [answered, setAnswered] = useState<Record<string, "added" | "denied">>({});
   const [added, setAdded] = useState<Contact[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const findTemplate = useFindTemplate();
 
   const pending = useMemo(
     () => incoming.filter((s) => !answered[s.id] && suggestionMinutesLeft(s) > 0),
@@ -317,7 +320,7 @@ export function Contacts({
         ) : (
           <ul className="grid gap-2">
             {contacts.map((c) => {
-              const service = findService(c.metServiceId);
+              const service = findTemplate(c.metServiceId);
               return (
                 <li key={c.id}>
                   <button

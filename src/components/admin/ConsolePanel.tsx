@@ -7,6 +7,8 @@ import {
   type ItemDraft, type AdminReport, type ExploreTabDraft,
 } from "@/lib/admin/actions";
 import { ReportsPanel } from "./ReportsPanel";
+import { Studio } from "./Studio";
+import type { StudioTemplate, MediaRow } from "@/lib/data/templates";
 import { lockConsole } from "@/lib/admin/gate";
 import { MoneyInput } from "./MoneyInput";
 import { DEMAND_LABEL, DEMAND_LEVELS, formatValue, type Demand } from "@/lib/values";
@@ -339,12 +341,14 @@ function ItemEditor({
 /* ------------------------------------------------------------------ */
 
 export function ConsolePanel({
-  who, games, items, reports = [],
+  who, games, items, reports = [], templates = [], library = [],
 }: {
   who: string;
   games: ConsoleGame[];
   items: ConsoleItem[];
   reports?: readonly AdminReport[];
+  templates?: readonly StudioTemplate[];
+  library?: readonly MediaRow[];
 }) {
   const [rows, setRows] = useState(items);
   const [game, setGame] = useState(games[0]?.slug ?? "");
@@ -578,6 +582,8 @@ export function ConsolePanel({
           </p>
         )}
       </section>
+
+      <Studio games={games} templates={templates} library={library} />
 
       <ReportsPanel reports={reports} />
     </div>

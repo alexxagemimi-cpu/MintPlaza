@@ -317,3 +317,218 @@ export async function saveExploreTabs(
   revalidatePath("/app", "layout");
   return { ok: true, id: slug };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Studio: templates, games, pictures                                 */
+/* ------------------------------------------------------------------ */
+
+export interface TemplateDraft {
+  id: string;
+  gameSlug: string;
+  name: string;
+  kind: string;
+  section: "services" | "recruit";
+  art?: string | null;
+  needs?: string | null;
+  players?: number | null;
+  gives?: string | null;
+  openEnded?: boolean;
+  aliases?: string[];
+  refs?: { id: string; label: string; hue?: string; art?: string }[];
+  verified?: boolean;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+const KINDS = [
+  "Raid", "Trial", "Puzzle", "Boss", "Unlock",
+  "Grind", "Island", "Crew", "Event", "Hunt",
+];
+
+/**
+ * Save a list template.
+ *
+ * The two rules worth checking before the round trip, because both produce a
+ * message a person can act on rather than a constraint violation: a services
+ * template may not need more than three players, and a recruitment one may not
+ * need fewer. That line is what keeps the two boards from becoming one board,
+ * and the database enforces it as well — this is the polite version.
+ */
+export async function saveTemplate(draft: TemplateDraft): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const id = draft.id.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{2,60}$/.test(id)) {
+    return { ok: false, error: "The id must be lowercase letters, numbers and dashes." };
+  }
+  if (!draft.name.trim()) return { ok: false, error: "The template needs a name." };
+  if (!KINDS.includes(draft.kind)) return { ok: false, error: "Pick a kind from the list." };
+
+  const players = draft.players ?? null;
+  if (players !== null) {
+    if (draft.section === "services" && players > 3) {
+      return {
+        ok: false,
+        error: "Raids & Services is for one or two helpers. Anything needing more belongs in Help & Recruitment.",
+      };
+    }
+    if (draft.section === "recruit" && players < 3) {
+      return {
+        ok: false,
+        error: "Help & Recruitment is for three or more. Anything smaller belongs in Raids & Services.",
+      };
+    }
+  }
+
+  const refs = (draft.refs ?? [])
+    .map((r) => ({
+      id: r.id.trim(),
+      label: r.label.trim().slice(0, 40),
+      hue: r.hue?.trim() || undefined,
+      art: r.art?.trim() || undefined,
+    }))
+    .filter((r) => r.id && r.label)
+    .slice(0, 12);
+
+  const { error } = await supabase.rpc("admin_save_template", {
+    p: {
+      id,
+      game_slug: draft.gameSlug,
+      name: draft.name.trim().slice(0, 80),
+      kind: draft.kind,
+      section: draft.section,
+      art: draft.art?.trim() || "",
+      needs: draft.needs?.trim().slice(0, 600) || "",
+      players: players === null ? "" : String(players),
+      gives: draft.gives?.trim().slice(0, 300) || "",
+      open_ended: draft.openEnded ?? false,
+      aliases: (draft.aliases ?? []).map((a) => a.trim()).filter(Boolean).slice(0, 20),
+      refs,
+      verified: draft.verified ?? true,
+      is_active: draft.isActive ?? true,
+      sort_order: draft.sortOrder ?? 0,
+    },
+  });
+  if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, "") };
+  revalidatePath("/app", "layout");
+  return { ok: true, id };
+}
+
+/**
+ * Retire a template, or bring it back.
+ *
+ * Never a delete. Live listings point at these ids, and removing one would turn
+ * somebody's post into a card about nothing — which is exactly the bug this
+ * project already hit once and fixed.
+ */
+export async function setTemplateActive(id: string, active: boolean): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+  const { error } = await supabase.rpc("admin_set_template_active", {
+    p_id: id, p_active: active,
+  });
+  if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, "") };
+  revalidatePath("/app", "layout");
+  return { ok: true, id };
+}
+
+export interface GameDraft {
+  slug: string;
+  name: string;
+  shortName?: string;
+  blurb?: string;
+  hue?: string;
+  art?: string;
+  modules?: string[];
+  exploreTabs?: ExploreTabDraft[];
+  itemCategories?: string[];
+  isActive?: boolean;
+}
+
+/** Add a game, or change everything about one. */
+export async function saveGameFull(draft: GameDraft): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const slug = draft.slug.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(slug)) {
+    return { ok: false, error: "The web address part must be lowercase letters, numbers and dashes." };
+  }
+  if (!draft.name.trim()) return { ok: false, error: "The game needs a name." };
+
+  const { error } = await supabase.rpc("admin_save_game", {
+    p: {
+      slug,
+      name: draft.name.trim(),
+      short_name: draft.shortName?.trim() || draft.name.trim(),
+      blurb: draft.blurb?.trim() ?? "",
+      hue: draft.hue?.trim() ?? "",
+      art: draft.art?.trim() ?? "",
+      modules: draft.modules ?? [],
+      explore_tabs: (draft.exploreTabs ?? []).map((t) => ({
+        id: t.id.trim(), label: t.label.trim().slice(0, 40),
+        blurb: t.blurb?.trim().slice(0, 200) ?? "", kind: t.kind,
+      })),
+      item_categories: draft.itemCategories ?? [],
+      is_active: draft.isActive ?? true,
+    },
+  });
+  if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, "") };
+  revalidatePath("/app", "layout");
+  return { ok: true, id: slug };
+}
+
+export async function setGameActive(slug: string, active: boolean): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+  const { error } = await supabase.rpc("admin_set_game_active", {
+    p_slug: slug, p_active: active,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true, id: slug };
+}
+
+export async function reorderGames(slugs: string[]): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+  const { error } = await supabase.rpc("admin_reorder_games", { p_slugs: slugs });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}
+
+/** Put a picture on the shared shelf so every picker can offer it. */
+export async function addMedia(
+  url: string, label: string, kind: string, gameSlug?: string,
+): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+  if (!/^(\/|https?:\/\/)/.test(url.trim())) {
+    return { ok: false, error: "That does not look like a picture address." };
+  }
+  const { error } = await supabase.rpc("admin_add_media", {
+    p_url: url.trim(), p_label: label.trim().slice(0, 80) || "Untitled",
+    p_kind: kind, p_game: gameSlug ?? "",
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}
+
+export async function deleteMedia(id: string): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+  const { error } = await supabase.rpc("admin_delete_media", { p_id: id });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}

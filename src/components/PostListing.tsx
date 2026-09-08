@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  servicesFor, windowLabel, WINDOW_CHOICES, VOTE_CAP_CHOICES, MAX_TEAM,
+  windowLabel, WINDOW_CHOICES, VOTE_CAP_CHOICES, MAX_TEAM,
   RECRUIT_WINDOW_MINUTES, LIVE_WINDOW_MINUTES,
   type Section, type Service, type ListingSide,
 } from "@/lib/sessions";
 import { postListing } from "@/lib/actions/board";
 import { RefTile } from "./RefTile";
+import { useTemplatesFor } from "./TemplateProvider";
 import { ServiceArt } from "./ServiceArt";
 
 /**
@@ -55,7 +56,7 @@ export function PostListing({
   preselect?: string;
   onClose: () => void;
 }) {
-  const all = useMemo(() => servicesFor(gameSlug, section), [gameSlug, section]);
+  const all = useTemplatesFor(gameSlug, section);
   const recruiting = section === "recruit";
   const [side, setSide] = useState<ListingSide>("request");
 

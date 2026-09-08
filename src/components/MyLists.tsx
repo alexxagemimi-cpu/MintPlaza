@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import type { ServiceListing } from "@/lib/sessions";
-import { findService, timeLeftCopy, expiresAt, listingState } from "@/lib/sessions";
+import { timeLeftCopy, expiresAt, listingState } from "@/lib/sessions";
+import { useFindTemplate } from "./TemplateProvider";
 import { ServiceListingCard } from "./ServiceListingCard";
 import { LiveCountdown } from "./LiveCountdown";
 import { Face } from "./VotersSheet";
@@ -44,7 +45,8 @@ function IncomingRequest({
   listing: ServiceListing;
   onAnswer: (id: string, agreed: boolean) => void;
 }) {
-  const service = findService(listing.serviceIds[0]);
+  const findTemplate = useFindTemplate();
+  const service = findTemplate(listing.serviceIds[0]);
   const asked = listing.voters.filter((v) => v.reply !== "not-picked").length;
 
   return (

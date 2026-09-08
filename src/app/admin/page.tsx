@@ -6,6 +6,7 @@ import { PasscodeScreen } from "@/components/admin/PasscodeScreen";
 import { serverSupabase } from "@/lib/supabase/server";
 import { ConsolePanel, type ConsoleGame, type ConsoleItem } from "@/components/admin/ConsolePanel";
 import { listReports } from "@/lib/admin/actions";
+import { allTemplates, mediaLibrary } from "@/lib/data/templates";
 
 /**
  * The admin surface.
@@ -48,12 +49,16 @@ export default async function AdminPage() {
     listReports("open"),
   ]);
 
+  const [templates, library] = await Promise.all([allTemplates(), mediaLibrary()]);
+
   return (
     <ConsolePanel
       who={profile.display_name ?? profile.username}
       games={(games ?? []) as ConsoleGame[]}
       items={(items ?? []) as ConsoleItem[]}
       reports={reports}
+      templates={templates}
+      library={library}
     />
   );
 }

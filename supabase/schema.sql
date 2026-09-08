@@ -1136,3 +1136,96 @@ $$;
 alter table public.games drop constraint if exists games_explore_tabs_check;
 alter table public.games
   add constraint games_explore_tabs_check check (public.valid_explore_tabs(explore_tabs));
+
+-- ===========================================================================
+-- Studio: templates and pictures become data
+-- ===========================================================================
+--
+-- Until now every list template lived in TypeScript, so the owner could change
+-- what an item was worth but not what people could post about. That was the
+-- wrong line: the catalogue and the templates are both content, and both change
+-- when a game ships an update.
+--
+-- The code catalogue stays as the seed and the fallback. These rows override it
+-- id by id, decided at read time, so there is no seeding step to drift out of
+-- date: a template edited in the Studio gets a row and is read from there; one
+-- never touched has no row and is read from code. Deleting a row reverts the
+-- template rather than destroying it.
+
+create table if not exists public.service_templates (
+  id           text primary key,
+  game_slug    text not null references public.games(slug) on delete cascade,
+  name         text not null check (length(btrim(name)) between 1 and 80),
+  kind         text not null check (kind in
+                 ('Raid','Trial','Puzzle','Boss','Unlock','Grind','Island','Crew','Event','Hunt')),
+  section      text not null default 'services' check (section in ('services','recruit')),
+  art          text,
+  needs        text check (needs is null or length(needs) <= 600),
+  players      integer check (players is null or players between 1 and 18),
+  gives        text check (gives is null or length(gives) <= 300),
+  open_ended   boolean not null default false,
+  aliases      text[] not null default '{}',
+  refs         jsonb  not null default '[]'::jsonb,
+  verified     boolean not null default true,
+  is_active    boolean not null default true,
+  sort_order   integer not null default 0,
+  updated_at   timestamptz not null default now(),
+  updated_by   uuid references public.profiles(id) on delete set null,
+
+  -- The one rule that keeps the two boards from becoming one board. Enforced
+  -- here so no edit, from the panel or otherwise, can quietly blur it.
+  constraint service_templates_section_size check (
+    players is null
+    or (section = 'services' and players <= 3)
+    or (section = 'recruit'  and players >= 3)
+  )
+);
+
+create or replace function public.valid_service_refs(p jsonb)
+returns boolean language sql immutable set search_path = pg_catalog as $$
+  select jsonb_typeof(p) = 'array'
+     and jsonb_array_length(p) <= 12
+     and not exists (
+       select 1 from jsonb_array_elements(p) t
+        where jsonb_typeof(t) <> 'object'
+           or coalesce(t->>'id','')    = ''
+           or coalesce(t->>'label','') = ''
+           or length(t->>'label') > 40
+     );
+$$;
+
+alter table public.service_templates drop constraint if exists service_templates_refs_check;
+alter table public.service_templates
+  add constraint service_templates_refs_check check (public.valid_service_refs(refs));
+
+create index if not exists service_templates_game_idx
+  on public.service_templates (game_slug, section, sort_order);
+
+alter table public.service_templates enable row level security;
+drop policy if exists service_templates_read on public.service_templates;
+create policy service_templates_read on public.service_templates for select using (true);
+-- No insert, update or delete policy at all. The admin functions are not
+-- defence in depth on top of a policy — they are the only door.
+
+-- One shelf of pictures for the whole site. The Angel race is uploaded once and
+-- reused everywhere it appears, so re-skinning it later is one replacement.
+create table if not exists public.media (
+  id         uuid primary key default gen_random_uuid(),
+  url        text not null check (url ~* '^(/|https?://)'),
+  label      text not null check (length(btrim(label)) between 1 and 80),
+  kind       text not null default 'other'
+             check (kind in ('item','service','ref','game','other')),
+  game_slug  text references public.games(slug) on delete set null,
+  created_at timestamptz not null default now(),
+  created_by uuid references public.profiles(id) on delete set null
+);
+create unique index if not exists media_url_key on public.media (url);
+alter table public.media enable row level security;
+drop policy if exists media_read on public.media;
+create policy media_read on public.media for select using (true);
+
+-- Every Studio write goes through a SECURITY DEFINER function whose first act is
+-- is_admin(). Supabase cannot gate an RPC beyond `authenticated`, so the gate
+-- lives inside the function: a signed-in stranger reaches it and is told
+-- "Not found." Verified: non-admins are refused on every path, including a
+-- direct write to either table.
