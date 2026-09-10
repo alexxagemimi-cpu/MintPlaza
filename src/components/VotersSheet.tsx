@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { Voter } from "@/lib/sessions";
 import { MAX_TEAM } from "@/lib/sessions";
 import { ReportButton } from "./ReportButton";
@@ -108,6 +110,10 @@ export function VotersSheet({
 }) {
   const [chosen, setChosen] = useState<string[]>([]);
   const choosing = Boolean(onSendRequest);
+  // Read off the URL rather than threaded down through three components: this
+  // sheet is only ever open inside a game, and the alternative is a prop that
+  // every card in between has to carry for one link at the bottom.
+  const gameSlug = usePathname().split("/")[2] ?? "";
   const atLimit = chosen.length >= MAX_TEAM;
 
   const toggle = (name: string) =>
@@ -185,9 +191,21 @@ export function VotersSheet({
               >
                 <Face voter={v} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[0.9375rem] font-bold tracking-[-0.015em] text-ink">
-                    {v.username}
-                  </span>
+                  {/* The name is the way in to the profile. This is the moment
+                      proofs are actually worth something: somebody about to
+                      hand a fruit to a stranger, deciding. */}
+                  {gameSlug ? (
+                    <Link
+                      href={`/app/${gameSlug}/profile/${encodeURIComponent(v.username)}`}
+                      className="block truncate text-[0.9375rem] font-bold tracking-[-0.015em] text-ink hover:underline"
+                    >
+                      {v.username}
+                    </Link>
+                  ) : (
+                    <span className="block truncate text-[0.9375rem] font-bold tracking-[-0.015em] text-ink">
+                      {v.username}
+                    </span>
+                  )}
                   <span className="flex flex-wrap items-center gap-1.5 font-mono text-[0.5625rem] tracking-[0.07em]">
                     {v.online ? (
                       <span className="text-mint">ONLINE NOW</span>

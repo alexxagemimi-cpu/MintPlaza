@@ -85,6 +85,7 @@ part you need.
 | `src/lib/sessions.ts` | `Service`, `ServiceKind`, `Section`, both boards, the window rules |
 | `src/lib/values.ts` | Price vs Value vs Demand, and why they are three things |
 | `src/lib/games.ts` | The `Game` registry every game plugs into |
+| `src/lib/profile.ts` | Profiles, proof screenshots, and the long note on why the word "verified" is never used |
 
 Then `src/lib/trade.ts` (the W/F/L calculator) and `src/lib/contacts.ts` (why
 contacts work the way they do).
@@ -165,7 +166,12 @@ so they are not your problem. Just know they exist.
 - No real-money sales. No cross-trading between games. No account sharing or
   "pilot" services — a run done on somebody's account is not a service.
 - Never ask for a password, cookie or session token, anywhere.
-- No fake data, no fake verification badges. Audience is 13+.
+- No fake data, no fake verification badges. Audience is 13+. This is not a
+  style preference: players post screenshots of their in-game profile to a
+  **Proofs** section, MintPlaza cannot check a screenshot, and the interface
+  therefore says "3 pictures shown — MintPlaza has not checked these" rather
+  than issuing a tick. If you propose anything that reads as an endorsement of
+  an unchecked claim, it will be cut.
 - No middleman or escrow. MintPlaza never holds anybody's items.
 
 **Data**
@@ -185,6 +191,21 @@ so they are not your problem. Just know they exist.
 - Recruitment posts are one direction — somebody starts a crew, others join by
   voting. There is no "I'll join" post; it describes nothing actionable.
 - If a thing can be soloed, it is not a service.
+
+**Profiles**
+- A profile is two halves and they never blur: what the player typed
+  (description, tags, screenshots — evidence of nothing) and what the site
+  counted (deals done, lists posted, contacts, which lists they keep coming
+  back to — incremented by database triggers, untypable by anyone).
+- Those counters are real tables, not `count(*)` queries, because listings are
+  hard-deleted when their window closes. A career total computed from live rows
+  is a lie that gets worse every day.
+- Proofs are per game, stored in a private-by-path bucket, three asked for and
+  six allowed. Game tags reuse each game's own cover art, so **a game you add
+  to the registry becomes a profile tag for free** — you do not need to design
+  that part.
+- There is no username search anywhere on the site. A profile is reached from a
+  voter list, a contact or a comment. Do not propose a people-search.
 
 Everything above is settled. **Everything below is not.**
 

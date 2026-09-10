@@ -1229,3 +1229,518 @@ create policy media_read on public.media for select using (true);
 -- lives inside the function: a signed-in stranger reaches it and is told
 -- "Not found." Verified: non-admins are refused on every path, including a
 -- direct write to either table.
+
+
+-- ---------------------------------------------------------------------------
+-- Profiles: who a player is, what they can show for it, and what they have done
+-- ---------------------------------------------------------------------------
+--
+-- Three ideas, and it is worth being clear about which is which, because they
+-- are trusted very differently.
+--
+--   1. What a player SAYS about themselves — the description and the tags.
+--      Free text, worth nothing as evidence, capped and sanitised because free
+--      text on a site for teenagers is how a Discord invite gets in.
+--
+--   2. What a player SHOWS — screenshots of their in-game profile. These are
+--      not proof in any cryptographic sense and the site never calls them
+--      verified. A screenshot can be borrowed, edited or staged. What they are
+--      worth is exactly what they are worth in a Discord trade channel: a
+--      person who has posted three pictures of the account they trade on has
+--      staked something, and one who has posted none has not. The interface
+--      says that in those words rather than issuing a badge.
+--
+--   3. What a player HAS DONE — lists posted, deals finished, which lists they
+--      keep coming back to, how many contacts they kept. Nobody types these.
+--      They are counted by triggers off the board itself, which is the only
+--      part of a profile that cannot be written by the person it describes.
+--
+-- The counters are tables rather than queries on purpose. Listings are hard
+-- deleted when their window closes, so `count(*) from service_listings` would
+-- answer "how many are up right now", quietly re-labelled as a career total. A
+-- counter incremented at the moment it happens is the only number here that
+-- stays true a week later.
+-- ---------------------------------------------------------------------------
+
+
+-- --- 1. what a player says --------------------------------------------------
+
+alter table public.profiles
+  add column if not exists game_tags text[] not null default '{}',
+  add column if not exists tags      text[] not null default '{}';
+
+do $$ begin
+  alter table public.profiles
+    add constraint profiles_game_tags_check check (cardinality(game_tags) <= 8);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.profiles
+    add constraint profiles_tags_check check (cardinality(tags) <= 6);
+exception when duplicate_object then null; end $$;
+
+
+-- --- 2. what a player shows -------------------------------------------------
+
+create table if not exists public.profile_proofs (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  game_slug    text not null references public.games(slug)  on delete cascade,
+  -- A path inside the `proofs` bucket, never a URL. Storing a URL would let a
+  -- profile point its picture at any host on the internet, which turns every
+  -- profile view into a request to a stranger's server — an IP log at best.
+  -- The first path segment must be the owner's id, so a row cannot claim a
+  -- file uploaded by somebody else.
+  storage_path text not null
+    check (length(storage_path) <= 300
+           and split_part(storage_path, '/', 1) = user_id::text),
+  caption      text check (char_length(caption) <= 120),
+  sort_order   integer not null default 0,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists profile_proofs_owner_idx
+  on public.profile_proofs (user_id, game_slug, sort_order, created_at);
+
+alter table public.profile_proofs enable row level security;
+
+do $$ begin
+  create policy "proofs are public" on public.profile_proofs
+    for select using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy "own proofs" on public.profile_proofs
+    for all to authenticated
+    using (user_id = auth.uid()) with check (user_id = auth.uid());
+exception when duplicate_object then null; end $$;
+
+-- Six per game. Three is what the site asks for; the cap exists so a profile
+-- cannot become an album, and so one player cannot fill the bucket.
+create or replace function public.enforce_proof_cap() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from public.profile_proofs
+      where user_id = new.user_id and game_slug = new.game_slug) >= 6 then
+    raise exception 'Six pictures is the most for one game. Delete one first.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists profile_proofs_cap on public.profile_proofs;
+create trigger profile_proofs_cap before insert on public.profile_proofs
+for each row execute function public.enforce_proof_cap();
+
+
+-- --- 3. what a player has done ----------------------------------------------
+
+create table if not exists public.profile_stats (
+  user_id      uuid primary key references public.profiles(id) on delete cascade,
+  lists_posted integer not null default 0,
+  deals_done   integer not null default 0,
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.profile_stats enable row level security;
+
+do $$ begin
+  create policy "stats are public" on public.profile_stats
+    for select using (true);
+exception when duplicate_object then null; end $$;
+-- Deliberately no insert/update/delete policy. The triggers below are the only
+-- writers, and they are the reason these numbers mean anything.
+
+create table if not exists public.profile_deal_tally (
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  game_slug  text not null,
+  service_id text not null,
+  times      integer not null default 0,
+  last_at    timestamptz not null default now(),
+  primary key (user_id, game_slug, service_id)
+);
+
+alter table public.profile_deal_tally enable row level security;
+
+do $$ begin
+  create policy "tally is public" on public.profile_deal_tally
+    for select using (true);
+exception when duplicate_object then null; end $$;
+
+create or replace function public.bump_lists_posted() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profile_stats (user_id, lists_posted)
+  values (new.author_id, 1)
+  on conflict (user_id) do update
+    set lists_posted = profile_stats.lists_posted + 1, updated_at = now();
+  return new;
+end $$;
+
+drop trigger if exists service_listings_count_posts on public.service_listings;
+create trigger service_listings_count_posts
+after insert on public.service_listings
+for each row execute function public.bump_lists_posted();
+
+-- A deal counts when it locks, and it counts for the poster and for everybody
+-- who said yes — not for everybody who was asked. Saying yes is the moment two
+-- people agreed to do something together, which is the thing being counted.
+create or replace function public.credit_locked_deal() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user uuid;
+  v_sid  text;
+begin
+  if new.stage <> 'locked' or old.stage is not distinct from 'locked' then
+    return new;
+  end if;
+
+  for v_user in
+    select new.author_id
+    union
+    select p.user_id from public.service_picks p
+    where p.listing_id = new.id and p.reply = 'agreed'
+  loop
+    insert into public.profile_stats (user_id, deals_done)
+    values (v_user, 1)
+    on conflict (user_id) do update
+      set deals_done = profile_stats.deals_done + 1, updated_at = now();
+
+    foreach v_sid in array new.service_ids loop
+      insert into public.profile_deal_tally (user_id, game_slug, service_id, times, last_at)
+      values (v_user, new.game_slug, v_sid, 1, now())
+      on conflict (user_id, game_slug, service_id) do update
+        set times = profile_deal_tally.times + 1, last_at = now();
+    end loop;
+  end loop;
+
+  return new;
+end $$;
+
+drop trigger if exists service_listings_credit_deal on public.service_listings;
+create trigger service_listings_credit_deal
+after update of stage on public.service_listings
+for each row execute function public.credit_locked_deal();
+
+
+-- --- 4. contacts ------------------------------------------------------------
+--
+-- One row per direction, on purpose. Adding somebody puts them in YOUR list and
+-- does nothing to theirs, so a person who declined has declined. A thread only
+-- opens where both rows exist, which is the difference between a contact list
+-- and a way to message a person who said no.
+
+create table if not exists public.contacts (
+  user_id        uuid not null references public.profiles(id) on delete cascade,
+  contact_id     uuid not null references public.profiles(id) on delete cascade,
+  game_slug      text not null references public.games(slug)  on delete cascade,
+  met_service_id text,
+  met_at         timestamptz not null default now(),
+  primary key (user_id, contact_id),
+  check (user_id <> contact_id)
+);
+
+create index if not exists contacts_game_idx on public.contacts (user_id, game_slug, met_at desc);
+
+alter table public.contacts enable row level security;
+
+do $$ begin
+  create policy "read own contacts" on public.contacts
+    for select to authenticated using (user_id = auth.uid());
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy "drop own contacts" on public.contacts
+    for delete to authenticated using (user_id = auth.uid());
+exception when duplicate_object then null; end $$;
+-- No insert policy: add_contact() below is the only door, because the rule it
+-- enforces — you finished a deal together — is the whole feature.
+
+create or replace function public.add_contact(p_other uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  me     uuid := auth.uid();
+  v_game text;
+  v_sid  text;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_other = me then raise exception 'That is you.'; end if;
+  if not exists (select 1 from public.profiles where id = p_other and status <> 'suspended') then
+    raise exception 'That player is not here.';
+  end if;
+
+  -- The deal you shared. "Shared" means one of three shapes: they came to your
+  -- listing, you came to theirs, or you both said yes to a third person's. Any
+  -- of the three means you were in the same room; nothing else does.
+  select l.game_slug, l.service_ids[1]
+    into v_game, v_sid
+  from public.service_listings l
+  where l.stage = 'locked'
+    and (
+         (l.author_id = me
+          and exists (select 1 from public.service_picks p
+                      where p.listing_id = l.id and p.user_id = p_other and p.reply = 'agreed'))
+      or (l.author_id = p_other
+          and exists (select 1 from public.service_picks p
+                      where p.listing_id = l.id and p.user_id = me and p.reply = 'agreed'))
+      or (exists (select 1 from public.service_picks p
+                  where p.listing_id = l.id and p.user_id = me and p.reply = 'agreed')
+          and exists (select 1 from public.service_picks p
+                      where p.listing_id = l.id and p.user_id = p_other and p.reply = 'agreed'))
+    )
+  order by l.created_at desc
+  limit 1;
+
+  -- No deal, no contact. This is the whole safety model of the messaging side
+  -- of the site: there is no username search and no invite link, so the only
+  -- way to reach a person is to have already been somewhere with them.
+  if v_game is null then
+    raise exception 'You can only add somebody you just finished a deal with.';
+  end if;
+
+  insert into public.contacts (user_id, contact_id, game_slug, met_service_id)
+  values (me, p_other, v_game, v_sid)
+  on conflict (user_id, contact_id) do nothing;
+end $$;
+
+create or replace function public.remove_contact(p_other uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  delete from public.contacts where user_id = auth.uid() and contact_id = p_other;
+end $$;
+
+
+-- --- 5. editing your own profile --------------------------------------------
+
+-- Tags are shown next to a name, so they are the cheapest place on the site to
+-- put a lie that looks official. The whitelist is what keeps "MintPlaza staff"
+-- typable and "mintplaza.gg/free" not.
+create or replace function public.normalize_tag(p text) returns text
+language sql immutable set search_path = public as $$
+  select nullif(regexp_replace(btrim(coalesce(p, '')), '\s+', ' ', 'g'), '')
+$$;
+
+create or replace function public.save_profile(
+  p_bio text, p_games text[], p_tags text[]
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  me      uuid := auth.uid();
+  v_bio   text;
+  v_games text[];
+  v_tags  text[];
+  t       text;
+  n       text;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+
+  -- Description. Control characters out, length capped, and no links: a
+  -- description is the one field on a profile that every scam wants to put a
+  -- Discord invite in, and there is nothing else a URL is doing here.
+  v_bio := nullif(btrim(regexp_replace(coalesce(p_bio, ''), '[\r\n\t]+', ' ', 'g')), '');
+  if char_length(coalesce(v_bio, '')) > 240 then
+    raise exception 'Keep the description under 240 characters.';
+  end if;
+  if v_bio ~* '(https?://|www\.|discord\.(gg|com)|t\.me/|\.gg/|\.com/|\.net/)' then
+    raise exception 'Links are not allowed in a description. Say it in words instead.';
+  end if;
+
+  -- Game tags have to name a real, switched-on game, so a tag can never
+  -- advertise something the site does not run.
+  select coalesce(array_agg(distinct g.slug), '{}'::text[])
+    into v_games
+  from public.games g
+  where g.slug = any (coalesce(p_games, '{}'::text[])) and g.is_active;
+
+  if cardinality(v_games) > 8 then
+    raise exception 'Eight games is the most you can tag.';
+  end if;
+
+  v_tags := '{}'::text[];
+  foreach t in array coalesce(p_tags, '{}'::text[]) loop
+    n := public.normalize_tag(t);
+    continue when n is null;
+    if char_length(n) < 2 or char_length(n) > 20 then
+      raise exception 'Tags are between 2 and 20 characters. "%" is not.', n;
+    end if;
+    if n !~ '^[A-Za-z0-9][A-Za-z0-9 ''\-+&.!]*$' then
+      raise exception 'Tags can only use letters, numbers and spaces. "%" cannot be used.', n;
+    end if;
+    -- Case-insensitive de-dupe, so "Active Daily" and "active daily" are one tag.
+    if not exists (select 1 from unnest(v_tags) x where lower(x) = lower(n)) then
+      v_tags := array_append(v_tags, n);
+    end if;
+  end loop;
+
+  if cardinality(v_tags) > 6 then
+    raise exception 'Six tags is the most. Pick the six that say the most.';
+  end if;
+
+  update public.profiles
+     set bio = v_bio, game_tags = v_games, tags = v_tags, updated_at = now()
+   where id = me;
+
+  return jsonb_build_object('bio', v_bio, 'game_tags', v_games, 'tags', v_tags);
+end $$;
+
+create or replace function public.add_proof(
+  p_game text, p_path text, p_caption text
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  me  uuid := auth.uid();
+  v_id uuid;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.games where slug = p_game and is_active) then
+    raise exception 'That game is not on MintPlaza.';
+  end if;
+  if split_part(coalesce(p_path, ''), '/', 1) <> me::text then
+    raise exception 'That picture does not belong to this account.';
+  end if;
+
+  insert into public.profile_proofs (user_id, game_slug, storage_path, caption, sort_order)
+  values (
+    me, p_game, p_path,
+    nullif(btrim(regexp_replace(coalesce(p_caption, ''), '\s+', ' ', 'g')), ''),
+    coalesce((select max(sort_order) + 1 from public.profile_proofs
+              where user_id = me and game_slug = p_game), 0)
+  )
+  returning id into v_id;
+
+  return v_id;
+end $$;
+
+create or replace function public.delete_proof(p_id uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare v_path text;
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  delete from public.profile_proofs
+   where id = p_id and user_id = auth.uid()
+  returning storage_path into v_path;
+  return v_path;
+end $$;
+
+
+-- --- 6. reading a profile ---------------------------------------------------
+--
+-- One round trip, and one definition of what a profile is. Contacts are
+-- private rows, so the count has to be taken in here rather than by the caller
+-- — which is also why this is the only thing that can honestly report it.
+
+create or replace function public.public_profile(p_username text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  me  uuid := auth.uid();
+  r   record;
+begin
+  select p.id, p.username, p.display_name, p.avatar_url, p.bio, p.status,
+         p.joined_at, p.last_seen_at, p.hide_presence, p.game_tags, p.tags
+    into r
+  from public.profiles p
+  where lower(p.username) = lower(btrim(coalesce(p_username, '')))
+  limit 1;
+
+  if r.id is null then return null; end if;
+  -- A suspended account is not browsable. Returning the shell would tell
+  -- anybody who asked exactly who had been actioned.
+  if r.status = 'suspended' then return null; end if;
+
+  return jsonb_build_object(
+    'id',           r.id,
+    'username',     r.username,
+    'displayName',  r.display_name,
+    'avatarUrl',    r.avatar_url,
+    'bio',          r.bio,
+    'joinedAt',     r.joined_at,
+    -- The green dot obeys "appear offline" here too, or the setting would be a
+    -- switch that hides you everywhere except the page about you.
+    'lastSeenAt',   case when r.hide_presence then null else r.last_seen_at end,
+    'isMe',         (me is not null and me = r.id),
+    'gameTags',     to_jsonb(coalesce(r.game_tags, '{}'::text[])),
+    'tags',         to_jsonb(coalesce(r.tags, '{}'::text[])),
+    'stats', jsonb_build_object(
+      'listsPosted', coalesce((select s.lists_posted from public.profile_stats s where s.user_id = r.id), 0),
+      'dealsDone',   coalesce((select s.deals_done   from public.profile_stats s where s.user_id = r.id), 0),
+      'contacts',    (select count(*) from public.contacts c where c.user_id = r.id),
+      'proofs',      (select count(*) from public.profile_proofs f where f.user_id = r.id)
+    ),
+    'top', coalesce((
+      select jsonb_agg(x)
+      from (
+        select t.game_slug as "gameSlug", t.service_id as "serviceId", t.times
+        from public.profile_deal_tally t
+        where t.user_id = r.id
+        order by t.times desc, t.last_at desc
+        limit 5
+      ) x
+    ), '[]'::jsonb),
+    'proofs', coalesce((
+      select jsonb_agg(y order by y."gameSlug", y."sortOrder", y."createdAt")
+      from (
+        select f.id, f.game_slug as "gameSlug", f.storage_path as "storagePath",
+               f.caption, f.sort_order as "sortOrder", f.created_at as "createdAt"
+        from public.profile_proofs f
+        where f.user_id = r.id
+      ) y
+    ), '[]'::jsonb)
+  );
+end $$;
+
+
+-- --- 7. who may call what ---------------------------------------------------
+--
+-- Supabase grants EXECUTE to anon and authenticated by default on anything in
+-- public, so `revoke from public` alone leaves both holding the key. anon is
+-- named explicitly for that reason.
+
+revoke all on function public.save_profile(text, text[], text[])  from public, anon;
+revoke all on function public.add_proof(text, text, text)         from public, anon;
+revoke all on function public.delete_proof(uuid)                  from public, anon;
+revoke all on function public.add_contact(uuid)                   from public, anon;
+revoke all on function public.remove_contact(uuid)                from public, anon;
+revoke all on function public.public_profile(text)                from public, anon;
+revoke all on function public.normalize_tag(text)                 from public, anon;
+revoke all on function public.enforce_proof_cap()                 from public, anon, authenticated;
+revoke all on function public.bump_lists_posted()                 from public, anon, authenticated;
+revoke all on function public.credit_locked_deal()                from public, anon, authenticated;
+
+grant execute on function public.save_profile(text, text[], text[]) to authenticated;
+grant execute on function public.add_proof(text, text, text)        to authenticated;
+grant execute on function public.delete_proof(uuid)                 to authenticated;
+grant execute on function public.add_contact(uuid)                  to authenticated;
+grant execute on function public.remove_contact(uuid)               to authenticated;
+grant execute on function public.public_profile(text)               to authenticated;
+
+
+-- --- 8. where the pictures live ---------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('proofs', 'proofs', true, 3145728,
+        array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+-- No SVG. An SVG is a document that can run script, and this bucket is served
+-- from the same origin as everything else.
+
+do $$ begin
+  create policy "proof pictures are readable" on storage.objects
+    for select using (bucket_id = 'proofs');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy "upload into your own proof folder" on storage.objects
+    for insert to authenticated
+    with check (bucket_id = 'proofs'
+                and (storage.foldername(name))[1] = auth.uid()::text);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy "delete your own proof pictures" on storage.objects
+    for delete to authenticated
+    using (bucket_id = 'proofs'
+           and (storage.foldername(name))[1] = auth.uid()::text);
+exception when duplicate_object then null; end $$;

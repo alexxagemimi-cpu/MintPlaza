@@ -8,6 +8,8 @@ import type { SettingsProfile } from "@/components/SettingsSheet";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { currentProfile } from "@/lib/supabase/server";
+import { readProfile } from "@/lib/data/profile";
+import { PROOFS_WANTED, proofsFor } from "@/lib/profile";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -131,6 +133,42 @@ function InventoryPrompt({ game }: { game: Game }) {
   );
 }
 
+/**
+ * The one nudge the dashboard makes.
+ *
+ * It asks for proof pictures rather than for a bio or a tag, because this is
+ * the only thing on a profile that changes whether a stranger picks you. It
+ * counts down — "1 more" reads as nearly done, "post some pictures" reads as a
+ * chore — and it disappears for good at three rather than nagging on for six.
+ *
+ * Shown only to somebody signed in, and only for the game they are looking at,
+ * since that is the account the screenshot has to be of.
+ */
+function ProofPrompt({ game, count }: { game: Game; count: number }) {
+  const left = PROOFS_WANTED - count;
+  return (
+    <div className="glass-quiet rounded-[var(--radius-panel)] p-5 sm:p-6">
+      <p className="label">Your profile</p>
+      <p className="mt-3 text-[0.9375rem] font-semibold leading-snug text-ink">
+        {count === 0
+          ? `Show your ${game.shortName} account`
+          : `${left} more ${left === 1 ? "picture" : "pictures"} to go`}
+      </p>
+      <p className="mt-2 text-[0.8125rem] leading-relaxed text-ink-mute">
+        {count === 0
+          ? `Post ${PROOFS_WANTED} screenshots of your in-game profile. Nobody has to take your word for who you are, and people pick the players they can see.`
+          : `You have posted ${count}. Three of the same account is the point where it starts being worth reading.`}
+      </p>
+      <Link
+        href={`/app/${game.slug}/profile`}
+        className="pill pill-ghost mt-5 w-full justify-center py-2.5"
+      >
+        {count === 0 ? "Add pictures" : "Add another"}
+      </Link>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 /** What the dashboard looks like before anyone has posted anything (§46). */
@@ -233,6 +271,11 @@ export default async function GameDashboard({
   // Only the fields the panel actually renders cross into the client. A profile
   // row carries more than the settings screen needs, and sending the whole
   // thing would put it in the page source for no reason.
+  // Read once for the nudge below. Only for somebody signed in — there is no
+  // point asking a signed-out visitor to prove an account they have not linked.
+  const me = profile ? await readProfile(profile.username) : null;
+  const proofCount = me ? proofsFor(me, game.slug).length : 0;
+
   const settings: SettingsProfile | null = profile
     ? {
         username: profile.username,
@@ -253,6 +296,9 @@ export default async function GameDashboard({
         <div className="flex flex-col gap-4 lg:sticky lg:top-8">
           <GameSwitcher current={game} />
           <SlotMeter />
+          {me && proofCount < PROOFS_WANTED && (
+            <ProofPrompt game={game} count={proofCount} />
+          )}
           <InventoryPrompt game={game} />
         </div>
 
