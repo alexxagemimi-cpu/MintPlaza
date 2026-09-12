@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChromaticChip, ItemTile, RarityChip, RobuxChip } from "./ItemTile";
 import { searchShortcuts, type Shortcut } from "@/lib/admin/search";
-import { CATALOG_CHECKED, CATALOG_NOTES, searchTerms, type CatalogItem, type Rarity } from "@/lib/items";
+import { ValueLookup } from "./ValueLookup";
+import { PULL_SOURCES } from "@/lib/data/catalog";
+import {
+  CATALOG_CHECKED, CATALOG_NOTES, catalogProvenance, pricedCoverage, searchTerms,
+  type CatalogItem, type Rarity,
+} from "@/lib/items";
 
 const RARITIES: readonly Rarity[] = ["Common", "Uncommon", "Rare", "Legendary", "Mythical"];
 
@@ -48,7 +53,7 @@ export function ExploreCatalog({
     [items],
   );
 
-  const shown = useMemo(() => {
+  const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter(
       (i) =>
@@ -58,6 +63,25 @@ export function ExploreCatalog({
         (!category || i.category === category),
     );
   }, [items, query, rarity, category]);
+
+  /**
+   * How many rows are on screen at once.
+   *
+   * Pet Simulator 99 has 4,959 of them. Rendering the lot produced a 5.6 MB
+   * page — every row in the markup, every row again in the hydration payload —
+   * which is a second and a half of parsing on a mid-range phone before
+   * anything is interactive, to show a grid nobody scrolls to the bottom of.
+   * A page size plus a Show more button costs one tap for the rare player who
+   * wants row 200, and costs the other 99% nothing.
+   *
+   * Resetting on every filter change is the point: after narrowing a search you
+   * are looking at the top of a new list, not page four of the old one.
+   */
+  const PAGE = 60;
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => setLimit(PAGE), [query, rarity, category]);
+
+  const shown = matches.slice(0, limit);
 
   return (
     <div>
@@ -199,6 +223,78 @@ export function ExploreCatalog({
         <p className="glass-quiet mt-3 rounded-[var(--radius-inner)] px-5 py-10 text-center text-[0.9375rem] text-ink-mute">
           Nothing matches that. Try a different spelling, or clear the filters.
         </p>
+      )}
+
+      {matches.length > shown.length && (
+        <div className="mt-3 flex flex-col items-center gap-2">
+          <p className="text-[0.75rem] text-ink-faint">
+            Showing {shown.length.toLocaleString()} of{" "}
+            {matches.length.toLocaleString()} matches.
+          </p>
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + PAGE)}
+            className="pill pill-ghost py-1.5 text-[0.8125rem]"
+          >
+            Show {Math.min(PAGE, matches.length - shown.length)} more
+          </button>
+        </div>
+      )}
+
+      {/* ---- what this catalogue can and cannot tell you ----
+           Stated once, at the foot of the list, rather than repeated on ten
+           thousand tiles. A player who learns the coverage ratio by clicking
+           forty unpriced items in a row concludes the site is broken; a player
+           told "501 rows, 14 of them priced here" knows exactly what they have
+           and where to go for the rest. ---- */}
+      <CatalogueCoverage gameSlug={gameSlug} />
+    </div>
+  );
+}
+
+/**
+ * The coverage footer: how many rows this game has, how many MintPlaza can
+ * price, where the rest came from, and where to go for a value it does not
+ * have.
+ */
+function CatalogueCoverage({ gameSlug }: { gameSlug: string }) {
+  const { priced, listable } = pricedCoverage(gameSlug);
+  const { curated, pulled } = catalogProvenance(gameSlug);
+  const pull = PULL_SOURCES[gameSlug];
+
+  return (
+    <div className="mt-4 rounded-[var(--radius-inner)] border border-line bg-fill px-3.5 py-3">
+      <p className="text-[0.8125rem] font-semibold text-ink">
+        {listable.toLocaleString()} tradeable {listable === 1 ? "row" : "rows"}
+        {priced > 0
+          ? `, ${priced.toLocaleString()} priced on MintPlaza.`
+          : ", none priced on MintPlaza."}
+      </p>
+
+      <p className="mt-1 text-[0.6875rem] leading-relaxed text-ink-faint">
+        {pulled > 0 && (
+          <>
+            {curated.toLocaleString()} {curated === 1 ? "row was" : "rows were"}{" "}
+            researched by hand; {pulled.toLocaleString()} came from{" "}
+            {pull ? pull.source : "a machine pull"}
+            {pull ? `, pulled ${pull.pulled}` : ""}.{" "}
+          </>
+        )}
+        A row existing here means the item is real and spelled right. It does not
+        mean MintPlaza knows what it is worth — nobody publishes values at this
+        scale, and an invented number would be worse than none.
+      </p>
+
+      {pull?.caveat && (
+        <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-ink-faint">
+          {pull.caveat}
+        </p>
+      )}
+
+      {priced < listable && (
+        <div className="mt-2.5">
+          <ValueLookup gameSlug={gameSlug} unpriced={[]} compact />
+        </div>
       )}
     </div>
   );

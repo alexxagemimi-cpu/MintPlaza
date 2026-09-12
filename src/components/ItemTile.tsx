@@ -1,5 +1,7 @@
-import Image from "next/image";
-import { CHROMATIC_STYLE, RARITY_STYLE, type CatalogItem } from "@/lib/items";
+"use client";
+
+import { useState } from "react";
+import { CHROMATIC_STYLE, RARITY_STYLE, thumbnailFor, type CatalogItem } from "@/lib/items";
 
 /**
  * One catalogue item, the way a trading site shows it.
@@ -7,6 +9,23 @@ import { CHROMATIC_STYLE, RARITY_STYLE, type CatalogItem } from "@/lib/items";
  * Where artwork exists it leads. Where it does not, the tile falls back to the
  * item's initials on a rarity-keyed ground — legible, consistent, and honest
  * about being a placeholder rather than a broken image.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this is a client component, and a plain <img>
+ * ---------------------------------------------------------------------------
+ *
+ * Most of these pictures are resolved at request time from Roblox's thumbnail
+ * API, and that call legitimately fails: Roblox generates thumbnails lazily, so
+ * a perfectly valid asset id can answer "pending" and have no image yet. A tile
+ * with no error path turns every one of those into a broken-image icon. The
+ * `onError` handler is the whole reason for "use client" — it is what lets a
+ * missing picture degrade into the typographic tile, which is a design rather
+ * than a failure.
+ *
+ * It is a plain `<img>` rather than next/image deliberately. These render at 44
+ * to 56 pixels, so there is nothing meaningful to optimise; next/image would
+ * add a remote-host allowlist to maintain as Roblox rotates CDN domains, and
+ * would route ten thousand thumbnails through the optimiser for no gain.
  */
 export function ItemTile({
   item,
@@ -16,12 +35,24 @@ export function ItemTile({
   size?: number;
 }) {
   const style = item.rarity ? RARITY_STYLE[item.rarity] : RARITY_STYLE.Common;
-  const initials = item.name
-    .split(/[\s-]+/)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
+  const [failed, setFailed] = useState(false);
+  const src = thumbnailFor(item);
+
+  // Seven Fisch entries are named with a single emoji and nothing else. Taking
+  // `[0]` of one of those yields half a surrogate pair, which renders as the
+  // replacement character — so a codepoint-aware split is used, and a name with
+  // no letters in it shows the glyph itself rather than an initial of it. For
+  // those rows the emoji IS the icon, which is better than any placeholder.
+  const glyph = [...item.name][0] ?? "?";
+  const hasLetters = /\p{L}/u.test(item.name);
+  const initials = hasLetters
+    ? item.name
+        .split(/[\s-]+/)
+        .slice(0, 2)
+        .map((w) => [...w][0] ?? "")
+        .join("")
+        .toUpperCase()
+    : glyph;
 
   return (
     <span
@@ -34,12 +65,14 @@ export function ItemTile({
         boxShadow: `inset 0 0 0 1px ${style.ring}`,
       }}
     >
-      {item.art ? (
-        <Image
-          src={item.art}
+      {src && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element -- see note above
+        <img
+          src={src}
           alt=""
-          width={size * 2}
-          height={size * 2}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
           className="h-full w-full object-contain p-1"
         />
       ) : (
@@ -48,7 +81,7 @@ export function ItemTile({
           className="font-mono font-bold leading-none"
           style={{ color: style.fg, fontSize: size * 0.3, letterSpacing: "-0.03em" }}
         >
-          {initials}
+          {initials || "?"}
         </span>
       )}
     </span>

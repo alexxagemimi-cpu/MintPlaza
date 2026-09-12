@@ -24,6 +24,8 @@
  * separate flag on the item and the tile prints both.
  */
 import type { Demand, ItemValue } from "./values";
+import { valueOf } from "./values";
+import { ART_MANIFEST, PULLED_CATALOG } from "./data/catalog";
 
 export type Rarity =
   | "Common" | "Uncommon" | "Rare" | "Ultra-Rare"
@@ -99,11 +101,52 @@ export interface CatalogItem {
   /** Shown on the tile where the item carries a condition worth stating. */
   note?: string;
   /**
+   * Creatures of Sonaria's size tier, Tier 1 through Tier 5.
+   *
+   * Kept as its own field rather than folded into `rarity` because it is not a
+   * rarity: it describes how big the creature is, and a Tier 5 is not rarer
+   * than a Tier 3, only larger. It is mapped onto the rarity ladder for colour
+   * because it is the only ladder that wiki maintains consistently, but the
+   * real word is preserved here so the tile can say what it actually means.
+   */
+  sizeTier?: string;
+  /**
+   * Orthogonal classifications — Limited, Event, Special, Extinct, Relic.
+   *
+   * These are not power levels and must never be mapped onto the rarity ladder:
+   * a Limited Common is still Common. They ride alongside the tier the way
+   * CHROMATIC does.
+   */
+  classes?: readonly string[];
+  /**
    * False where the rarity or existence could not be confirmed. Shown in admin
    * so the uncertain rows can be corrected first, rather than quietly
    * presented as fact.
    */
   verified?: boolean;
+  /**
+   * True where the row came out of a machine pull from the game's own API or
+   * its wiki, rather than being typed by hand.
+   *
+   * Deliberately NOT the same field as `verified`, and the distinction is the
+   * whole point. `verified` means a human confirmed this row's NUMBERS;
+   * `sourced` means a scraper confirmed the row EXISTS. The bulk pull arrived
+   * with `verified: true` on all 10,053 rows, which would have marked every
+   * unpriced row as price-checked — a claim nothing in the pull supports,
+   * since the pull carries no values at all. Keeping them apart is what stops
+   * the catalogue from laundering "we scraped it" into "we checked it".
+   */
+  sourced?: boolean;
+  /**
+   * Roblox asset id, where the game's own API publishes one. Pet Simulator 99
+   * is currently the only game that does.
+   *
+   * Stored as the id, never as image bytes and never as a copied file: the
+   * thumbnail URL is built from this at render time, so the picture stays
+   * whatever Roblox currently serves and the database stays a database. See
+   * `thumbnailFor` below.
+   */
+  assetId?: string;
   /**
    * When this row's numbers were last touched, ISO.
    *
@@ -573,9 +616,17 @@ const SONARIA = [
   ] as [string, Rarity][]),
 ];
 
-/** Games whose catalogue is knowingly incomplete. Surfaced in the interface. */
+/**
+ * Games whose catalogue is knowingly incomplete. Surfaced in the interface.
+ *
+ * Pet Simulator 99 and Creatures of Sonaria came off this list when the
+ * machine pull landed: PS99 now carries its developer's entire published
+ * roster, and Sonaria's 482 creatures match the wiki's own stated 481. Fisch
+ * joined it — 1,426 fish is effectively complete, but its cosmetics are not,
+ * and a player browsing rod skins is seeing 96 of roughly 531.
+ */
 export const PARTIAL_CATALOGUES: readonly string[] = [
-  "adopt-me", "pet-simulator-99", "grow-a-garden", "creatures-of-sonaria",
+  "adopt-me", "grow-a-garden", "fisch", "royale-high",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1111,13 +1162,144 @@ const ADOPT_ME_LIMITEDS: CatalogItem[] = [
     verified: true },
 ];
 
-export const CATALOG: readonly CatalogItem[] = [
+/**
+ * Rows written by hand, from research, with values attached.
+ *
+ * These are the authority. Every priced row on the site is in here, and
+ * values.ts is keyed by these ids.
+ */
+const CURATED: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
   ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
   ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE,
   ...FISCH_GLIDERS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
 ];
+
+/** Names compare case- and punctuation-insensitively when deduping. */
+function normName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Curated rows plus everything the machine pull adds that is genuinely new.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this merges on NAME and not on id
+ * ---------------------------------------------------------------------------
+ *
+ * The two sources generate ids differently. A hand-curated Keruku is
+ * `cs-keruku`; the pull calls the same creature `creatures-of-sonaria-keruku`.
+ * Merging on id would have kept both, which is worse than either mistake it
+ * could have made instead: the board would show one creature twice, once with
+ * a Shoom band and once unpriced, and a trader comparing the two rows would
+ * have no way to tell which is real. The same applies to 19 Fisch gliders,
+ * every GAG2 pet and egg, and all 28 PS99 enchants — every one of which the
+ * pull also carries under a different id.
+ *
+ * So the key is (gameSlug, normalised name) and the curated row wins outright.
+ * It keeps its id, so values.ts stays attached; it keeps its note, its
+ * rarity and its tradeable flag, because those were judgement calls made
+ * against research rather than whatever category a wiki happened to file the
+ * page under.
+ *
+ * The one thing flowing the other way is fields the curated row simply does
+ * not have: a Roblox asset id, a size tier, an orthogonal class. Those are
+ * free additions — a curated row with no picture gains a picture — and they
+ * cannot contradict a judgement because there was no judgement there to
+ * contradict.
+ */
+/**
+ * Names the pull carries that a curated row already covers. Reported by the
+ * proof script so a suppression can be eyeballed rather than trusted.
+ */
+const SUPPRESSED: { gameSlug: string; name: string; category: string }[] = [];
+
+function mergeCatalog(): readonly CatalogItem[] {
+  const curatedByName = new Map<string, CatalogItem>();
+  const out: CatalogItem[] = [];
+
+  for (const row of CURATED) {
+    curatedByName.set(`${row.gameSlug}:${normName(row.name)}`, row);
+    out.push(row);
+  }
+
+  const seen = new Set<string>();
+  for (const row of PULLED_CATALOG) {
+    const nameKey = `${row.gameSlug}:${normName(row.name)}`;
+
+    // Against CURATED the key is the name alone, deliberately ignoring
+    // category. The two sources do not share a category vocabulary — the
+    // curated Fisch gliders sit under "Gliders" and the pull files them under
+    // "Glider" — so keying on category here would have re-admitted every row
+    // the curated list already covers, under a near-identical label, and the
+    // board would show each glider twice.
+    const curated = curatedByName.get(nameKey);
+    if (curated) {
+      SUPPRESSED.push({ gameSlug: row.gameSlug, name: row.name, category: row.category });
+      // Curated row wins. Absorb only what it is missing.
+      if (row.assetId && !curated.assetId) curated.assetId = row.assetId;
+      if (row.sizeTier && !curated.sizeTier) curated.sizeTier = row.sizeTier;
+      if (row.classes?.length && !curated.classes?.length) curated.classes = row.classes;
+      continue;
+    }
+
+    // Among pulled rows the category is part of the key, because within one
+    // game the pull legitimately carries the same name for different things:
+    // Pet Simulator 99 has a Dragon pet and a Dragon booth, a Ducky pet and a
+    // Ducky hoverboard — 154 such names. Collapsing those on name alone threw
+    // away 195 real rows.
+    const slotKey = `${nameKey}:${row.category}`;
+    if (seen.has(slotKey)) continue;
+    seen.add(slotKey);
+    out.push(row);
+  }
+
+  return out;
+}
+
+export const CATALOG: readonly CatalogItem[] = mergeCatalog();
+
+/**
+ * How many rows the pull contributed to a game, versus how many were already
+ * curated. Shown on the catalogue so the provenance of a 10,000-row list is
+ * visible rather than implied.
+ */
+export function catalogProvenance(gameSlug: string): {
+  curated: number;
+  pulled: number;
+  total: number;
+} {
+  const rows = catalogFor(gameSlug);
+  const pulled = rows.filter((i) => i.sourced).length;
+  return { curated: rows.length - pulled, pulled, total: rows.length };
+}
+
+/**
+ * How much of a game's catalogue MintPlaza can actually price.
+ *
+ * Shown to players rather than kept for the admin, because the honest headline
+ * of this site is "4,959 Pet Simulator 99 rows, 0 of them priced here" and a
+ * player who discovers that one item at a time will conclude the calculator is
+ * broken. Stated up front, it is a limit they can work with.
+ */
+export function pricedCoverage(gameSlug: string): { priced: number; listable: number } {
+  const listable = tradableFor(gameSlug);
+  const priced = listable.filter(
+    (i) => valueOf(i) !== undefined || valueOf(i, "Permanent") !== undefined,
+  );
+  return { priced: priced.length, listable: listable.length };
+}
+
+/** Pulled rows a curated row already covered. For the proof script. */
+export function suppressedByCuration(): readonly {
+  gameSlug: string;
+  name: string;
+  category: string;
+}[] {
+  void CATALOG;
+  return SUPPRESSED;
+}
 
 /** Catalogue rows the game will not let players trade. Never offer these. */
 export function tradableFor(gameSlug: string): readonly CatalogItem[] {
@@ -1142,6 +1324,74 @@ export function findItem(id: string): CatalogItem | undefined {
   return CATALOG.find((i) => i.id === id);
 }
 
+/**
+ * Where an item's picture comes from — resolved at render time, never stored.
+ *
+ * ---------------------------------------------------------------------------
+ * Why no images live in the database
+ * ---------------------------------------------------------------------------
+ *
+ * Ten thousand catalogue rows would be ten thousand image blobs, and a blob in
+ * Postgres is the worst of every world: it bloats backups, it cannot be served
+ * from a CDN, and it goes stale the moment a game re-skins an item. So nothing
+ * here stores bytes. There are three resolution paths and they are tried in
+ * order:
+ *
+ *   1. `art` — an explicit path a human set. Always wins.
+ *   2. `assetId` — Roblox's own thumbnail service. Pet Simulator 99's API
+ *      publishes an asset id for 3,108 of its rows, so those pictures are
+ *      free, always current, and served by Roblox rather than by us.
+ *   3. A file dropped at /public/items/<gameSlug>/<id>.png. This is the
+ *      convention for the four games whose wikis publish no asset ids: drop
+ *      the file in, it appears. No code change, no migration, no upload table.
+ *
+ * When none of the three resolves, the interface falls back to the typographic
+ * rarity tile, which is a real design rather than a broken-image icon.
+ */
+export const ITEM_IMAGE_BASE = "/items";
+
+/**
+ * NOT the Roblox thumbnails URL, and the difference matters.
+ *
+ * `thumbnails.roblox.com/v1/assets?assetIds=…` is a JSON API. It answers with
+ * `{ data: [{ state, imageUrl }] }`, not with a PNG, so putting it in an
+ * `<img src>` — which is what the pull's README suggests — renders a broken
+ * image on all 3,108 rows that carry an asset id. The JSON has to be resolved
+ * to the CDN url it names before anything can display it.
+ *
+ * That resolution happens server-side in /api/item-image/[assetId], which
+ * caches the hop, so this returns a path into our own origin. The tile treats
+ * a failure there as "no picture" and falls back to the rarity tile.
+ */
+export function thumbnailFor(item: CatalogItem): string | undefined {
+  if (item.art) return item.art;
+  if (item.assetId) return `/api/item-image/${encodeURIComponent(item.assetId)}`;
+  return localArtPath(item);
+}
+
+/**
+ * The conventional local path for an item's picture, or undefined when no such
+ * file exists.
+ *
+ * Consulting a manifest rather than just returning the path is what keeps the
+ * convention cheap. Optimistically pointing every tile at a file that is
+ * usually absent would mean roughly ten thousand 404s per catalogue page — the
+ * fallback would still render correctly, so nothing would look broken, and the
+ * cost would sit invisibly in the network tab and the server log forever.
+ *
+ * The manifest is generated by `npm run ingest`, which enumerates
+ * public/items/<gameSlug>/. Dropping a file in and re-running is the entire
+ * workflow for adding artwork — there is no upload table and no migration.
+ */
+const ART_FILES = new Map<string, string>(
+  ART_MANIFEST.map((file) => [file.replace(/\.[^./]+$/, ""), file]),
+);
+
+export function localArtPath(item: CatalogItem): string | undefined {
+  const file = ART_FILES.get(`${item.gameSlug}/${item.id}`);
+  return file ? `${ITEM_IMAGE_BASE}/${file}` : undefined;
+}
+
 /** How current this catalogue is. Shown wherever it could mislead. */
 export const CATALOG_CHECKED = "September 2026";
 
@@ -1159,43 +1409,54 @@ export const CATALOG_NOTES: Record<string, string> = {
     "move with updates.",
 
   gag2:
-    "All 33 seeds and crops, the two mutation seeds, 24 pets, all 10 eggs, " +
-    "and the two currencies marked so you can see they never move. Rarities " +
-    "are the honest weak point: names and abilities are confirmed, tiers " +
-    "mostly are not, so most pets carry no rarity rather than a guessed one. " +
-    "Four sources count the pet roster at 22, 30, 35 and 36 — that " +
-    "disagreement is about the total, not about the pets named here. Gear, " +
-    "Props and Crates have categories but no rows yet: no source named a " +
-    "single one.",
+    "302 rows: 112 crops, 72 gear, 49 pets, 31 crates, 16 packs, 13 eggs and " +
+    "the chests, plus the two currencies marked so you can see they never " +
+    "move. The crop count is 112, not the 33 an earlier hand-built list " +
+    "claimed. Rarities are the honest weak point — about a third of rows " +
+    "carry none, because the wiki never filed them under one, and a guessed " +
+    "tier would be worse than a blank.",
 
   "pet-simulator-99":
-    "Anchor rows only, and on purpose. This is the one game whose developer " +
-    "publishes the data — BIG Games' own API serves every pet, egg, enchant, " +
-    "RAP figure and exists count with images. Typing 3,000 pets by hand would " +
-    "be slower, worse and out of date within a week. The 28 enchants and 11 " +
-    "Huges and Titanics here exist so the board works before that hydration " +
-    "runs. Their terms allow non-commercial use only and require attribution, " +
-    "so a live feed needs written consent from BIG Games first.",
+    "The full roster, straight from BIG Games' own API: 3,109 pets — 1,039 " +
+    "Huge, 341 Titanic, 73 Gargantuan — 924 eggs, and every booth, " +
+    "hoverboard, enchant, charm and lootbox besides. This is the one game " +
+    "whose developer publishes its data, which is why it is also the only one " +
+    "carrying pictures: 3,108 rows have a Roblox asset id and the image is " +
+    "fetched from Roblox at render time rather than stored here. 622 pets " +
+    "have no rarity in the API itself; those are left unset. BIG Games' terms " +
+    "require written consent before commercial use, so this is a reference " +
+    "rather than a live feed.",
 
   "creatures-of-sonaria":
-    "The top of the market: five trade-only creatures that cannot be obtained " +
-    "in game at all, and the ten palettes and materials that trade above most " +
-    "creatures. Palettes and materials are separate rows rather than tags, " +
-    "because in this game they are separate items — putting them in a dropdown " +
-    "would have hidden the most valuable half of the market. Values are in " +
-    "Shooms and every one is a band, not a number. Explosive Stars Material " +
-    "is the most valuable item in the game and has no price anywhere; it is " +
-    "listed unpriced, and any trade naming it gets no verdict.",
+    "All 482 creatures against the wiki's own stated 481, so the roster is " +
+    "effectively complete, plus the hand-researched top of the market: five " +
+    "trade-only creatures that cannot be obtained in game at all, and the ten " +
+    "palettes and materials that trade above most creatures. The wiki pull " +
+    "carries no palettes or materials at all — in this game those are the most " +
+    "valuable half of the market, so they stay hand-curated and are separate " +
+    "rows rather than dropdown tags. Values are in Shooms and every one is a " +
+    "band, not a number. Explosive Stars Material is the most valuable item in " +
+    "the game and has no price anywhere; it is listed unpriced, and any trade " +
+    "naming it gets no verdict.",
 
   fisch:
-    "The four tiers players actually chase and trade, in full: 11 Divine " +
-    "Secret, 11 Apex, 40 Secret and 54 Exotic fish, plus 19 gliders. " +
-    "Everything below them — roughly a thousand Common through Mythical fish, " +
-    "531 rod skins, 312 boats and 354 bobbers — is bulk that belongs in a " +
-    "machine pull from the wiki's own data modules rather than in a " +
-    "hand-typed list. Rods, totems and bait are here so you can see them, and " +
-    "are marked untradeable: the single most expensive mix-up in this game is " +
-    "a rod SKIN, which trades, and the ROD it dresses, which never does.",
+    "1,426 fish, and the four tiers players actually chase — Divine Secret, " +
+    "Apex, Secret and Exotic — researched by hand on top of the pull. The " +
+    "cosmetics are the known gap: fischipedia.org blocks automated access, so " +
+    "these came from the thinner legacy wiki and carry 96 rod skins against " +
+    "roughly 531 that exist, 17 boats against 312, and 81 bobbers against " +
+    "354. The 19 gliders are hand-researched, because the pull found 2. Rods, " +
+    "totems and bait are here so you can see them and are marked " +
+    "untradeable: the single most expensive mix-up in this game is a rod " +
+    "SKIN, which trades, and the ROD it dresses, which never does.",
+
+  "adopt-me":
+    "788 pets, 758 toys, 283 vehicles, 104 strollers and the eight old " +
+    "limiteds the whole market is anchored on. 104 rows are marked " +
+    "untradeable from the wiki's own Non-Tradable category. Two gaps worth " +
+    "knowing: potions came back as 2 rows and furniture as 11, which is " +
+    "thinner than the game really has — and potions matter here, because Fly " +
+    "and Ride change what a pet is worth.",
 };
 
 /** Rows that could not be confirmed against the wiki. */

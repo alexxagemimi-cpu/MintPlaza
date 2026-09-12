@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "proof": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs ./scripts/proof.ts"
+    "proof": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs ./scripts/proof.ts",
+    "ingest": "node scripts/ingest.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

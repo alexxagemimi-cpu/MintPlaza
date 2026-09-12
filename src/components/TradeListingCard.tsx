@@ -1,4 +1,5 @@
 import { ItemTile } from "./ItemTile";
+import { ValueLookup } from "./ValueLookup";
 import { REASON_COPY, type DemoListing, type ListingItem } from "@/lib/demo";
 import {
   DEMAND_LABEL, DEMAND_STYLE, checkedLabel, demandOf, formatValue, valueSourceFor,
@@ -330,6 +331,30 @@ export function TradeListingCard({
                     `${source ? ` (${source.unit})` : ""} — ${VERDICT_COPY[calc.verdict].long}.`}
           </span>
         </div>
+
+        {/* ---- the way out of a "?" ----
+             A "?" caused by a missing value is the commonest verdict on this
+             site and will stay that way: 10,117 of 10,191 catalogue rows have
+             no published value, because nobody publishes values at that scale.
+             Left as a bare "?" it is a dead end, and a dead end is where a
+             trader closes the tab.
+
+             Only the missing-value case gets this. Cross-game and
+             open-to-offers are also "?" but neither is a question another site
+             can answer — one is a rule violation and the other is a listing
+             that has not said what it wants — so offering a lookup there would
+             be noise dressed up as help. ---- */}
+        {calc.verdict === "?" &&
+          !calc.crossGame &&
+          !calc.openToOffers &&
+          (calc.incoming.unpriced.length > 0 || calc.outgoing.unpriced.length > 0) && (
+            <div className="mt-3">
+              <ValueLookup
+                gameSlug={listing.gameSlug}
+                unpriced={[...calc.incoming.unpriced, ...calc.outgoing.unpriced]}
+              />
+            </div>
+          )}
 
         {listing.note && (
           <p className="mt-3 text-[0.8125rem] leading-relaxed text-ink-mute">
