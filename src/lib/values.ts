@@ -77,6 +77,17 @@ export interface ValueSource {
   caveat?: string;
 }
 
+/**
+ * Keyed by the REGISTRY slug, not the one the research used.
+ *
+ * Worth stating because it already went wrong once. The research files call
+ * these games `ps99`, `adoptme` and `sonaria`; the registry and the database
+ * call them `pet-simulator-99`, `adopt-me` and `creatures-of-sonaria`. Keying
+ * this table by the research's names made `valueSourceFor` return null for
+ * three of six games, so their listings quietly claimed there was no value
+ * list at all — a failure that looks exactly like an honest one, which is the
+ * worst kind. The proof script catches it now.
+ */
 export const VALUE_SOURCES: Record<string, ValueSource> = {
   "blox-fruits": {
     name: "Game.Guide Blox Fruits value list",
@@ -93,7 +104,7 @@ export const VALUE_SOURCES: Record<string, ValueSource> = {
     caveat:
       "TrueVal is the S$ scale traders quote. It is not the NPC sell price in C$, and the two must never be mixed — a fish sells to a merchant for one number and trades for another.",
   },
-  ps99: {
+  "pet-simulator-99": {
     name: "BIG Games public API (RAP and exists counts)",
     url: "https://ps99.biggamesapi.io/",
     checked: "12 September 2026",
@@ -101,7 +112,7 @@ export const VALUE_SOURCES: Record<string, ValueSource> = {
     caveat:
       "RAP is computed by the game from real trades, which makes it the most honest anchor on the site — but it is not the same as what a pet is currently worth, and community lists differ from it. BIG Games' API terms require written consent before commercial use; until that consent exists this is a reference, not a feed.",
   },
-  adoptme: {
+  "adopt-me": {
     name: "adoptmevalues.gg (Cosmic Values)",
     url: "https://adoptmevalues.gg/",
     checked: "12 September 2026",
@@ -109,7 +120,7 @@ export const VALUE_SOURCES: Record<string, ValueSource> = {
     caveat:
       "Adopt Me has no in-game currency for trading, so these are a unitless community scale. The same pet is priced separately for each Neon and potion combination.",
   },
-  sonaria: {
+  "creatures-of-sonaria": {
     name: "Game.Guide Creatures of Sonaria value list",
     url: "https://www.game.guide/creatures-of-sonaria-value-list",
     checked: "12 September 2026",
@@ -313,6 +324,49 @@ export const VALUES: Record<string, ItemValue> = {
   "bf-skin-rose-quartz-diamond": { physical: 280 * M, demand: 4 },
   "bf-skin-torment-pain": { physical: 130 * M, demand: 4 },
   "bf-skin-glacier-eagle": { physical: 18.3 * M, demand: 3 },
+
+  /* ---------------------------------------------------------------- */
+  /* Creatures of Sonaria — in SHOOMS, not Beli.                       */
+  /* ---------------------------------------------------------------- */
+  //
+  // A different unit entirely, which is why valueSourceFor() exists and why the
+  // calculator refuses to weigh a Sonaria item against a Blox Fruits one. A
+  // single Sonaria trade is capped by the game at 500,000 Shooms, so several of
+  // these cannot legally be bought outright with Shooms at all — they change
+  // hands creature-for-creature.
+  //
+  // Every figure is a band, because that is how the community publishes them.
+  // The headline is the MIDPOINT rather than either end, and deliberately: the
+  // low end would quietly undervalue whatever a player is holding, the high end
+  // would quietly overvalue it, and only the middle is even-handed about which
+  // side of a trade it flatters. The band is carried alongside and shown, so
+  // nobody reads the headline as settled.
+  //
+  // Demand is absent on every row. MintPlaza's six demand levels are our own
+  // idea and the Sonaria sources do not publish anything that maps onto them.
+  // An invented demand badge on the most expensive items in the game would be
+  // the single most persuasive lie on the site.
+  "cs-keruku":        { physical: 550 * K, range: { low: 500 * K, high: 600 * K }, unstable: true },
+  "cs-somnia-elus":   { physical: 450 * K, range: { low: 400 * K, high: 500 * K }, unstable: true },
+  "cs-corvurax":      { physical: 340 * K, range: { low: 300 * K, high: 380 * K }, unstable: true },
+  "cs-mijusuima":     { physical: 325 * K, range: { low: 300 * K, high: 350 * K }, unstable: true },
+  "cs-etheralotus":   { physical: 275 * K, range: { low: 200 * K, high: 350 * K }, unstable: true },
+
+  "cs-lunar-qilin":   { physical: 2 * M, range: { low: 1 * M, high: 3 * M }, unstable: true },
+  "cs-kaiju-material":    { physical: 1 * M, range: { low: 800 * K, high: 1.2 * M }, unstable: true },
+  "cs-glaring-material":  { physical: 1 * M, range: { low: 800 * K, high: 1.2 * M }, unstable: true },
+  "cs-sonarian-material": { physical: 1 * M, range: { low: 800 * K, high: 1.2 * M }, unstable: true },
+  "cs-shining-material":  { physical: 1 * M, range: { low: 800 * K, high: 1.2 * M }, unstable: true },
+
+  "cs-super-korathos-palette": { physical: 750 * K, range: { low: 500 * K, high: 1 * M }, unstable: true },
+  "cs-starlit-palette":        { physical: 750 * K, range: { low: 500 * K, high: 1 * M }, unstable: true },
+  "cs-ikoran-palette":         { physical: 750 * K, range: { low: 500 * K, high: 1 * M }, unstable: true },
+  "cs-hygos-palette":          { physical: 750 * K, range: { low: 500 * K, high: 1 * M }, unstable: true },
+
+  // cs-explosive-stars-material is deliberately, permanently absent. It is the
+  // most valuable item in Creatures of Sonaria and the community list has
+  // published it as TBD for months. Any trade naming it gets no verdict, which
+  // is the correct answer and the whole reason the "no call" state exists.
 };
 
 /**

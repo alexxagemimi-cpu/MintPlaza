@@ -826,10 +826,297 @@ const GAG2_CATALOG: CatalogItem[] = [
   gag2("Rainbow Seed", "Mutation Item", undefined, "Free during the Rainbow Moon night event. Guarantees a Rainbow mutation."),
 ];
 
+
+/* ------------------------------------------------------------------ */
+/* Grow a Garden 2 — pets, eggs and the two things that never move     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The pets, and an honest word about their rarities.
+ *
+ * Four sources count the roster at 22, 30, 35 and 36. That disagreement is
+ * real and it is not resolvable from outside the game — but it is a fact about
+ * the TOTAL, not about the individual pets, and the named ones below are
+ * confirmed by name and by what they do. Leaving twenty-four confirmed pets
+ * out of a trading catalogue because nobody agrees how many there are in total
+ * would be a worse kind of dishonesty than shipping them and saying the list is
+ * incomplete.
+ *
+ * So: names and abilities are confirmed and carry `verified: true`. Rarities
+ * mostly are not, and those rows carry no rarity at all rather than a guessed
+ * one — the tile falls back to type, which reads fine and claims nothing.
+ *
+ * The rarity mapping where it IS known follows the game's own ladder onto
+ * MintPlaza's seven: Epic sits between Rare and Legendary so it becomes
+ * Ultra-Rare, and Super is the top power tier so it becomes Premium. Secret is
+ * not a power level at all — it is a classification — so Kitsune gets `type`
+ * and no rarity.
+ */
+const gag2pet = (
+  name: string,
+  note: string,
+  rarity?: Rarity,
+  opts: { type?: string; verified?: boolean; aliases?: readonly string[] } = {},
+): CatalogItem => ({
+  id: `gag2-pet-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "gag2",
+  name,
+  category: "Pet",
+  rarity,
+  type: opts.type,
+  note,
+  aliases: opts.aliases,
+  verified: opts.verified ?? true,
+});
+
+const GAG2_PETS: CatalogItem[] = [
+  // ---- the ones everybody is chasing ----
+  gag2pet("Kitsune", "Secret. Multiplies Chakra by 60 on fruit stolen at night. Secret is a classification, not a power tier, which is why this row carries no rarity.", undefined, { type: "Secret" }),
+  gag2pet("Shadow Dragon", "Super tier, from the Fall Harvest world. Chance of a Veil x50 when sowing. Spawn rate reported at 0.00464%.", "Premium"),
+  gag2pet("Ice Serpent", "Super tier, guild leaderboard reward, and a defender. It trades — but as a rare-and-above pet it cannot be sent through the Mailbox, so it has to be dropped or moved inside a guild.", "Premium"),
+  gag2pet("Black Dragon", "Super tier, guild leaderboard reward, and a defender. Same as Ice Serpent: tradeable, but not mailable.", "Premium"),
+  gag2pet("Golden Dragonfly", "Mythic mutator. Doubles the chance of a Gold mutation.", "Mythical"),
+  gag2pet("Unicorn", "Doubles the chance of a Rainbow mutation. Sources disagree on its tier: one calls it a Mythic mutator, another a pull from the Epic Egg. The egg a pet comes out of is not its rarity, so this is unresolved.", "Mythical", { verified: false }),
+  gag2pet("Big Jandel Monkey", "Event pet. One value list puts it at the very top of the game at around 50,000 Sheckle-points while another puts Mega Ice Serpent there instead. Unresolved.", undefined, { verified: false, aliases: ["jandel monkey", "jandel"] }),
+
+  // ---- the working pets ----
+  gag2pet("Raccoon", "Steals from other gardens at night. Roughly a 0.2% pull from the Common Egg, which makes it the rarest thing in a cheap egg.", undefined, { verified: false }),
+  gag2pet("Monkey", "Auto-harvests while you are away. The AFK pet.", undefined, { verified: false }),
+  gag2pet("Deer", "Speeds up crop growth.", undefined, { verified: false }),
+  gag2pet("Owl", "Night vision — you can see raiders coming.", undefined, { verified: false }),
+  gag2pet("Capybara", "Stops your pets losing XP.", undefined, { verified: false }),
+  gag2pet("Bee", "Defender. Goes after anyone in your garden at night.", undefined, { verified: false }),
+  gag2pet("Bear", "Defender.", undefined, { verified: false }),
+  gag2pet("Frog", "Early-game movement speed.", undefined, { verified: false }),
+  gag2pet("Bunny", "Early-game movement speed.", undefined, { verified: false }),
+  gag2pet("Robin", "Egg pet.", undefined, { verified: false }),
+
+  // ---- Muffin Bake update, 22 August 2026 ----
+  gag2pet("Sugar Bunny", "Added in the Muffin Bake update, 22 August 2026.", undefined, { verified: false }),
+  gag2pet("Chocolate Lab", "Added in the Muffin Bake update, 22 August 2026.", undefined, { verified: false }),
+  gag2pet("Fat Cat", "Added in the Muffin Bake update, 22 August 2026.", undefined, { verified: false }),
+  gag2pet("Chicken", "Added in the Muffin Bake update, 22 August 2026.", undefined, { verified: false }),
+  gag2pet("Muffin Man", "Added in the Muffin Bake update, 22 August 2026.", undefined, { verified: false }),
+
+  // ---- Fall Harvest ----
+  gag2pet("Dog", "Added with the Fall Harvest world, 2 August 2026.", undefined, { verified: false }),
+  gag2pet("Hedgehog", "Added with the Fall Harvest world, 2 August 2026.", undefined, { verified: false }),
+];
+
+/**
+ * All ten eggs. The roster is confirmed; the pull odds are not.
+ *
+ * Nobody publishes the odds for the guild-reward eggs — the figures circulating
+ * are extrapolated by third-party calculators from small samples — so this says
+ * what each egg is for and stops there.
+ */
+const gag2egg = (name: string, note: string, verified = true): CatalogItem => ({
+  id: `gag2-egg-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "gag2", name, category: "Egg", note, verified,
+});
+
+const GAG2_EGGS: CatalogItem[] = [
+  gag2egg("Common Egg", "The cheap one. Pulls Frogs, Bunnies, Golden Dragonfly, and Raccoon at roughly 0.2%."),
+  gag2egg("Epic Egg", "Pulls Unicorn at roughly 30%."),
+  gag2egg("Big Egg", "Guild reward. Produces Big-variant pets.", false),
+  gag2egg("Mega Egg", "Guild reward, Super tier. Around a dozen Mega pets come out of it.", false),
+  gag2egg("Rainbow Egg", "Guild reward. Produces Rainbow-variant pets.", false),
+  gag2egg("Exclusive Harvest Egg", "Limited.", false),
+  gag2egg("Fall Common Egg", "Fall Harvest variant.", false),
+  gag2egg("Fall Big Egg", "Fall Harvest variant.", false),
+  gag2egg("Fall Mega Egg", "Fall Harvest variant.", false),
+  gag2egg("Fall Rainbow Egg", "Fall Harvest variant.", false),
+];
+
+/**
+ * The two things in GAG2 that cannot move between players at all.
+ *
+ * Here for the same reason Fisch's rods are here: a player looking for a way to
+ * send somebody Sheckles should find the answer on the page rather than by
+ * trying it. `tradeable: false` keeps both out of every listing picker.
+ */
+const GAG2_UNTRADEABLE: CatalogItem[] = [
+  { id: "gag2-sheckles", gameSlug: "gag2", name: "Sheckles", category: "Crate",
+    note: "The main currency. Cannot be gifted, mailed or dropped. There is no way to send another player money in this game.",
+    tradeable: false, verified: true, aliases: ["money", "currency", "cash"] },
+  { id: "gag2-leaves", gameSlug: "gag2", name: "Leaves", category: "Crate",
+    note: "The Fall Harvest world's own currency. Also cannot be transferred.",
+    tradeable: false, verified: true },
+];
+
+/* ------------------------------------------------------------------ */
+/* Fisch — gliders                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Nineteen gliders, and a correction worth reading.
+ *
+ * The Gliders page's own opening line still says there are 9, and it is right
+ * — about what you can get TODAY (7 traditional plus 2 hang gliders). Its
+ * change history names about twenty, because event and seasonal gliders were
+ * added and then made unobtainable. Both numbers are true and they answer
+ * different questions, so all nineteen are here and the note says which is
+ * which.
+ *
+ * They also trade, which took a correction to establish. The direct trade menu
+ * only names fish, bobbers, boats and rod skins — but the Gliders page states
+ * plainly that gliders can be traded, and the route is a Trade Plaza Sales
+ * Booth rather than the face-to-face swap. Two live value lists carry glider
+ * prices, which is the market agreeing.
+ */
+const glider = (name: string, standing: "Available" | "Limited"): CatalogItem => ({
+  id: `fisch-glider-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "fisch",
+  name,
+  category: "Gliders",
+  type: "Glider",
+  note:
+    standing === "Available"
+      ? "One of the nine gliders you can still get."
+      : "Event or seasonal. Named in the wiki's change history; not currently obtainable, so it moves by trade only.",
+  verified: standing === "Available",
+});
+
+const FISCH_GLIDERS: CatalogItem[] = [
+  glider("Glider", "Available"),
+  glider("Advanced Glider", "Available"),
+  glider("Elite Glider", "Available"),
+  glider("Cloud Glider", "Available"),
+  glider("Hang Glider", "Available"),
+  glider("Clover Glider", "Limited"),
+  glider("Sweet Picnic Glider", "Limited"),
+  glider("Jingle Wings", "Limited"),
+  glider("Bat Glider", "Limited"),
+  glider("Wings of Wrath", "Limited"),
+  glider("Wings of Lament", "Limited"),
+  glider("Jelly Cascade", "Limited"),
+  glider("Speakerwings", "Limited"),
+  glider("Citrus Sail", "Limited"),
+  glider("Crested Dragon Wings", "Limited"),
+  glider("Silkwings", "Limited"),
+  glider("Poyastar", "Limited"),
+  glider("Polarastar", "Limited"),
+  glider("Joyous Hat", "Limited"),
+];
+
+/* ------------------------------------------------------------------ */
+/* Pet Simulator 99 — enchants                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Twenty-four enchants, from two market lists that overlap.
+ *
+ * BIG Games' own API reports 65 enchants and charms. One market tracker
+ * follows 52 — the ones that actually change hands. The names below are the
+ * union of every one I could read, which lands at 24 and is explicitly not the
+ * whole set.
+ *
+ * This is the one game on MintPlaza where the full list should never be typed
+ * by a person: the developer publishes it. `GET /api/collection/Enchants` on
+ * biggamesapi.io returns all of them with their images, and the right move at
+ * deploy time is to hydrate from there and let these rows fall away. They exist
+ * so the board is usable before that happens.
+ */
+const enchant = (name: string): CatalogItem => ({
+  id: `ps99-enchant-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "pet-simulator-99",
+  name,
+  category: "Enchant",
+  note: "Named on a live market list. The authoritative roster is BIG Games' own API.",
+  verified: true,
+});
+
+const PS99_ENCHANTS: CatalogItem[] = [
+  "Massive Comet", "Diamond Mimic", "Chest Mimic", "Lucky Block", "Huge Hunter",
+  "Fortune", "Shiny Hunter", "Boss Chest Mimic", "Super Shiny Hunter",
+  "Super Magnet", "Boss Lucky Block", "Shiny Supercharge", "Mini Chest Fortune",
+  "Magic Orb", "Chest Breaker", "Super Lightning", "Starfall", "Nightmare Orb",
+  "Mega Chest Breaker", "Double Coins", "Active Huge Overload",
+  "Diamond Gift Hunter", "Lightning Orb", "Rainbow Eggs",
+].map(enchant);
+
+/* ------------------------------------------------------------------ */
+/* Creatures of Sonaria — the top of the market                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The fifteen rows the whole Sonaria market runs on, and the one it cannot
+ * price.
+ *
+ * Five trade-only creatures and ten palettes and materials. All five creatures
+ * are badge- or role-limited and are not obtainable in game right now — 311 of
+ * 475 creatures are, and these are not among them — so the only way anyone gets
+ * one is from another player, which is exactly why they sit at the top.
+ *
+ * Palettes and Materials get their own rows rather than being tags on a
+ * creature, because in this game they are genuinely separate tradeable items
+ * and several of them are worth more than the creatures they go on. Getting
+ * that wrong would have hidden the most valuable half of the market inside a
+ * dropdown.
+ *
+ * And then there is Explosive Stars Material, which is the single most valuable
+ * item in the game and has no price at all. The community list has published it
+ * as TBD for months. It is here, unpriced, saying so — that row is the whole
+ * argument for having a "we do not know" state in the first place.
+ */
+const sonaria = (
+  name: string,
+  category: "Creature" | "Palette" | "Material",
+  note: string,
+  verified = true,
+): CatalogItem => ({
+  id: `cs-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "creatures-of-sonaria",
+  name,
+  category,
+  rarity: "Premium",
+  note,
+  verified,
+});
+
+const SONARIA_TOP: CatalogItem[] = [
+  sonaria("Keruku", "Creature", "Trade-only. Badge or role limited, not obtainable in game."),
+  sonaria("Somnia Elus", "Creature", "Trade-only. Badge or role limited, not obtainable in game."),
+  sonaria("Corvurax", "Creature", "Trade-only. Badge or role limited, not obtainable in game."),
+  sonaria("Mijusuima", "Creature", "Trade-only. Badge or role limited, not obtainable in game."),
+  sonaria("Etheralotus", "Creature", "Trade-only. Badge or role limited, not obtainable in game."),
+
+  sonaria("Explosive Stars Material", "Material",
+    "The most valuable item in the game, and nobody has a number for it. The community list has shown TBD here for months. MintPlaza will not price it, and no trade containing it gets a verdict.",
+    false),
+
+  sonaria("Lunar Qilin", "Palette", "The highest priced thing on the list that actually has a price."),
+  sonaria("Kaiju Material", "Material", "Top-tier material."),
+  sonaria("Glaring Material", "Material", "Top-tier material."),
+  sonaria("Sonarian Material", "Material", "Top-tier material."),
+  sonaria("Shining Material", "Material", "Top-tier material."),
+  sonaria("Super Korathos Palette", "Palette", "Super palette."),
+  sonaria("Starlit Palette", "Palette", "Super palette."),
+  sonaria("Ikoran Palette", "Palette", "Super palette."),
+  sonaria("Hygos Palette", "Palette", "Super palette."),
+];
+
+/* ------------------------------------------------------------------ */
+/* Adopt Me — the last two of the eight old limiteds                   */
+/* ------------------------------------------------------------------ */
+
+const ADOPT_ME_LIMITEDS: CatalogItem[] = [
+  { id: "adoptme-blue-dog", gameSlug: "adopt-me", name: "Blue Dog", category: "Pet",
+    rarity: "Legendary",
+    note: "One of the eight old limiteds the whole Adopt Me market is anchored on. Long retired; trade only.",
+    verified: true },
+  { id: "adoptme-pink-cat", gameSlug: "adopt-me", name: "Pink Cat", category: "Pet",
+    rarity: "Legendary",
+    note: "One of the eight old limiteds the whole Adopt Me market is anchored on. Long retired; trade only.",
+    verified: true },
+];
+
 export const CATALOG: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
   ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
+  ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE,
+  ...FISCH_GLIDERS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
 ];
 
 /** Catalogue rows the game will not let players trade. Never offer these. */
@@ -871,24 +1158,44 @@ export const CATALOG_NOTES: Record<string, string> = {
     "Robux prices are what the wiki showed when this was last checked; they " +
     "move with updates.",
 
+  gag2:
+    "All 33 seeds and crops, the two mutation seeds, 24 pets, all 10 eggs, " +
+    "and the two currencies marked so you can see they never move. Rarities " +
+    "are the honest weak point: names and abilities are confirmed, tiers " +
+    "mostly are not, so most pets carry no rarity rather than a guessed one. " +
+    "Four sources count the pet roster at 22, 30, 35 and 36 — that " +
+    "disagreement is about the total, not about the pets named here. Gear, " +
+    "Props and Crates have categories but no rows yet: no source named a " +
+    "single one.",
+
+  "pet-simulator-99":
+    "Anchor rows only, and on purpose. This is the one game whose developer " +
+    "publishes the data — BIG Games' own API serves every pet, egg, enchant, " +
+    "RAP figure and exists count with images. Typing 3,000 pets by hand would " +
+    "be slower, worse and out of date within a week. The 28 enchants and 11 " +
+    "Huges and Titanics here exist so the board works before that hydration " +
+    "runs. Their terms allow non-commercial use only and require attribution, " +
+    "so a live feed needs written consent from BIG Games first.",
+
+  "creatures-of-sonaria":
+    "The top of the market: five trade-only creatures that cannot be obtained " +
+    "in game at all, and the ten palettes and materials that trade above most " +
+    "creatures. Palettes and materials are separate rows rather than tags, " +
+    "because in this game they are separate items — putting them in a dropdown " +
+    "would have hidden the most valuable half of the market. Values are in " +
+    "Shooms and every one is a band, not a number. Explosive Stars Material " +
+    "is the most valuable item in the game and has no price anywhere; it is " +
+    "listed unpriced, and any trade naming it gets no verdict.",
+
   fisch:
     "The four tiers players actually chase and trade, in full: 11 Divine " +
-    "Secret, 11 Apex, 40 Secret and 54 Exotic fish. Everything below them — " +
-    "roughly a thousand Common through Mythical fish, 531 rod skins, 312 " +
-    "boats and 354 bobbers — is bulk that belongs in a machine pull from the " +
-    "wiki's own data modules rather than in a hand-typed list. Rods, totems " +
-    "and bait are here so you can see them, and are marked untradeable: the " +
-    "single most expensive mix-up in this game is a rod SKIN, which trades, " +
-    "and the ROD it dresses, which never does.",
-
-  gag2:
-    "All 33 seeds and crops plus the two mutation seeds, cross-checked " +
-    "between the official wiki and the community seed list. Nine rows are " +
-    "marked unverified and that is the honest state of them: every Mythic and " +
-    "Super price circulating online except Venus Fly Trap's comes from " +
-    "third-party lists that contradict each other by a factor of three. Pets " +
-    "and eggs are not here yet — sources cannot even agree whether there are " +
-    "22, 30, 35 or 36 pets, so the table waits for the official one.",
+    "Secret, 11 Apex, 40 Secret and 54 Exotic fish, plus 19 gliders. " +
+    "Everything below them — roughly a thousand Common through Mythical fish, " +
+    "531 rod skins, 312 boats and 354 bobbers — is bulk that belongs in a " +
+    "machine pull from the wiki's own data modules rather than in a " +
+    "hand-typed list. Rods, totems and bait are here so you can see them, and " +
+    "are marked untradeable: the single most expensive mix-up in this game is " +
+    "a rod SKIN, which trades, and the ROD it dresses, which never does.",
 };
 
 /** Rows that could not be confirmed against the wiki. */
