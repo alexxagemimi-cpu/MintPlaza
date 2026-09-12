@@ -1744,3 +1744,27 @@ do $$ begin
     using (bucket_id = 'proofs'
            and (storage.foldername(name))[1] = auth.uid()::text);
 exception when duplicate_object then null; end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Five-game build-out (September 2026)
+-- ---------------------------------------------------------------------------
+-- Fisch and Grow a Garden 2 need rows here before anybody can post in them:
+-- service_listings.game_slug is a foreign key onto games.slug, so without them
+-- every post would fail on a constraint rather than on anything a player did.
+-- (The insert itself lives in the migration; re-running it is a no-op.)
+--
+-- The three template columns below are the important part. `everyone_rewarded`
+-- is three-state on purpose: true is checked-and-yes, false is checked-and-no,
+-- NULL is nobody-has-looked. NULL behaves exactly like false, because a
+-- recruitment template nobody has checked might be gathering strangers to lose
+-- a race they cannot win. `is_draft` keeps a real but unconfirmed template in
+-- the catalogue and off the board.
+
+alter table public.service_templates
+  add column if not exists everyone_rewarded boolean,
+  add column if not exists is_draft          boolean not null default false,
+  add column if not exists group_label       text;
+
+-- admin_save_template() was replaced to carry all three; see the migration
+-- `five_game_build_out` for the full body.

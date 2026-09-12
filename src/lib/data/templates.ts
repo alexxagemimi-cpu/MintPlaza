@@ -1,5 +1,5 @@
 import { serverSupabase } from "@/lib/supabase/server";
-import { SERVICES, type Section, type Service, type ServiceKind } from "@/lib/sessions";
+import { SERVICES, postable, type Section, type Service, type ServiceKind } from "@/lib/sessions";
 
 /**
  * Where list templates come from.
@@ -46,6 +46,10 @@ export interface TemplateRow {
   is_active: boolean;
   sort_order: number;
   updated_at: string | null;
+  /** Null where nobody has checked, which is treated exactly like false. */
+  everyone_rewarded: boolean | null;
+  is_draft: boolean;
+  group_label: string | null;
 }
 
 /** One template as the Studio needs to see it, whichever source it came from. */
@@ -73,6 +77,12 @@ function fromRow(row: TemplateRow): StudioTemplate {
     aliases: row.aliases ?? undefined,
     refs: row.refs ?? undefined,
     verified: row.verified,
+    // Null stays undefined rather than becoming false, so the Studio can tell
+    // "checked, and no" from "nobody has looked". Both keep a recruitment
+    // template off the board; only one of them is a finished answer.
+    everyoneRewarded: row.everyone_rewarded ?? undefined,
+    draft: row.is_draft,
+    group: row.group_label ?? undefined,
     isActive: row.is_active,
     edited: true,
     sortOrder: row.sort_order,
@@ -100,7 +110,7 @@ export async function allTemplates(gameSlug?: string): Promise<StudioTemplate[]>
 
   let query = supabase
     .from("service_templates")
-    .select("id, game_slug, name, kind, section, art, needs, players, gives, open_ended, aliases, refs, verified, is_active, sort_order, updated_at");
+    .select("id, game_slug, name, kind, section, art, needs, players, gives, open_ended, aliases, refs, verified, is_active, sort_order, updated_at, everyone_rewarded, is_draft, group_label");
   if (gameSlug) query = query.eq("game_slug", gameSlug);
 
   const { data, error } = await query;
@@ -121,13 +131,21 @@ export async function allTemplates(gameSlug?: string): Promise<StudioTemplate[]>
   );
 }
 
-/** What the site should actually offer: everything not retired. */
+/**
+ * What the site should actually offer.
+ *
+ * Three filters, and the third is the one that matters: `postable` keeps a
+ * draft template and a recruit template whose reward might go to one person off
+ * the board entirely. The Studio still sees them — that is what `allTemplates`
+ * is for — but a player cannot post one, which means nobody can be recruited
+ * into a race by accident.
+ */
 export async function liveTemplates(
   gameSlug: string, section: Section = "services",
 ): Promise<Service[]> {
   const all = await allTemplates(gameSlug);
   return all
-    .filter((t) => t.isActive && (t.section ?? "services") === section)
+    .filter((t) => t.isActive && (t.section ?? "services") === section && postable(t))
     .map(({ isActive, edited, sortOrder, updatedAt, ...service }) => {
       void isActive; void edited; void sortOrder; void updatedAt;
       return service;

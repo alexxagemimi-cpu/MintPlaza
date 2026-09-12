@@ -103,6 +103,17 @@ export interface Calculation {
   verdict: Verdict;
   /** True when the listing asks for nothing specific. */
   openToOffers: boolean;
+  /**
+   * True where the two sides name items from different games.
+   *
+   * Cross-trading is against the rules of every game MintPlaza runs, and it is
+   * also arithmetically meaningless here: Blox Fruits values are Beli-equivalent,
+   * Fisch prices in Shady Scrips, Sonaria in Shooms. "3.4B" and "3.4K" have
+   * nothing to do with each other, and a calculator that adds them has invented
+   * a number nobody can check. So this is not a policy the interface enforces
+   * politely — the maths refuses.
+   */
+  crossGame: boolean;
 }
 
 /**
@@ -141,6 +152,12 @@ export function calculate(
 
   const openToOffers = wanting.length === 0;
 
+  // Every item on both sides, and whether they agree about which game this is.
+  const slugs = new Set(
+    [...offering, ...wanting].map((e) => e.item.gameSlug).filter(Boolean),
+  );
+  const crossGame = slugs.size > 1;
+
   // The gap decides which of the three words it is, and then it is thrown
   // away. A percentage or a "+1.33B" reads as precision the underlying numbers
   // do not have — they are one site's estimate of a market that moves daily —
@@ -152,6 +169,7 @@ export function calculate(
   // A listing open to offers has nothing to weigh against, and an incomplete
   // side makes any verdict a guess. Both get "?" rather than a confident lie.
   const verdict: Verdict =
+    crossGame ||
     openToOffers ||
     incoming.unpriced.length > 0 ||
     outgoing.unpriced.length > 0 ||
@@ -163,5 +181,5 @@ export function calculate(
           ? "W"
           : "L";
 
-  return { incoming, outgoing, verdict, openToOffers };
+  return { incoming, outgoing, verdict, openToOffers, crossGame };
 }

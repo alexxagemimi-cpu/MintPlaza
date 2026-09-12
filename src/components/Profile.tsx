@@ -65,11 +65,46 @@ function Avatar({ url, name, size = 84 }: { url: string | null; name: string; si
   );
 }
 
+/**
+ * A game's picture, or a stand-in when it has none yet.
+ *
+ * Every place this file shows a game goes through here, because an empty `src`
+ * is not a blank square — it is a broken image that makes the browser re-fetch
+ * the page, and a game with no cover is a normal state on a site where the
+ * Studio can add one.
+ */
+function GameIcon({ game, size, round = false }: { game: GameChip; size: number; round?: boolean }) {
+  const radius = round ? "9999px" : `${Math.round(size * 0.28)}px`;
+  if (!game.art) {
+    return (
+      <span
+        aria-hidden="true"
+        className="grid shrink-0 place-items-center font-extrabold"
+        style={{
+          width: size, height: size, borderRadius: radius,
+          fontSize: Math.max(9, size * 0.36),
+          color: game.hue,
+          background: `color-mix(in srgb, ${game.hue} 14%, white)`,
+        }}
+      >
+        {game.shortName.slice(0, 2).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={game.art} alt=""
+      className="shrink-0 object-cover"
+      style={{ width: size, height: size, borderRadius: radius }}
+    />
+  );
+}
+
 function GameTag({ game }: { game: GameChip }) {
   return (
     <span className="flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-3 text-[0.8125rem] font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-line)]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={game.art} alt="" className="h-6 w-6 rounded-full object-cover" />
+      <GameIcon game={game} size={24} round />
       {game.shortName}
     </span>
   );
@@ -162,8 +197,7 @@ function ProofsSection({
           aria-expanded={open}
           className="flex w-full items-center gap-3.5 rounded-[var(--radius-inner)] border border-line bg-surface p-3 text-left transition-colors hover:bg-sunk"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={game.art} alt="" className="h-12 w-12 shrink-0 rounded-[14px] object-cover" />
+          <GameIcon game={game} size={48} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[0.9375rem] font-bold tracking-[-0.015em] text-ink">
               {game.name}
@@ -199,8 +233,7 @@ function ProofsSection({
                     g.slug === slug ? "bg-mint-wash" : "hover:bg-fill"
                   }`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={g.art} alt="" className="h-9 w-9 shrink-0 rounded-[11px] object-cover" />
+                  <GameIcon game={g} size={36} />
                   <span className="min-w-0 flex-1 truncate text-[0.875rem] font-semibold text-ink">
                     {g.shortName}
                   </span>
@@ -406,8 +439,7 @@ function EditForm({
                   : "bg-surface text-ink-soft shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-sunk"
               }`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={g.art} alt="" className="h-6 w-6 rounded-full object-cover" />
+              <GameIcon game={g} size={24} round />
               {g.shortName}
             </button>
           );
@@ -612,10 +644,7 @@ export function Profile({
                   key={`${row.gameSlug}-${row.serviceId}`}
                   className="flex items-center gap-3 border-b border-line-soft px-3.5 py-3 last:border-b-0"
                 >
-                  {game && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={game.art} alt="" className="h-8 w-8 shrink-0 rounded-[10px] object-cover" />
-                  )}
+                  {game && <GameIcon game={game} size={32} />}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[0.9375rem] font-semibold text-ink">
                       {/* A retired template still has to render as what it was,

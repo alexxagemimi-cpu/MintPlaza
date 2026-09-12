@@ -338,6 +338,18 @@ export interface TemplateDraft {
   verified?: boolean;
   isActive?: boolean;
   sortOrder?: number;
+  /**
+   * Does finishing this pay everybody who took part?
+   *
+   * Three states on purpose. true means checked and yes. false means checked
+   * and no. undefined means nobody has looked — and undefined behaves exactly
+   * like false, because a recruitment template nobody has checked is one that
+   * might be gathering people to lose a race.
+   */
+  everyoneRewarded?: boolean;
+  /** In the catalogue, off the board. */
+  isDraft?: boolean;
+  group?: string | null;
 }
 
 const KINDS = [
@@ -409,6 +421,12 @@ export async function saveTemplate(draft: TemplateDraft): Promise<ActionResult> 
       verified: draft.verified ?? true,
       is_active: draft.isActive ?? true,
       sort_order: draft.sortOrder ?? 0,
+      // Sent as null rather than false when unanswered, so the database can
+      // keep "checked, and no" apart from "nobody has looked yet".
+      everyone_rewarded:
+        draft.everyoneRewarded === undefined ? null : draft.everyoneRewarded,
+      is_draft: draft.isDraft ?? false,
+      group_label: draft.group?.trim().slice(0, 40) || "",
     },
   });
   if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, "") };

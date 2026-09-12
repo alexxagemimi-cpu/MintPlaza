@@ -39,13 +39,110 @@
  * invented one makes it lie with confidence.
  */
 
-/** Where the value column came from. Shown wherever a value is displayed. */
-export const VALUE_SOURCE = {
-  name: "Game.Guide Blox Fruits value list",
-  url: "https://www.game.guide/blox-fruits-value-list",
+/**
+ * Where each game's numbers come from, and what unit they are in.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this is a table and not a constant
+ * ---------------------------------------------------------------------------
+ *
+ * There is no site that covers every game MintPlaza runs, and the ones that
+ * exist do not agree with each other. Worse, they do not even use the same
+ * unit: Blox Fruits prices in Beli-equivalent, Fisch in Shady Scrips, Sonaria
+ * in Shooms, Grow a Garden 2 in Sheckle-points, Pet Simulator 99 in RAP, and
+ * Adopt Me in a unitless community scale with no currency behind it at all.
+ *
+ * Two consequences, and both are enforced by code rather than by good
+ * intentions:
+ *
+ *   1. One source per game, named and dated, shown wherever a number appears.
+ *      A value with no date on it is indistinguishable from a fact.
+ *
+ *   2. Numbers from two games are NEVER compared. Not as a policy — the
+ *      calculator physically refuses, because "3.4B" in Beli and "3.4K" in
+ *      Shooms have nothing to do with each other and a site that adds them has
+ *      invented a number nobody can check. This is also what makes
+ *      cross-trading impossible to price here, which is the point: it is
+ *      against the rules of every one of these games.
+ */
+export interface ValueSource {
+  /** What the site calls itself. */
+  name: string;
+  url: string;
   /** The date the source itself said it was last updated. */
-  checked: "2 September 2026",
-} as const;
+  checked: string;
+  /** What the numbers are denominated in. Never mixed between games. */
+  unit: string;
+  /** Anything a player should know before trusting the column. */
+  caveat?: string;
+}
+
+export const VALUE_SOURCES: Record<string, ValueSource> = {
+  "blox-fruits": {
+    name: "Game.Guide Blox Fruits value list",
+    url: "https://www.game.guide/blox-fruits-value-list",
+    checked: "2 September 2026",
+    unit: "Beli-equivalent",
+    caveat: "Blox Fruits publishes no official values. This is one community site's read of the market.",
+  },
+  fisch: {
+    name: "Game.Guide TrueVal list",
+    url: "https://www.game.guide/fisch-value-list",
+    checked: "8 September 2026",
+    unit: "S$ (Shady Scrips)",
+    caveat:
+      "TrueVal is the S$ scale traders quote. It is not the NPC sell price in C$, and the two must never be mixed — a fish sells to a merchant for one number and trades for another.",
+  },
+  ps99: {
+    name: "BIG Games public API (RAP and exists counts)",
+    url: "https://ps99.biggamesapi.io/",
+    checked: "12 September 2026",
+    unit: "RAP (diamonds)",
+    caveat:
+      "RAP is computed by the game from real trades, which makes it the most honest anchor on the site — but it is not the same as what a pet is currently worth, and community lists differ from it. BIG Games' API terms require written consent before commercial use; until that consent exists this is a reference, not a feed.",
+  },
+  adoptme: {
+    name: "adoptmevalues.gg (Cosmic Values)",
+    url: "https://adoptmevalues.gg/",
+    checked: "12 September 2026",
+    unit: "community value points",
+    caveat:
+      "Adopt Me has no in-game currency for trading, so these are a unitless community scale. The same pet is priced separately for each Neon and potion combination.",
+  },
+  sonaria: {
+    name: "Game.Guide Creatures of Sonaria value list",
+    url: "https://www.game.guide/creatures-of-sonaria-value-list",
+    checked: "12 September 2026",
+    unit: "Shooms",
+    caveat:
+      "The top of this market is genuinely unpriced — the single most valuable item on the list shows TBD — and 14 rows contradict the wiki on tier. Those are shown as unknown, not filled in.",
+  },
+  gag2: {
+    name: "gag2.gg value list",
+    url: "https://gag2.gg/values",
+    checked: "11 September 2026",
+    unit: "Sheckle-points",
+    caveat:
+      "Grow a Garden 2 launched in June 2026 and its value data is thin and moves with every patch. Lists disagree on the top item. Treat every figure here as provisional.",
+  },
+};
+
+/**
+ * Blox Fruits' source, kept under its old name so nothing that already reads it
+ * has to change. New code should ask `valueSourceFor(gameSlug)`.
+ */
+export const VALUE_SOURCE = VALUE_SOURCES["blox-fruits"];
+
+/**
+ * The source for one game, or null.
+ *
+ * Null is a real answer and the interface has to handle it: a game can be on
+ * MintPlaza with a working board and no value list at all, and inventing a
+ * column for it would be worse than admitting there is none.
+ */
+export function valueSourceFor(gameSlug: string): ValueSource | null {
+  return VALUE_SOURCES[gameSlug] ?? null;
+}
 
 /**
  * Demand — how badly people want it right now.
@@ -92,6 +189,22 @@ export interface ItemValue {
    */
   permanent?: number;
   demand?: Demand;
+  /**
+   * Where the community quotes a spread rather than a number.
+   *
+   * A newly released item is the normal case: for the first weeks nobody knows
+   * what it is worth, trackers publish a band, and the band is the honest
+   * answer. Shown as "1.32B – 1.63B" so a trader can see the uncertainty
+   * instead of reading the midpoint as a fact.
+   */
+  range?: { low: number; high: number };
+  /**
+   * True where the source itself flags the figure as moving. New releases,
+   * items mid-rework, anything the list marks "unstable". The tile says so; it
+   * does not change the arithmetic, because a wide fair band already absorbs
+   * this and a second adjustment on top would be double-counting.
+   */
+  unstable?: boolean;
 }
 
 const M = 1_000_000;
@@ -155,6 +268,19 @@ export const VALUES: Record<string, ItemValue> = {
   "bf-yeti": { physical: 127.5 * M, permanent: 5.0 * B, demand: 4 },
   "bf-kitsune": { physical: 622.5 * M, permanent: 6.5 * B, demand: 6 },
   "bf-control": { physical: 156.7 * M, permanent: 6.2 * B, demand: 5 },
+  // Update 30, September 2026. Trackers checked 7 September quote a BAND, not a
+  // number — 1.32B to 1.63B — and flag it "New / Unstable", which is exactly
+  // what a fruit nobody has had for a month is worth: not yet decided. The
+  // headline is the top of the band because that is what the lists print, and
+  // the band is carried alongside it so nobody reads it as settled. No
+  // Permanent figure is recorded: none was published, and a guessed one on a
+  // fruit this hyped would cost somebody a trade.
+  "bf-magnet": {
+    physical: 1.63 * B,
+    range: { low: 1.32 * B, high: 1.63 * B },
+    unstable: true,
+    demand: 6,
+  },
   // West and East Dragon are two different fruits, and they trade apart: the
   // permanent forms are separate items too, which is why each carries its own
   // permanent figure rather than sharing one. The physical figures are the two
@@ -198,6 +324,12 @@ export const CATALOG_GAPS: readonly string[] = [
   "Most skins have no published value yet — only the eight best-known ones do. Eclipse, Blood Moon, Violet Night, Phoenix Sky and Parrot are in the catalogue and tradeable, but carry no value or rarity yet.",
   "Spirit's value is wrong — reported by the owner, not yet re-read. Treat every figure in this table the same way: it is one site's snapshot, and the panel is the place to correct it.",
   "The cheapest fruits have no Permanent value published.",
+  "Fisch: 13 of the 67 Exotic fish are missing by name. The wiki's rarity page counts 67; the Exotic category page has not been edited since December 2024 and lists 59. Both numbers are real and neither is complete \u2014 a person has to open the category and reconcile them.",
+  "Fisch: around 200 mutations exist and only four multipliers are confirmed (Aether 15\u00d7, Prism 8\u00d7, Prismize 6.5\u00d7, Prismatic 6.5\u00d7). Tryhard, Galaxy, Glowy, Chaotic, Plagued and Darkness are named but unpriced, because the lists circulating for them disagree with each other and with the wiki.",
+  "Grow a Garden 2: every Mythic and Super seed price except Venus Fly Trap (7,000,000 Sheckles) is unconfirmed, and the third-party figures differ by a factor of three. The pet and egg tables are absent entirely \u2014 sources cannot agree whether the game has 22, 30, 35 or 36 pets.",
+  "Creatures of Sonaria: the single most valuable item on the community list, Explosive Stars Material, is published as TBD. It is in no catalogue here rather than being given an invented number, and 14 rows where the value list contradicts the wiki on tier are unresolved.",
+  "Pet Simulator 99: pet, egg and enchant data should come from BIG Games' own API rather than any snapshot \u2014 the roster grows most weeks (2,720 in May 2026, about 3,080 by September). Their terms allow non-commercial use only, so live use needs written consent first.",
+  "Magnet (Update 30) has no Permanent value yet, and its physical figure is a community band (1.32B\u20131.63B) flagged unstable rather than a settled number. Re-read it once the launch hype has worn off \u2014 new fruits always fall.",
 ];
 
 /**

@@ -336,6 +336,9 @@ function TemplateEditor({
     verified: template.verified ?? true,
     isActive: template.isActive,
     sortOrder: template.sortOrder,
+    everyoneRewarded: template.everyoneRewarded,
+    isDraft: template.draft ?? false,
+    group: template.group ?? "",
   });
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -429,6 +432,52 @@ function TemplateEditor({
                  onChange={(e) => patch({ verified: e.target.checked })} />
           I have checked this against the game
         </label>
+        <label className="flex items-center gap-2 text-[0.8125rem] text-ink">
+          <input type="checkbox" checked={d.isDraft ?? false}
+                 onChange={(e) => patch({ isDraft: e.target.checked })} />
+          Keep it off the board for now
+        </label>
+      </div>
+
+      {/* The reward question. It gets a panel of its own rather than a third
+          checkbox in the row above, because it is the only control on this
+          screen that can decide whether a stranger wastes their evening. */}
+      <div className="mt-4 rounded-[12px] border border-line bg-sunk p-3.5">
+        <p className="text-[0.8125rem] font-bold text-ink">
+          If fifteen people answer this post, what do they get?
+        </p>
+        <p className="mt-1 text-[0.75rem] leading-relaxed text-ink-mute">
+          Half the group content in these games is secretly a race — a hunt that
+          ends on the first catch, a leaderboard that pays rank one. Recruiting
+          for one of those means gathering people to lose. Until this says
+          everyone, a recruitment template will not appear on the board.
+        </p>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {([
+            [true, "Everyone who took part"],
+            [false, "One winner, or only the poster"],
+            [undefined, "I have not checked"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={String(value)}
+              type="button"
+              onClick={() => patch({ everyoneRewarded: value })}
+              aria-pressed={d.everyoneRewarded === value}
+              className={`rounded-full px-3 py-1.5 text-[0.75rem] font-semibold transition-colors ${
+                d.everyoneRewarded === value
+                  ? "bg-ink text-white"
+                  : "bg-surface text-ink-soft shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-fill"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {d.section === "recruit" && d.everyoneRewarded !== true && (
+          <p className="mt-2.5 text-[0.75rem] font-semibold text-warn">
+            This will save, and it will not be offered on the recruitment board.
+          </p>
+        )}
       </div>
 
       {error && (
@@ -447,6 +496,10 @@ function TemplateEditor({
             onSaved({
               ...template,
               ...d,
+              // The form keeps an empty string where there is no group; the
+              // catalogue shape wants that absent rather than blank.
+              group: d.group?.trim() || undefined,
+              draft: d.isDraft ?? false,
               // The draft's kind is a plain string because the form binds it to
               // one; the list has already refused anything outside KINDS, and
               // the database refuses it again.

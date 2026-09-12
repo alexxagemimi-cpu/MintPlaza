@@ -129,6 +129,31 @@ export interface Service {
   refs?: readonly ServiceRef[];
   /** Other names people search for. */
   aliases?: readonly string[];
+  /** A heading the board groups this under, where a game has natural clusters. */
+  group?: string;
+  /**
+   * True where finishing this pays EVERY person who took part.
+   *
+   * This is the most important field on a template and it is a safety rule, not
+   * a label. Half the "group content" in these games is a race: a Megalodon
+   * hunt ends the instant somebody lands the fish, a leaderboard pays rank one.
+   * Recruiting strangers into a race means using MintPlaza to gather rivals who
+   * will each lose to the person who posted — so anything that cannot honestly
+   * claim this never reaches the board.
+   *
+   * Undefined means nobody has checked yet, which is treated exactly like false
+   * until somebody does.
+   */
+  everyoneRewarded?: boolean;
+  /**
+   * In the catalogue, off the board.
+   *
+   * For a template that is real but not yet safe to offer — usually because
+   * whether the helper gets anything is unconfirmed. It still resolves by id,
+   * so an old listing naming it renders as what it was, and the Studio can
+   * switch it on the day the answer arrives. It simply cannot be posted.
+   */
+  draft?: boolean;
   verified?: boolean;
 }
 
@@ -159,10 +184,30 @@ export interface Service {
  * is written up as both Full and Blue — the card leads with the part nobody
  * disputes and leaves the disputed detail out of the requirement.
  */
+/**
+ * The everyone-rewarded audit.
+ *
+ * Every template below was checked one at a time against a single question:
+ * if fifteen strangers answer this post, does each of them come away with
+ * something, or do they come away having helped one person win?
+ *
+ * All fifteen pass, for one of two reasons. The sea and island content shares
+ * its drops — Leviathan pays everyone who did enough damage to a segment,
+ * a raid boss drops for the party, an island's spawn opens its shop to whoever
+ * is standing on it. The grinding content does not share anything because
+ * there is nothing to share: each player earns their own fragments, their own
+ * levels, their own bounty kills, and the crew is company and safety rather
+ * than a split.
+ *
+ * Bounty hunting was the one worth arguing about, because a bounty goes to
+ * whoever lands the kill. It stays in because your squad is not who you are
+ * competing with — the other server is. If that ever stops being true, the flag
+ * comes off and the template leaves the board on its own.
+ */
 const BLOX_FRUITS_RECRUIT: Service[] = [
   // ---- Sea and island hunts: a boat, and enough people on it ----
   {
-    id: "bf-r-leviathan", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-leviathan", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/leviathan.jpg",
     name: "Leviathan hunt", kind: "Hunt",
     needs: "Five players on the same boat — the game will not start the hunt with fewer. Everyone needs 10% of the damage on a segment to get anything from it",
@@ -171,7 +216,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["leviathan", "levi", "sea beast", "sanguine"], verified: true,
   },
   {
-    id: "bf-r-kitsune-island", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-kitsune-island", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/kitsune-island.jpg",
     name: "Kitsune Island spawn crew", kind: "Island",
     needs: "A boat sitting at Sea Danger Level 6 and people willing to wait. It only surfaces on the right moon, so this is a shift, not a trip",
@@ -180,7 +225,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["kitsune", "kitsune island", "moon"], verified: true,
   },
   {
-    id: "bf-r-prehistoric", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-prehistoric", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/prehistoric-island.jpg",
     name: "Prehistoric Island hunt", kind: "Island",
     needs: "It can surface without one, but somebody bringing a Volcanic Magnet makes the whole hunt worth doing",
@@ -188,7 +233,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["prehistoric", "dino", "volcanic magnet"], verified: true,
   },
   {
-    id: "bf-r-mirage", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-mirage", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/mirage-island.jpg",
     name: "Mirage Island hunt", kind: "Island",
     needs: "Night only. More people sailing means more servers checked, which is the whole trick to finding it",
@@ -197,7 +242,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["mirage", "mirage island", "blue gear"], verified: true,
   },
   {
-    id: "bf-r-sea-events", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-sea-events", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/sea-beast.jpg",
     name: "Sea event team", kind: "Event",
     needs: "Sail and take whatever surfaces — Ship Raids, Ghost Ships, Sea Beasts, Terrorsharks. Say in your post which sea and which Danger Level you are running",
@@ -207,7 +252,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["sea event", "ship raid", "ghost ship", "danger level"], verified: true,
   },
   {
-    id: "bf-r-terrorshark", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-terrorshark", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/terrorshark.jpg",
     name: "Terrorshark run", kind: "Hunt",
     needs: "Third Sea. Bring your own Monster Magnet if you want the Shark Anchor — only the player whose magnet was eaten gets the drop",
@@ -216,7 +261,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["terrorshark", "shark anchor", "valor"], verified: true,
   },
   {
-    id: "bf-r-ghost-ship", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-ghost-ship", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Haunted Shipwreck crew", kind: "Event",
     needs: "Ghost Ship Raids, Ghost Sharks and Haunted Crew Members. They hit hard and they sink your boat, so bring people who can take a hit",
     players: 4,
@@ -225,7 +270,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
 
   // ---- Raid bosses that will not go down to one person ----
   {
-    id: "bf-r-dough-king", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-dough-king", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/dough-king.jpg",
     name: "Dough King raid", kind: "Raid",
     needs: "The Advanced Dough raid, all five islands, then the King on a timer. This is the raid people burn a whole evening failing alone",
@@ -234,7 +279,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["dough king", "dough", "advanced raid"], verified: true,
   },
   {
-    id: "bf-r-cake-prince", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-cake-prince", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/cake-prince.jpg",
     name: "Cake Prince raid", kind: "Raid",
     needs: "At least three people — he has the health and the move spam to outlast anything smaller",
@@ -243,7 +288,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["cake prince", "cake", "dough fruit"], verified: true,
   },
   {
-    id: "bf-r-rip-indra", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-rip-indra", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Rip Indra (True Form) raid", kind: "Raid",
     needs: "Castle on the Sea, Third Sea. Not to be attempted alone unless you are max level with everything maxed, which is why this is here and not on the services board",
     players: 4,
@@ -251,7 +296,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["rip indra", "indra", "castle on the sea"], verified: true,
   },
   {
-    id: "bf-r-boss", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-boss", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Boss hunt — say which", kind: "Raid",
     needs: "For any boss not listed here. Name it in your post, with the sea and the level you expect people to be",
     players: 3,
@@ -261,7 +306,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
 
   // ---- Farming crews ----
   {
-    id: "bf-r-fragments", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-fragments", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Fragment farm — raid team", kind: "Raid",
     needs: "Chip holders and a team that will keep going back in. About 14,500 Fragments awakens most fruits, which is nobody's single sitting",
     players: 4,
@@ -269,14 +314,14 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["fragments", "frags", "raid farm", "awakening"], verified: true,
   },
   {
-    id: "bf-r-bounty", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-bounty", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Bounty / Honour hunt squad", kind: "Hunt",
     needs: "Say whether you are hunting Pirates or Marines, and roughly what level. A squad that does not agree on the side it is on spends the night fighting itself",
     players: 3,
     aliases: ["bounty", "honour", "honor", "pvp", "marines", "pirates"], verified: true,
   },
   {
-    id: "bf-r-elite", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-elite", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     art: "/art/services/elite-diablo.jpg",
     name: "Elite Pirates hunter squad", kind: "Hunt",
     needs: "Third Sea. Thirty quests guarantees Yama, and it goes a great deal faster with people",
@@ -285,7 +330,7 @@ const BLOX_FRUITS_RECRUIT: Service[] = [
     aliases: ["elite", "elite pirates", "yama", "elite hunter"], verified: true,
   },
   {
-    id: "bf-r-level-grind", gameSlug: "blox-fruits", section: "recruit",
+    id: "bf-r-level-grind", gameSlug: "blox-fruits", section: "recruit", everyoneRewarded: true,
     name: "Level grinding party", kind: "Grind",
     needs: "Say which sea and roughly what level, so people turn up somewhere useful to them too",
     players: 3,
@@ -524,35 +569,441 @@ const BLOX_FRUITS_SERVICES: Service[] = [
  * The other five games. Short, and flagged as such — these grow through the
  * control panel rather than through code.
  */
+/**
+ * The two games nobody has researched yet.
+ *
+ * These are placeholders and they read like it: a name, a kind, a player count,
+ * no requirement and no reward, because nobody has checked. They exist so the
+ * boards are not empty, and PARTIAL_SERVICES says so in the interface.
+ *
+ * Five entries that used to live here have been deleted rather than improved,
+ * and the deletions are the useful part of this comment:
+ *
+ *   adopt-me "Task help" and "Neon making" — aging runs at the same speed
+ *     alone, and making a neon needs four pets you already own. Neither is a
+ *     job a second player can help with.
+ *   pet-simulator-99 "Hatching help" and "Zone carry" — hatching is solo, and
+ *     the carry is now ps99-s-raid-carry, written from what raids actually do.
+ *   creatures-of-sonaria "Growth help" and "Group hunt" — growing is solo, and
+ *     standing near somebody so they do not get killed is company, which is
+ *     what the community tab is for.
+ *
+ * Every one of them was a plausible-sounding service for a thing you can do by
+ * yourself. That is the failure mode this file has to keep catching.
+ */
 const OTHER_SERVICES: Service[] = [
   { id: "gg-s-mutation", gameSlug: "grow-a-garden", name: "Mutation run help", kind: "Grind", players: 2 },
   { id: "gg-s-restock", gameSlug: "grow-a-garden", name: "Restock watch", kind: "Grind", players: 2 },
   { id: "gg-s-event-set", gameSlug: "grow-a-garden", name: "Finishing an event set", kind: "Unlock", players: 2 },
 
-  { id: "am-s-task", gameSlug: "adopt-me", name: "Task help", kind: "Grind", players: 2 },
-  { id: "am-s-neon", gameSlug: "adopt-me", name: "Neon making", kind: "Unlock",
-    needs: "Four full-grown pets of the same kind", players: 2 },
-
-  { id: "ps-s-hatch", gameSlug: "pet-simulator-99", name: "Hatching help", kind: "Grind", players: 2 },
-  { id: "ps-s-carry", gameSlug: "pet-simulator-99", name: "Zone carry", kind: "Grind", players: 2 },
-
   { id: "rh-s-story", gameSlug: "royale-high", name: "Story help", kind: "Unlock", players: 2 },
   { id: "rh-s-diamond", gameSlug: "royale-high", name: "Diamond run", kind: "Grind", players: 2 },
+];
 
-  { id: "cs-s-growth", gameSlug: "creatures-of-sonaria", name: "Growth help", kind: "Grind", players: 2 },
-  { id: "cs-s-hunt", gameSlug: "creatures-of-sonaria", name: "Group hunt", kind: "Grind", players: 3 },
+
+/* ==================================================================== */
+/* Fisch                                                                */
+/* ==================================================================== */
+
+/**
+ * Fisch — services.
+ *
+ * Two. Not two because the research ran out of time: two because Fisch almost
+ * never stops one player finishing something. Expedition puzzles, Marlon's
+ * quest chain, door and lever and pedestal mechanics, the Heaven's Rod crystal
+ * vault — all of them were checked and all of them can be done alone.
+ *
+ * Exactly one mechanic in the whole game physically refuses a single player:
+ * the Glacial Grotto diamond puzzle needs two people standing on two pedestals
+ * at the same moment. The Marlon Friend pairing is the other, and it earns its
+ * place differently — it does not block you, it doubles both of you.
+ *
+ * A third would have to be invented, and an invented service is a player
+ * sitting in a server waiting for help with something they could have done
+ * twenty minutes ago.
+ */
+const FISCH_SERVICES: Service[] = [
+  {
+    id: "fisch-s-diamond-puzzle", gameSlug: "fisch", section: "services",
+    name: "Glacial Grotto diamond puzzle", kind: "Puzzle", group: "Northern Expedition",
+    needs:
+      "Two players each hold out a Glass Diamond on the two pedestals at the same time. The beam only melts the ice around the Crystalized Rod when both of you are standing there together — one person cannot reach both.",
+    players: 2,
+    gives: "The ice melts for good and the Crystalized Rod goes on sale (35,000 C$) for both of you",
+    aliases: ["diamond puzzle", "crystalized rod", "crystallized rod", "glacial grotto", "glass diamond"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-s-marlon-friend", gameSlug: "fisch", section: "services",
+    name: "Marlon Friend paired quest", kind: "Grind", group: "Moosewood",
+    needs:
+      "Pair up at the Marlon Friend NPC and both of you finish your quest. Pairing gives you 2 reward spins each instead of the 1 you get alone.",
+    players: 2,
+    gives: "2 Friend Quest spins each — XP, potions, and a chance at the Friendly Rod and rod-skin crates",
+    aliases: ["marlon", "marlon friend", "friend quest", "friendly rod", "spins"],
+    everyoneRewarded: true, verified: true,
+  },
+];
+
+/**
+ * Fisch — the Fleet.
+ *
+ * The one rule that decided this list: a hunt that ends the moment somebody
+ * lands the fish is a race, and MintPlaza will not help you recruit people to
+ * lose to you. Megalodon, Kraken, Ancient Kraken, Bloop Fish and Megamouth
+ * hunts all die on the first catch — the Bloop even puts up a barrier and tells
+ * you to "be the first and only" — so none of them is here. They exist in the
+ * catalogue, on the fish they drop, and nowhere else.
+ *
+ * What is here either has a shared stock (the Apex pool lets 400 people catch),
+ * a server-wide buff (an Aurora Totem lights up the whole lobby), or no scarce
+ * prize at all (teaching, ferrying, appraising).
+ */
+const FISCH_RECRUIT: Service[] = [
+  {
+    id: "fisch-r-crew-found", gameSlug: "fisch", section: "recruit",
+    name: "Start a crew", kind: "Crew", group: "Crews",
+    needs:
+      "Crews are made at the Crew Herald in Moosewood: 50,000 C$ and Level 200+. You start with 10 seats and the Crew Architect expands you to 50.",
+    players: 3,
+    gives: "A shared Crew Rating that unlocks the Crew Bobber (100), Crew Lantern (1,000), Crew Rod (5,000) and the Crew-ser boat (20,000)",
+    aliases: ["crew", "clan", "found crew", "crew rod", "crews"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-crew-daily", gameSlug: "fisch", section: "recruit",
+    name: "Crew daily challenges", kind: "Crew", group: "Crews",
+    needs:
+      "At least half the crew has to finish each of the three daily challenges for them to count. They reset at 00:00 UTC.",
+    players: 3,
+    gives: "Crew Rating toward the monthly leaderboard, plus the rotating cosmetics",
+    aliases: ["daily challenge", "crew rating", "challenges"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-crew-weekly", gameSlug: "fisch", section: "recruit",
+    name: "Crew weekly challenges", kind: "Crew", group: "Crews",
+    needs: "The crew grinds the weekly challenges together. They reset on Mondays and they are where the rating actually comes from.",
+    players: 3,
+    gives: "+50 Crew Rating per weekly challenge finished",
+    aliases: ["weekly challenge", "crew", "rating"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-apex-hunt", gameSlug: "fisch", section: "recruit",
+    name: "Apex hunt party", kind: "Hunt", group: "Hunts",
+    needs:
+      "An Apex Pool spawns with a shared global stock — 400 Narwhal or Beluga, 350 Magician Narwhal — and a group fishes it until the stock runs out. This is not a race: there are hundreds of them.",
+    players: 3,
+    gives: "A Narwhal, Beluga or Magician Narwhal for everyone who catches before the stock empties",
+    aliases: ["apex hunt", "narwhal", "beluga", "magician narwhal"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-baby-bloop", gameSlug: "fisch", section: "recruit",
+    name: "Baby Bloop hunt", kind: "Hunt", group: "Hunts",
+    needs:
+      "Everyone fishes the Baby Bloop abundance and catches as many as they can. More catches across the server raise the chance the next hunt spawns.",
+    players: 3,
+    gives: "Baby Bloop Fish for every catcher. The Bloop Fish Hunt that can follow is one-winner and is deliberately not part of this.",
+    aliases: ["baby bloop", "bloop", "bloop whistle"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-aurora-totem", gameSlug: "fisch", section: "recruit",
+    name: "Aurora Totem luck party", kind: "Event", group: "Totems & Weather",
+    needs:
+      "Somebody pops an Aurora Totem and starts Aurora Borealis. The luck boost is server-wide, so the whole lobby fishes it together while it lasts.",
+    players: 3,
+    gives: "A shared luck boost for the whole server, for as long as the weather holds",
+    aliases: ["aurora", "aurora totem", "borealis", "luck party"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-expedition-climb", gameSlug: "fisch", section: "recruit",
+    name: "Northern Expedition climb", kind: "Island", group: "Expeditions",
+    needs:
+      "Climb the Northern Summit together, watching Temperature and Oxygen the whole way, to reach the high-altitude spots and camps.",
+    players: 3,
+    gives: "Frigid Cavern, Cryogenic Canal and Glacial Grotto fishing — and their rods — open to everyone who makes the climb",
+    aliases: ["northern expedition", "summit", "climb", "glacial grotto", "frigid cavern"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-heavens-rod", gameSlug: "fisch", section: "recruit",
+    name: "Heaven's Rod crystal run", kind: "Puzzle", group: "Expeditions",
+    needs:
+      "Four energy crystals from around the mountain and five red buttons in Glacial Grotto opens the vault. A group gathers the crystals far faster — but be straight with people: this can be done alone, so it is company, not rescue.",
+    players: 3,
+    gives: "The vault stays open for good and Heaven's Rod goes on sale (1,750,000 C$, Level 220)",
+    aliases: ["heavens rod", "crystal puzzle", "vault", "energy crystals"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-seasonal-event", gameSlug: "fisch", section: "recruit",
+    name: "Seasonal event fishing", kind: "Event", group: "Events",
+    needs:
+      "Fish a live event together — Fischfest, Fischmas, FischFright, Fischgiving, Valentides, Shamrock Seas — for the catches that only exist while the window is open.",
+    players: 3, openEnded: true,
+    gives: "Event-only fish, event currency and cosmetics — every participant can earn them",
+    aliases: ["fischfest", "event", "seasonal", "fischmas", "fischfright", "fischgiving"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-bestiary", gameSlug: "fisch", section: "recruit",
+    name: "Bestiary completion party", kind: "Grind", group: "Help & Teaching",
+    needs: "A group fishes one region together until everybody's Bestiary page for it is full.",
+    players: 3,
+    gives: "Bestiary bobbers and the page-completion rewards, for each person's own book",
+    aliases: ["bestiary", "completion", "bobber party"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-teach", gameSlug: "fisch", section: "recruit",
+    name: "Teaching new anglers", kind: "Grind", group: "Help & Teaching",
+    needs: "Somebody who knows the game shows newcomers rods, bait, mutations, totems and how to get between regions.",
+    players: 3,
+    gives: "Knowledge. No item changes hands, which is the point.",
+    aliases: ["teaching", "help", "new player", "beginner guide"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-appraise", gameSlug: "fisch", section: "recruit",
+    name: "Appraisal meetup", kind: "Grind", group: "Help & Teaching",
+    needs: "Meet up, appraise catches at the Appraiser, and sanity-check each other's trade values before anybody accepts anything.",
+    players: 3,
+    gives: "A second opinion and a W/F/L read. No item reward.",
+    aliases: ["appraise", "value check", "wfl", "appraisal"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "fisch-r-region-access", gameSlug: "fisch", section: "recruit",
+    name: "Region access ferry", kind: "Island", group: "Help & Teaching",
+    needs: "Somebody with a fast, many-seat boat ferries newer anglers out to regions they cannot reach yet.",
+    players: 3,
+    gives: "A ride out, and everyone can then fish there themselves",
+    aliases: ["ferry", "boat ride", "region access", "carry"],
+    everyoneRewarded: true, verified: true,
+  },
+];
+
+/* ==================================================================== */
+/* Grow a Garden 2                                                      */
+/* ==================================================================== */
+
+/**
+ * GAG2 — nothing in services, on purpose.
+ *
+ * GAG2 never blocks solo play. There is no boss, no gated puzzle, no job that
+ * needs a second pair of hands. Every candidate was a farming-efficiency trick,
+ * and "I could do this faster with a friend" is not the same as "the game will
+ * not let me do this alone" — only the second one is a service.
+ */
+const GAG2_RECRUIT: Service[] = [
+  {
+    id: "gag2-r-guild-competition", gameSlug: "gag2", section: "recruit",
+    name: "Guild for the weekly competition", kind: "Crew", group: "Guilds",
+    needs:
+      "A guild holds 20 members and expands to 50. Each member's single heaviest harvest adds to the guild's weekly score, and everyone on a qualifying leaderboard tier is paid through the Mailbox.",
+    players: 20,
+    gives: "Placement rewards by rank — Ice Serpent and Black Dragon variants and eggs — sent to every qualifying member",
+    aliases: ["guild", "weekly comp", "ice serpent", "black dragon", "gilbert"],
+    // A tier, not a winner. Worth saying out loud because the competition IS a
+    // ranked leaderboard: "join a guild and earn your tier" is honest,
+    // "help my guild beat rank 1" would be recruiting people into a race.
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "gag2-r-teach-night", gameSlug: "gag2", section: "recruit",
+    name: "Teach night-stealing and defence", kind: "Crew", group: "Learning",
+    needs:
+      "New growers learn the night cycle, which seeds actually defend a garden (Cactus, Bamboo, Venom Spitter, Dragon's Breath) and how mutations work, before they lose a plot to a raid.",
+    players: 3,
+    gives: "Knowledge. No prize.",
+    aliases: ["help", "teach", "new", "beginner", "stealing", "defence", "defense"],
+    everyoneRewarded: true, verified: true,
+  },
+];
+
+/* ==================================================================== */
+/* Pet Simulator 99                                                     */
+/* ==================================================================== */
+
+const PS99_SERVICES: Service[] = [
+  {
+    id: "ps99-s-raid-carry", gameSlug: "pet-simulator-99", section: "services",
+    name: "Raid tier carry", kind: "Raid", group: "Raids",
+    needs:
+      "A stronger player clears a harder raid tier than you could reach alone. Loot is handed out per player by what each of you did, so a weaker player gets less — but never nothing.",
+    players: 3,
+    gives: "Raid chests, with Huge and Titanic chances, for everybody who was in it",
+    aliases: ["raid", "carry", "boss", "chest", "tier"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    // NOT postable, and that is the whole point of the flag.
+    //
+    // Nobody has been able to confirm that a helper in a boss fight gets any
+    // loot at all. Until somebody does, putting this on the board would be
+    // asking a stranger to spend their evening on a maybe. It stays in the
+    // catalogue so the Studio can switch it on the day it is confirmed, and so
+    // that a listing that somehow names it still renders as what it was.
+    id: "ps99-s-boss-help", gameSlug: "pet-simulator-99", section: "services",
+    name: "Boss help", kind: "Boss", group: "Raids",
+    needs:
+      "A stronger player helps beat a boss or level tier that is blocking you. Whether the helper is rewarded has not been confirmed — until it is, this is a favour, not a deal.",
+    players: 2,
+    gives: "The boss goes down and you get past it. What the helper gets is unknown.",
+    aliases: ["boss", "stuck", "level", "help"],
+    everyoneRewarded: false, draft: true, verified: false,
+  },
+];
+
+const PS99_RECRUIT: Service[] = [
+  {
+    id: "ps99-r-clan-battle", gameSlug: "pet-simulator-99", section: "recruit",
+    name: "Clan for the weekly Clan Battle", kind: "Crew", group: "Clans",
+    needs:
+      "Clans race to earn the most points on a set activity over about seven days. BIG Games' own patch notes put it plainly: every member in a winning clan gets the prize. The top 3 contributors get Rainbow and the top 10 get Golden on top of that.",
+    players: 10,
+    gives: "A Titanic or Huge plus a hoverboard or booth to every member of a winning clan",
+    aliases: ["clan", "clan battle", "comp", "titanic"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "ps99-r-teach-trade", gameSlug: "pet-simulator-99", section: "recruit",
+    name: "Teach trading and RAP", kind: "Crew", group: "Learning",
+    needs:
+      "New players learn what RAP actually means, how to read an exists count, and the trades that look generous and are not.",
+    players: 3,
+    gives: "Knowledge. No prize.",
+    aliases: ["teach", "help", "rap", "scam", "new", "exists"],
+    everyoneRewarded: true, verified: true,
+  },
+];
+
+/* ==================================================================== */
+/* Adopt Me                                                             */
+/* ==================================================================== */
+
+/**
+ * Adopt Me — nothing in services, and it took two deletions to get here.
+ *
+ * "Pet aging buddy" went first: a pet ages at exactly the same rate whether you
+ * are alone or in a full server. The only gain is one player managing several
+ * pets, which is farming, not rescue.
+ *
+ * "Event minigame partner" went second, and it is the more interesting one.
+ * The Hauntlet, Costume Party and Sleep or Treat all look co-op and none of
+ * them is: each player earns candy from their own placement, their own votes,
+ * their own doors. The only thing a second player adds is calling out which
+ * door is safe. That is a conversation, not a job.
+ */
+const ADOPT_ME_RECRUIT: Service[] = [
+  {
+    id: "adoptme-r-event-group", gameSlug: "adopt-me", section: "recruit",
+    name: "Seasonal event group", kind: "Event", group: "Events",
+    needs:
+      "Group up while an event is live — Halloween, Lunar New Year, Summer — to collect currency and event pets together. Everyone earns their own; nothing is shared out and nothing is taken from you.",
+    players: 3, openEnded: true,
+    gives: "Event pets and items, each player earning their own",
+    aliases: ["event", "halloween", "lunar", "summer", "group"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "adoptme-r-teach-scams", gameSlug: "adopt-me", section: "recruit",
+    name: "Teach trading and scam-spotting", kind: "Crew", group: "Learning",
+    needs:
+      "New traders learn W/F/L, how the Trade Licence test works, and the two scams that take the most pets off people: the trust trade, and the last-second swap.",
+    players: 3,
+    gives: "Knowledge. No prize.",
+    aliases: ["teach", "scam", "trust trade", "wfl", "licence", "license", "new"],
+    everyoneRewarded: true, verified: true,
+  },
+];
+
+/* ==================================================================== */
+/* Creatures of Sonaria                                                 */
+/* ==================================================================== */
+
+/**
+ * Sonaria — nothing in services either. Growing and surviving are soloable, and
+ * the closest thing to a job is standing near somebody so they do not get
+ * killed, which is company rather than a deal. It is in the community tab,
+ * where it is honest.
+ */
+const SONARIA_RECRUIT: Service[] = [
+  {
+    id: "sonaria-r-grow-group", gameSlug: "creatures-of-sonaria", section: "recruit",
+    name: "Safe-growing group", kind: "Crew", group: "Growers",
+    needs:
+      "A new or large creature is at its most vulnerable while it grows. A group around you deters the players who hunt exactly that, and everyone grows their own creature in peace.",
+    players: 3,
+    gives: "Each player grows their own creature. There is no shared prize, and that is fine.",
+    aliases: ["grow", "pack", "protect", "pvp", "group"],
+    everyoneRewarded: true, verified: true,
+  },
+  {
+    id: "sonaria-r-teach-trade", gameSlug: "creatures-of-sonaria", section: "recruit",
+    name: "Teach the Trade Realm", kind: "Crew", group: "Learning",
+    needs:
+      "New players learn how the Trade Realm works, the 500,000 Shoom cap on a single trade, why Shooms trade and Tikits do not, and how the grey-slot scam is run.",
+    players: 3,
+    gives: "Knowledge. No prize.",
+    aliases: ["teach", "trade realm", "scam", "shooms", "values", "new"],
+    everyoneRewarded: true, verified: true,
+  },
 ];
 
 export const SERVICES: readonly Service[] = [
   ...BLOX_FRUITS_SERVICES, ...BLOX_FRUITS_RECRUIT, ...OTHER_SERVICES,
+  ...FISCH_SERVICES, ...FISCH_RECRUIT,
+  ...GAG2_RECRUIT,
+  ...PS99_SERVICES, ...PS99_RECRUIT,
+  ...ADOPT_ME_RECRUIT,
+  ...SONARIA_RECRUIT,
 ];
 
+/**
+ * May a player actually post this?
+ *
+ * Two reasons to say no, and both of them protect the person who would answer
+ * the listing rather than the person writing it:
+ *
+ *   - `draft` — the template is real but something about it is unconfirmed.
+ *   - `everyoneRewarded` is not true — the reward may go to one person, so
+ *     recruiting for it means recruiting people to lose.
+ *
+ * Recruitment is held to the stricter test because that is where a stranger is
+ * being asked to give up an evening. On the services board a listing is one
+ * player asking another for a favour, they can both see what it is, and
+ * "everyone rewarded" is not always the right question — the Glacial Grotto
+ * puzzle rewards both, but plenty of real favours simply do not pay the helper
+ * and both sides know it going in.
+ */
+export function postable(s: Service): boolean {
+  if (s.draft) return false;
+  if ((s.section ?? "services") === "recruit" && s.everyoneRewarded !== true) return false;
+  return true;
+}
+
+/**
+ * The templates one board of one game offers, straight from code.
+ *
+ * This is the fallback the site renders when the database is unreachable, so it
+ * has to apply the same `postable` rule the merged path does — otherwise a
+ * database outage would quietly re-enable the one template we decided nobody
+ * should be recruited for.
+ */
 export function servicesFor(
   gameSlug: string,
   section: Section = "services",
 ): readonly Service[] {
   return SERVICES.filter(
-    (s) => s.gameSlug === gameSlug && (s.section ?? "services") === section,
+    (s) =>
+      s.gameSlug === gameSlug &&
+      (s.section ?? "services") === section &&
+      postable(s),
   );
 }
 
@@ -572,9 +1023,19 @@ export function findRef(
   return undefined;
 }
 
-/** Games whose service list is knowingly short. Surfaced in the interface. */
+/**
+ * Games whose list is knowingly short, and why.
+ *
+ * Not the same thing as a game with NO services. Adopt Me, Sonaria and GAG2
+ * have none because there is nothing to have — they were researched, every
+ * candidate failed the test, and they ship as two-tab games. Those are finished,
+ * not partial, and saying "coming soon" about them would be a lie.
+ *
+ * What is listed here is genuinely unfinished: a game where the research has
+ * not been done yet.
+ */
 export const PARTIAL_SERVICES: readonly string[] = [
-  "adopt-me", "pet-simulator-99", "grow-a-garden", "royale-high", "creatures-of-sonaria",
+  "grow-a-garden", "royale-high",
 ];
 
 /**

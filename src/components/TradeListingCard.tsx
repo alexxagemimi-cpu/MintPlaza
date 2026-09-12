@@ -1,7 +1,7 @@
 import { ItemTile } from "./ItemTile";
 import { REASON_COPY, type DemoListing, type ListingItem } from "@/lib/demo";
 import {
-  DEMAND_LABEL, DEMAND_STYLE, VALUE_SOURCE, checkedLabel, demandOf, formatValue,
+  DEMAND_LABEL, DEMAND_STYLE, checkedLabel, demandOf, formatValue, valueSourceFor,
   isStale, type Demand,
 } from "@/lib/values";
 import {
@@ -230,6 +230,7 @@ export function TradeListingCard({
 }) {
   const perspective: Perspective =
     viewerUsername && viewerUsername === listing.username ? "owner" : "viewer";
+  const source = valueSourceFor(listing.gameSlug);
   const calc = calculate(listing.offering, listing.wanting, perspective);
 
   // What the viewer receives and gives, in their own terms.
@@ -319,12 +320,14 @@ export function TradeListingCard({
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[12px] bg-fill px-3 py-2.5">
           <VerdictChip calc={calc} />
           <span className="text-[0.8125rem] font-semibold text-ink">
-            {calc.openToOffers
-              ? "They have not said what they want, so there is nothing to weigh this against."
-              : calc.verdict === "?"
-                ? "Some items here have no published value, so this is not a call anyone should trade on."
-                : `${formatValue(calc.incoming.total)} in, ${formatValue(calc.outgoing.total)} out — ` +
-                  `${VERDICT_COPY[calc.verdict].long}.`}
+            {calc.crossGame
+              ? "This names items from two different games. Those values are measured in different currencies and cannot be compared — and cross-trading is against the rules of the games themselves."
+              : calc.openToOffers
+                ? "They have not said what they want, so there is nothing to weigh this against."
+                : calc.verdict === "?"
+                  ? "Some items here have no published value, so this is not a call anyone should trade on."
+                  : `${formatValue(calc.incoming.total)} in, ${formatValue(calc.outgoing.total)} out` +
+                    `${source ? ` (${source.unit})` : ""} — ${VERDICT_COPY[calc.verdict].long}.`}
           </span>
         </div>
 
@@ -334,21 +337,34 @@ export function TradeListingCard({
           </p>
         )}
 
-        {/* ---- provenance. A value nobody can source is a rumour, and one
-             with no date on it is indistinguishable from a fact. ---- */}
-        <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
-          Value and demand are community estimates from{" "}
-          <a href={VALUE_SOURCE.url} target="_blank" rel="noopener noreferrer" className="underline">
-            {VALUE_SOURCE.name}
-          </a>
-          . They are not official, they move daily, and they are a starting point
-          for a conversation rather than a price.{" "}
-          <span className={oldest && isStale(oldest) ? "font-semibold text-warn" : ""}>
-            {checkedLabel(oldest)}
-            {oldest && isStale(oldest) && " — treat these as rough"}
-          </span>
-          .
-        </p>
+        {/* ---- provenance ----
+             A value nobody can source is a rumour, and one with no date on it
+             is indistinguishable from a fact. It reads the source for THIS
+             game: no two of these games price in the same unit, and a Fisch
+             listing showing "7.2K" without saying Shady Scrips reads as Beli
+             to anybody who arrived from Blox Fruits. A game with no value list
+             says so, which is a real state and not an error. ---- */}
+        {source ? (
+          <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
+            Value and demand are community estimates from{" "}
+            <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline">
+              {source.name}
+            </a>
+            , in {source.unit}. They are not official, they move daily, and they
+            are a starting point for a conversation rather than a price.{" "}
+            <span className={oldest && isStale(oldest) ? "font-semibold text-warn" : ""}>
+              {checkedLabel(oldest)}
+              {oldest && isStale(oldest) && " — treat these as rough"}
+            </span>
+            .{source.caveat && ` ${source.caveat}`}
+          </p>
+        ) : (
+          <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
+            There is no value list for this game on MintPlaza yet, so nothing
+            here is priced and no verdict is given. Work it out between
+            yourselves — an invented number would be worse than none.
+          </p>
+        )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="flex min-w-0 items-center gap-2 text-[0.6875rem] text-ink-faint">
