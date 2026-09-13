@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { ItemTile, RarityChip } from "./ItemTile";
+import { ClassChip, ItemTile, RarityChip, TypeChip } from "./ItemTile";
 import { searchTerms, type CatalogItem, type Rarity } from "@/lib/items";
 import type { InventoryRow } from "@/lib/actions/inventory";
 import { addInventoryItem, removeInventoryItem } from "@/lib/actions/inventory";
@@ -164,9 +164,18 @@ export function InventoryEditor({
                       </span>
                       <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         {item.rarity && <RarityChip rarity={item.rarity as Rarity} />}
+                        {/* The native tier, at the moment of picking. Choosing
+                            between two similarly-named fish is exactly when a
+                            player needs to see that one is Divine Secret and
+                            the other Exotic — both of which the shared ladder
+                            flattens to "Mythical". */}
+                        {item.type && item.type !== item.rarity && (
+                          <TypeChip type={item.type} />
+                        )}
                         <span className="font-mono text-[0.5625rem] tracking-[0.07em] text-ink-faint">
                           {item.category.toUpperCase()}
                         </span>
+                        {item.classes?.map((c) => <ClassChip key={c} label={c} />)}
                       </span>
                     </span>
                     <span className="shrink-0 text-[0.8125rem] font-bold text-mint">Add</span>

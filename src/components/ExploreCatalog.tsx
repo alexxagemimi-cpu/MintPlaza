@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChromaticChip, ItemTile, RarityChip, RobuxChip } from "./ItemTile";
+import { ChromaticChip, ClassChip, ItemTile, RarityChip, RobuxChip, TypeChip } from "./ItemTile";
 import { searchShortcuts, type Shortcut } from "@/lib/admin/search";
 import { ValueLookup } from "./ValueLookup";
 import { PULL_SOURCES } from "@/lib/data/catalog";
@@ -180,6 +180,14 @@ export function ExploreCatalog({
                     {item.name}
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {/* Category, always. Six Fisch rows match "nessie" across
+                        Fish and Rod Skin, and the research is blunt that the
+                        most expensive mistake in this game is confusing a rod
+                        SKIN, which trades, with the ROD it dresses, which never
+                        does. A name alone cannot tell those apart. */}
+                    <span className="font-mono text-[0.5rem] tracking-[0.08em] text-ink-faint">
+                      {item.category.toUpperCase()}
+                    </span>
                     {item.rarity && <RarityChip rarity={item.rarity} />}
                     {item.chromatic && <ChromaticChip />}
                     {item.robux !== undefined && <RobuxChip amount={item.robux} />}
@@ -208,11 +216,12 @@ export function ExploreCatalog({
                         UNCONFIRMED
                       </span>
                     )}
-                    {item.type && (
-                      <span className="font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
-                        {item.type.toUpperCase()}
-                      </span>
+                    {/* The game's own tier word, but only where it says
+                        something the rarity chip did not. */}
+                    {item.type && item.type !== item.rarity && (
+                      <TypeChip type={item.type} />
                     )}
+                    {item.classes?.map((c) => <ClassChip key={c} label={c} />)}
                   </span>
                 </span>
               </button>

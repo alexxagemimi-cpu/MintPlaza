@@ -23,6 +23,7 @@
  */
 import {
   findItem, catalogFor, CATALOG, catalogProvenance, pricedCoverage,
+  thumbnailFor, variantAxesFor, multiplierFor, isUnpricedVariant,
 } from "../src/lib/items.ts";
 import { calculate } from "../src/lib/trade.ts";
 import { valueSourceFor, valueOf, formatValue } from "../src/lib/values.ts";
@@ -203,6 +204,52 @@ for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me",
     `| pulled ${String(p.pulled).padStart(4)}`,
     `| priced ${String(c.priced).padStart(3)} of ${c.listable} listable`,
   );
+}
+
+line("11. FISCH — text-only, and every variant a player can actually own");
+{
+  const fisch = catalogFor("fisch");
+  const withArt = fisch.filter((i) => thumbnailFor(i) !== undefined);
+  assert(
+    "no Fisch row resolves to an image",
+    withArt.length === 0,
+    withArt.length ? `${withArt.length} would load art, e.g. ${withArt[0].name}` : `${fisch.length} rows, all typographic`,
+  );
+
+  // A game that shows no pictures has to carry rarity some other way, or the
+  // grid is 2,133 identical grey squares.
+  const tiers = new Set(fisch.map((i) => i.rarity).filter(Boolean));
+  assert("the tile ring has a rarity to show", tiers.size >= 5, `${tiers.size} distinct tiers present`);
+
+  const axes = variantAxesFor("fisch");
+  assert("both variant axes are exposed", axes.length === 2,
+    axes.map((a) => `${a.label}(${a.options.length})`).join(" + "));
+
+  const attrs = axes.find((a) => a.key === "attribute");
+  const muts = axes.find((a) => a.key === "mutation");
+  assert("attributes stack, mutation does not",
+    attrs?.stacks === true && muts?.stacks === false);
+
+  // The point of listing unpriced mutations is that they stay honest about
+  // being unpriced. If one ever acquired a silent multiplier, a trade would be
+  // priced on a number nobody confirmed.
+  const mutOptions = muts?.options ?? [];
+  const priced = mutOptions.filter((o) => multiplierFor("fisch", o) !== undefined);
+  const flagged = mutOptions.filter((o) => isUnpricedVariant("fisch", o));
+  assert(
+    "every mutation is either priced or flagged unpriced",
+    priced.length + flagged.length === mutOptions.length,
+    `${mutOptions.length} mutations: ${priced.length} priced (${priced.join(", ")}), ${flagged.length} flagged`,
+  );
+  assert("Aether is 15x, not the outdated 12x", multiplierFor("fisch", "Aether") === 15);
+
+  // Five things called Nessie, across two categories. The research calls
+  // confusing a rod SKIN with a ROD the most expensive mistake in this game.
+  const nessie = fisch.filter((i) => /nessie/i.test(i.name));
+  const cats = new Set(nessie.map((i) => i.category));
+  console.log(`  "nessie" matches ${nessie.length} rows across ${cats.size} categories: ${[...cats].join(", ")}`);
+  assert("every one of them carries a category to tell them apart",
+    nessie.every((i) => Boolean(i.category)));
 }
 
 console.log("\n" + "─".repeat(72));

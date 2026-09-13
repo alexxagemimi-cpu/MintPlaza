@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { CHROMATIC_STYLE, RARITY_STYLE, thumbnailFor, type CatalogItem } from "@/lib/items";
+import {
+  CHROMATIC_STYLE, CLASS_STYLE, RARITY_STYLE, TYPE_STYLE, thumbnailFor,
+  type CatalogItem,
+} from "@/lib/items";
 
 /**
  * One catalogue item, the way a trading site shows it.
@@ -62,7 +65,17 @@ export function ItemTile({
         height: size,
         borderRadius: Math.round(size * 0.26),
         background: style.bg,
-        boxShadow: `inset 0 0 0 1px ${style.ring}`,
+        // Two shadows, and the order matters. The inset is the ring itself and
+        // scales with the tier; the outer one is the halo, and only the top two
+        // tiers have it. Where a game has no artwork this ring is the only
+        // thing carrying rarity, so it is drawn at full strength rather than as
+        // the hairline a tile-behind-a-picture would want.
+        boxShadow: [
+          `inset 0 0 0 ${style.weight}px ${style.ring}`,
+          style.glow ? `0 0 0 3px ${style.glow}` : "",
+        ]
+          .filter(Boolean)
+          .join(", "),
       }}
     >
       {src && !failed ? (
@@ -97,6 +110,67 @@ export function RarityChip({ rarity }: { rarity: NonNullable<CatalogItem["rarity
       style={{ color: s.fg, background: s.bg, boxShadow: `inset 0 0 0 1px ${s.ring}` }}
     >
       {rarity.toUpperCase()}
+    </span>
+  );
+}
+
+/**
+ * The game's own word for the tier, beside MintPlaza's.
+ *
+ * Worth its own chip because the two genuinely differ, and for Fisch the
+ * difference is the entire top of the market: Exotic, Secret, Apex and Divine
+ * Secret all map to "Mythical" on the shared ladder, because there is nothing
+ * above Mythical to map them to. Showing only the mapped tier would tell a
+ * player their Divine Secret and somebody's Exotic are the same class of
+ * thing. They are not, and the gap between them is most of the trade.
+ *
+ * Suppressed when it just repeats the rarity chip — an item whose native word
+ * is "Rare" and whose mapped tier is "Rare" does not need to say so twice.
+ */
+export function TypeChip({ type }: { type: string }) {
+  const s = TYPE_STYLE[type];
+  if (!s) {
+    return (
+      <span className="font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+        {type.toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="rounded-md px-1.5 py-0.5 font-mono text-[0.5625rem] font-bold tracking-[0.08em]"
+      style={{
+        color: s.fg,
+        background: s.bg,
+        boxShadow: [
+          `inset 0 0 0 1px ${s.ring}`,
+          s.glow ? `0 0 0 2px ${s.glow}` : "",
+        ]
+          .filter(Boolean)
+          .join(", "),
+      }}
+    >
+      {type.toUpperCase()}
+    </span>
+  );
+}
+
+/**
+ * Limited, Extinct, Relic and the rest — outlined, never filled.
+ *
+ * The visual difference from a tier chip is the point. These sit alongside a
+ * rarity rather than replacing it, and a Limited Common is still Common; a
+ * filled badge would read as a tier and quietly promote an eighth of the Fisch
+ * catalogue.
+ */
+export function ClassChip({ label }: { label: string }) {
+  const s = CLASS_STYLE[label] ?? { fg: "#5A6B65", ring: "#5A6B654D" };
+  return (
+    <span
+      className="rounded-md px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.08em]"
+      style={{ color: s.fg, boxShadow: `inset 0 0 0 1px ${s.ring}` }}
+    >
+      {label.toUpperCase()}
     </span>
   );
 }

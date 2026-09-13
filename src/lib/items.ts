@@ -161,15 +161,91 @@ export interface CatalogItem {
   checkedAt?: string;
 }
 
-/** Tile colours by rarity. Restrained — this is a label, not a rainbow. */
-export const RARITY_STYLE: Record<Rarity, { fg: string; bg: string; ring: string }> = {
-  Common:    { fg: "#5A6B65", bg: "#EEF2F0", ring: "#0D161314" },
-  Uncommon:  { fg: "#2F7D57", bg: "#E6F4EC", ring: "#2F7D5726" },
-  Rare:      { fg: "#2C6C9E", bg: "#E7F0F8", ring: "#2C6C9E26" },
-  "Ultra-Rare": { fg: "#2F5FA8", bg: "#E6ECF9", ring: "#2F5FA826" },
-  Legendary: { fg: "#8A5A12", bg: "#FBF1E0", ring: "#8A5A1226" },
-  Mythical:  { fg: "#9B3B6E", bg: "#FAEBF2", ring: "#9B3B6E26" },
-  Premium:   { fg: "#6B4CA8", bg: "#F0ECFA", ring: "#6B4CA826" },
+/**
+ * Tile colours by rarity, and how heavy the ring around the tile is.
+ *
+ * ---------------------------------------------------------------------------
+ * Why the ring carries real weight now
+ * ---------------------------------------------------------------------------
+ *
+ * For most games the tile is a stand-in until artwork exists. For Fisch it is
+ * permanent — 2,133 rows, no asset ids anywhere, and a deliberate decision not
+ * to store pictures — so the tile has to do the job a picture would have done:
+ * say at a glance how rare this thing is, from across a grid, on a phone.
+ *
+ * Hence the ring escalates rather than staying a hairline. `weight` is the ring
+ * in pixels and `glow` adds an outer halo, which only the top two tiers get.
+ * Restraint still applies: seven tiers, one visual axis, no rainbow. A grid
+ * where everything glows says exactly as much as a grid where nothing does.
+ */
+export const RARITY_STYLE: Record<
+  Rarity,
+  { fg: string; bg: string; ring: string; weight: number; glow?: string }
+> = {
+  Common:    { fg: "#5A6B65", bg: "#EEF2F0", ring: "#0D161324", weight: 1 },
+  Uncommon:  { fg: "#2F7D57", bg: "#E6F4EC", ring: "#2F7D5759", weight: 1.5 },
+  Rare:      { fg: "#2C6C9E", bg: "#E7F0F8", ring: "#2C6C9E66", weight: 1.5 },
+  "Ultra-Rare": { fg: "#2F5FA8", bg: "#E6ECF9", ring: "#2F5FA87A", weight: 2 },
+  Legendary: { fg: "#8A5A12", bg: "#FBF1E0", ring: "#C98A1FCC", weight: 2 },
+  // Red, and the brightest thing in the grid. This is the tier a Fisch player
+  // is scanning for.
+  Mythical:  { fg: "#A8253F", bg: "#FBEAEE", ring: "#D42A46", weight: 2.5, glow: "#D42A4640" },
+  Premium:   { fg: "#6B4CA8", bg: "#F0ECFA", ring: "#7B5BC4", weight: 2.5, glow: "#7B5BC438" },
+};
+
+/**
+ * The game's OWN tier word, which is not the same thing as `rarity`.
+ *
+ * `rarity` is MintPlaza's seven-tier ladder, shared across eight games so that
+ * a grid reads consistently. `type` is what the game itself calls the tier, and
+ * for Fisch that distinction is the whole market: the ladder above collapses
+ * Exotic, Secret, Apex and Divine Secret all into "Mythical", because there is
+ * nowhere above Mythical to put them — but a Divine Secret is not an Exotic,
+ * and a player who cannot tell them apart cannot trade.
+ *
+ * So the native word gets its own badge with its own treatment. Only tiers that
+ * genuinely sit above the normal ladder are given a glow; the ordinary ones are
+ * quiet labels, because making every badge shout removes the signal from the
+ * four that matter.
+ *
+ * Anything not in this table falls back to a plain badge, which is correct for
+ * the game-specific words other games use (Blox Fruits' Natural / Elemental /
+ * Beast are types of a different kind, and are not a ladder at all).
+ */
+export const TYPE_STYLE: Record<string, { fg: string; bg: string; ring: string; glow?: string }> = {
+  // ---- Fisch, above the normal ladder ----
+  "Divine Secret": { fg: "#8A6A10", bg: "#FDF6E0", ring: "#D4A62A", glow: "#D4A62A4D" },
+  Apex:            { fg: "#9B1C2E", bg: "#FBE9EC", ring: "#C42337", glow: "#C423374D" },
+  Secret:          { fg: "#5B3A9E", bg: "#F0EBFB", ring: "#7A52C9", glow: "#7A52C93D" },
+  Exotic:          { fg: "#0F6E74", bg: "#E3F5F5", ring: "#17939B", glow: "#17939B33" },
+  // ---- the normal ladder, quiet ----
+  Mythical:  { fg: "#A8253F", bg: "#FBEAEE", ring: "#D42A4659" },
+  Legendary: { fg: "#8A5A12", bg: "#FBF1E0", ring: "#C98A1F59" },
+  Rare:      { fg: "#2C6C9E", bg: "#E7F0F8", ring: "#2C6C9E4D" },
+  Unusual:   { fg: "#2F7D57", bg: "#E6F4EC", ring: "#2F7D574D" },
+  Uncommon:  { fg: "#2F7D57", bg: "#E6F4EC", ring: "#2F7D574D" },
+  Common:    { fg: "#5A6B65", bg: "#EEF2F0", ring: "#0D16131F" },
+  Trash:     { fg: "#6B6257", bg: "#F2F0EC", ring: "#0D16131F" },
+};
+
+/**
+ * Orthogonal classifications — Limited, Extinct, Relic and friends.
+ *
+ * These are not power levels and deliberately do not look like tiers: outlined
+ * rather than filled, so a Limited Common still reads as Common at a glance.
+ * The research is explicit that treating them as rarity is a mistake, and the
+ * pull carries 252 Limited rows in Fisch alone, so getting this wrong would
+ * have mis-tiered an eighth of the game.
+ */
+export const CLASS_STYLE: Record<string, { fg: string; ring: string }> = {
+  Limited:  { fg: "#9B3B1E", ring: "#9B3B1E4D" },
+  Special:  { fg: "#5B3A9E", ring: "#5B3A9E4D" },
+  Extinct:  { fg: "#6B4A2A", ring: "#6B4A2A4D" },
+  Gemstone: { fg: "#0F6E74", ring: "#0F6E744D" },
+  Fragment: { fg: "#5A6B65", ring: "#5A6B654D" },
+  Relic:    { fg: "#8A5A12", ring: "#8A5A124D" },
+  Seed:     { fg: "#2F7D57", ring: "#2F7D574D" },
+  Event:    { fg: "#2C6C9E", ring: "#2C6C9E4D" },
 };
 
 /** CHROMATIC reads as a second label beside the tier, never as the tier. */
@@ -1351,6 +1427,26 @@ export function findItem(id: string): CatalogItem | undefined {
 export const ITEM_IMAGE_BASE = "/items";
 
 /**
+ * Games that never show pictures, whatever data exists for them.
+ *
+ * Fisch is here by decision, not by omission. It is 2,133 rows, almost all of
+ * them fish, and the wiki publishes no asset ids for any of them — so every
+ * picture would have to be a file somebody sourced, stored and served, for a
+ * catalogue that turns over weekly. The typographic tile is not a placeholder
+ * standing in for that: for this game it IS the design, which is why the ring
+ * and badge system below carries the rarity and tier that a picture would
+ * otherwise have carried.
+ *
+ * Checked before any art path is considered, so a stray `art` value or a
+ * dropped-in file cannot reintroduce images by accident.
+ */
+export const TEXT_ONLY_GAMES: readonly string[] = ["fisch"];
+
+export function isTextOnly(gameSlug: string): boolean {
+  return TEXT_ONLY_GAMES.includes(gameSlug);
+}
+
+/**
  * NOT the Roblox thumbnails URL, and the difference matters.
  *
  * `thumbnails.roblox.com/v1/assets?assetIds=…` is a JSON API. It answers with
@@ -1364,6 +1460,7 @@ export const ITEM_IMAGE_BASE = "/items";
  * a failure there as "no picture" and falls back to the rarity tile.
  */
 export function thumbnailFor(item: CatalogItem): string | undefined {
+  if (isTextOnly(item.gameSlug)) return undefined;
   if (item.art) return item.art;
   if (item.assetId) return `/api/item-image/${encodeURIComponent(item.assetId)}`;
   return localArtPath(item);
@@ -1529,8 +1626,29 @@ export const VARIANTS: Record<string, VariantModel> = {
       { key: "attribute", label: "Attributes", stacks: true,
         options: ["Shiny", "Sparkling", "Big", "Giant", "Tiny"] },
       // Exactly one, ever.
+      //
+      // Every mutation the game has is listed here, including the fifteen
+      // whose multiplier nobody has read off the official wiki yet. That is
+      // deliberate and it is the opposite of the usual instinct, which would be
+      // to hide what we cannot price.
+      //
+      // A player who caught a Tryhard fish owns a Tryhard fish. Leaving it out
+      // of the picker does not make the uncertainty go away — it makes the
+      // player unable to say what they are holding, so they type it in the
+      // note field where nothing can match on it, and the catalogue quietly
+      // stops describing the game. Offering it costs nothing, because an
+      // unpriced mutation flows into `multiplierFor` as undefined and the
+      // trade lands on "?" — which is the honest answer, arrived at by the
+      // same route as every other missing value on this site.
       { key: "mutation", label: "Mutation", stacks: false,
-        options: ["Aether", "Prism", "Prismize", "Prismatic"] },
+        options: [
+          // Confirmed multipliers, off fischipedia's own pages.
+          "Aether", "Prism", "Prismize", "Prismatic",
+          // Real, named, multiplier not yet read. Selectable; unpriceable.
+          "Tryhard", "Galaxy", "Glowy", "Chaotic", "Plagued", "Darkness",
+          "Melody", "Scavenged", "Singularity", "Synth",
+          "Bathyal", "Darkheart", "Hadal", "Light", "Thalassic",
+        ] },
     ],
     multipliers: {
       // Every figure below is off fischipedia's own page for that mutation,
@@ -1610,9 +1728,39 @@ export const ITEM_VARIANTS: Record<string, readonly string[]> = Object.fromEntri
   Object.entries(VARIANTS).map(([slug, m]) => [slug, m.axes[0]?.options ?? []]),
 );
 
+/**
+ * Every axis a game varies its items on, for a form that can show them all.
+ *
+ * `ITEM_VARIANTS` above keeps only the first axis, which is right for the one
+ * place that needs a single tag and wrong everywhere else. For Fisch the first
+ * axis is attributes, so reading only that one means the mutation — the field
+ * that moves value by up to 15x — never reaches the player at all.
+ */
+export function variantAxesFor(gameSlug: string): readonly VariantAxis[] {
+  return VARIANTS[gameSlug]?.axes ?? [];
+}
+
 /** What a confirmed multiplier does to a value, or nothing if unknown. */
 export function multiplierFor(gameSlug: string, option: string): number | undefined {
   return VARIANTS[gameSlug]?.multipliers?.[option];
+}
+
+/**
+ * True where the option is a real, named variant whose multiplier nobody has
+ * confirmed.
+ *
+ * The distinction the interface needs is three-way, not two: an option can be
+ * priced (Aether, 15x), deliberately value-neutral (the size tags, which
+ * describe weight and change nothing), or real-but-unpriced (Tryhard). Only
+ * the third should drag a trade to "?", and only the third should be labelled
+ * as uncertain — labelling Tiny "unconfirmed" would imply somebody is working
+ * on a number for it, and nobody is, because there isn't one.
+ */
+export function isUnpricedVariant(gameSlug: string, option: string): boolean {
+  const model = VARIANTS[gameSlug];
+  if (!model) return false;
+  if (model.multipliers?.[option] !== undefined) return false;
+  return (model.unconfirmed ?? []).includes(option);
 }
 
 
