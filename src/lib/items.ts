@@ -1140,6 +1140,22 @@ const fence = (variant: string): CatalogItem =>
     note: `Fence. gag2.gg lists this as just "${variant}" under its fence heading; the noun is added back here so the name survives being searched for on its own.`,
   });
 
+/**
+ * One crate the pull missed.
+ *
+ * It matters because the picture frames are the only cosmetic line in this
+ * game with a real market — the Mega is worth 165 against 2.5 for the Big —
+ * and this is the crate they come out of. A catalogue that prices the drop but
+ * cannot name the crate is missing the half of that trade a player actually
+ * opens.
+ */
+const GAG2_CRATES: CatalogItem[] = [
+  { id: "gag2-picture-frame-crate", gameSlug: "gag2", name: "Picture Frame Crate",
+    category: "Crate", rarity: "Rare",
+    note: "Drops the picture frames, including the Mega — the most valuable cosmetic on gag2.gg. Listed there as Rare.",
+    verified: false },
+];
+
 const GAG2_COSMETICS: CatalogItem[] = [
   // ---- the only four with a published number ----
   gag2cos("Mega Picture Frame", "Picture Frame", undefined, {
@@ -1379,6 +1395,69 @@ const FISCH_GLIDERS: CatalogItem[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* Fisch — rod skins the pull did not reach                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fourteen skins read off the wiki's own Rod Skins page.
+ *
+ * The pull carries 96 rod skins and the page says there are 264, so this is
+ * not the missing 168 — it is the fourteen that were legible on the areas the
+ * page was open to, added because a skin missing from the catalogue cannot be
+ * listed at all, and rod skins are the one Fisch cosmetic the in-game trade
+ * menu names directly.
+ *
+ * Each row records the rod it dresses. That is not decoration: the research is
+ * blunt that confusing a rod SKIN, which trades, with the ROD it dresses,
+ * which never does, is the most expensive mistake available in this game, and
+ * five things called Nessie already sit across both categories. A skin whose
+ * note names its rod can be told apart from the rod by reading one line.
+ *
+ * Drop chance is recorded where the page showed it. Rarity is recorded only
+ * for the two rows where the page's rarity row was actually on screen —
+ * everywhere else the column was below the fold, and a guessed tier on a
+ * cosmetic that trades would be worse than a blank.
+ */
+const rodSkin = (
+  name: string,
+  rod: string,
+  source: string,
+  drop: string,
+  rarity?: Rarity,
+  type?: string,
+): CatalogItem => ({
+  id: `fisch-skin-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "fisch",
+  name,
+  category: "Rod Skin",
+  rarity,
+  type,
+  note:
+    `Skin for the ${rod}, from ${source}. ${drop} drop chance. ` +
+    `It dresses that rod and is not the rod — the skin trades, the rod does not.`,
+  verified: false,
+});
+
+const FISCH_ROD_SKINS: CatalogItem[] = [
+  // The only two whose rarity row was on screen.
+  rodSkin("Neptune's Demand", "Poseidon Rod", "Atlantis", "7.04%", "Rare", "Rare"),
+  rodSkin("Stormbringer", "Zeus Rod", "Atlantis", "1.41%", "Legendary", "Legendary"),
+
+  rodSkin("Celestial Ghoul", "Celestial Rod", "the Ghosts crate", "9.09%"),
+  rodSkin("Spirit of the Eclipse", "Fang of the Eclipse", "the Ghosts crate", "1.01%"),
+  rodSkin("Rod of the Gemmer", "Great Dreamer Rod", "Midas' Mates", "8%"),
+  rodSkin("Midas Spirit", "Free Spirit Rod", "Midas' Mates", "1%"),
+  rodSkin("Arctic Coral", "Arctic Rod", "the Coral crate", "45%"),
+  rodSkin("Coral Specter", "Abyssal Specter Rod", "the Coral crate", "35%"),
+  rodSkin("Violet Kraken", "Kraken Rod", "the Friendly crate", "8%"),
+  rodSkin("No Violet Rod", "No-Life Rod", "the Friendly crate", "1%"),
+  rodSkin("Flame Shears", "Verdant Shear Rod", "the Cursed Cosmetic Case", "5.5%"),
+  rodSkin("Cthulu's Revenge", "Great Dreamer Rod", "the Cursed Cosmetic Case", "0.5%"),
+  rodSkin("Whispering Tentacles", "Flimsy Rod", "the Cultist crate", "40%"),
+  rodSkin("Anchor of the Sleeper", "Steady Rod", "the Cultist crate", "34%"),
+];
+
+/* ------------------------------------------------------------------ */
 /* Pet Simulator 99 — enchants                                         */
 /* ------------------------------------------------------------------ */
 
@@ -1500,8 +1579,8 @@ const CURATED: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
   ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
-  ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE, ...GAG2_COSMETICS,
-  ...FISCH_GLIDERS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
+  ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE, ...GAG2_COSMETICS, ...GAG2_CRATES,
+  ...FISCH_GLIDERS, ...FISCH_ROD_SKINS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
 ];
 
 /** Names compare case- and punctuation-insensitively when deduping. */
@@ -1758,15 +1837,17 @@ export const CATALOG_NOTES: Record<string, string> = {
     "move with updates.",
 
   gag2:
-    "419 rows: 117 cosmetics, 113 seeds and crops, 72 gear, 50 pets, 33 " +
+    "420 rows: 117 cosmetics, 113 seeds and crops, 72 gear, 50 pets, 34 " +
     "crates, 16 packs, 13 eggs and the chests, plus the two currencies " +
-    "marked so you can see they never move. The cosmetics are new and they " +
-    "are the half that actually trades — the crate is consumed, the thing " +
-    "that comes out of it is what you keep — so a catalogue with every " +
-    "crate and no boombox, bench or conveyor was missing the decorative " +
-    "economy entirely. Rarities are the honest weak point: 53% of rows " +
-    "carry none, because neither the wiki nor gag2.gg filed them under one, " +
-    "and a guessed tier would be worse than a blank.",
+    "marked so you can see they never move. The cosmetics are the half that " +
+    "actually trades — the crate is consumed, the thing that comes out of " +
+    "it is what you keep — so a catalogue with every crate and no boombox, " +
+    "bench or conveyor was missing the decorative economy entirely. 242 " +
+    "rows carry a picture, cut from gag2.gg's own cards; the rest fall back " +
+    "to the lettered tile rather than to a broken image. Rarities are the " +
+    "honest weak point: over half the rows carry none, because neither the " +
+    "wiki nor gag2.gg filed them under one, and a guessed tier would be " +
+    "worse than a blank.",
 
   "pet-simulator-99":
     "The full roster, straight from BIG Games' own API: 3,109 pets — 1,039 " +

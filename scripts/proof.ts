@@ -29,6 +29,7 @@ import { calculate } from "../src/lib/trade.ts";
 import { valueSourceFor, valueOf, formatValue } from "../src/lib/values.ts";
 import { SERVICES, postable, servicesFor } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
+import { readdirSync, existsSync, statSync } from "node:fs";
 import { PARTNERS, referralFor } from "../src/lib/referrals.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
@@ -306,6 +307,64 @@ line("12. GAG2 — the cosmetics the catalogue used to be missing");
     assert(`${name} was not re-filed out of Gear by the cosmetics block`,
       row?.category === "Gear", row?.category);
   }
+}
+
+line("13. THE ART LAYER — pictures for GAG2, still none for Fisch");
+{
+  const artDir = new URL("../public/items/gag2/", import.meta.url);
+  const files = existsSync(artDir) ? readdirSync(artDir).filter((f) => f.endsWith(".png")) : [];
+  assert("GAG2 art is on disk", files.length > 0, `${files.length} files`);
+
+  // Every file is named for the row it belongs to. An orphan means a crop was
+  // filed under an id that does not exist, and it would simply never render —
+  // silently, because the manifest lookup just misses.
+  const orphans = files.filter((f) => !findItem(f.replace(/\.png$/, "")));
+  assert("every art file names a real catalogue row", orphans.length === 0,
+    orphans.length ? `${orphans.length} orphaned, e.g. ${orphans[0]}` : `${files.length} resolve`);
+
+  const withArt = catalogFor("gag2").filter((i) => thumbnailFor(i) !== undefined);
+  assert("the manifest and the disk agree", withArt.length === files.length,
+    `${withArt.length} rows resolve art, ${files.length} files present`);
+
+  // The whole point of the manifest: a row with no file must resolve to
+  // undefined rather than to a path that 404s on every catalogue page.
+  const unart = catalogFor("gag2").find((i) => !files.includes(`${i.id}.png`));
+  assert("a row with no file resolves to no path, not a broken one",
+    unart !== undefined && thumbnailFor(unart) === undefined, unart?.name);
+
+  // The regression that matters most. Fisch is text-only by decision, and the
+  // rule is enforced before any art path is consulted — so dropping files into
+  // public/items/fisch/ would change nothing. Adding pictures for one game must
+  // never leak into the game that refuses them.
+  const fischArt = catalogFor("fisch").filter((i) => thumbnailFor(i) !== undefined);
+  assert("Fisch still resolves to no image at all", fischArt.length === 0,
+    fischArt.length ? `${fischArt.length} leaked, e.g. ${fischArt[0].name}` : "2,147 rows, still typographic");
+
+  // Tiles render at 38-56px. A 256px source would be four times the pixels for
+  // no visible gain, and 240 of them is a megabyte of it.
+  const big = files.filter((f) => statSync(new URL(f, artDir)).size > 40_000);
+  assert("no art file is oversized for a 44px tile", big.length === 0,
+    big.length ? `${big.length} over 40KB, e.g. ${big[0]}` : "largest is under 40KB");
+}
+
+line("14. FISCH ROD SKINS — the fourteen the pull never reached");
+{
+  const added = ["Stormbringer", "Celestial Ghoul", "Arctic Coral", "Violet Kraken",
+    "Flame Shears", "Whispering Tentacles", "Anchor of the Sleeper", "Midas Spirit"];
+  const missing = added.filter((n) => !catalogFor("fisch").some((i) => i.name === n));
+  assert("every skin read off the wiki page resolves", missing.length === 0,
+    missing.length ? `missing ${missing.join(", ")}` : `${added.length} spot-checked`);
+
+  const skins = catalogFor("fisch").filter((i) => i.category === "Rod Skin");
+  assert("they joined the existing rod skins rather than a new category",
+    skins.length >= 110, `${skins.length} rod skins`);
+
+  // The expensive mistake this game offers is confusing a skin with the rod it
+  // dresses. Every curated skin says which rod, in words, on the row itself.
+  const curated = skins.filter((i) => i.id.startsWith("fisch-skin-"));
+  assert("every curated skin names the rod it dresses",
+    curated.every((i) => /Skin for the .+ Rod|Skin for the Fang/.test(i.note ?? "")),
+    `${curated.length} carry their rod`);
 }
 
 console.log("\n" + "─".repeat(72));
