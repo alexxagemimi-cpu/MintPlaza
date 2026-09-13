@@ -510,72 +510,22 @@ $$;
 -- ===========================================================================
 -- Matching
 --
--- Deterministic set intersection, not a model. Because the match IS the
--- intersection, the reason comes out with it rather than being narrated after
--- the fact. Reason codes are a closed set the interface knows how to render.
+-- There is no ranking function here on purpose, and the one that used to be
+-- was removed rather than left to rot. It scored listings by set intersection
+-- alone, which cannot answer the question a trader is actually asking: a
+-- reciprocal match that hands over a Mythical for a Common scored exactly the
+-- same as a fair one, because nothing in SQL knows what anything is worth.
+--
+-- Values live in values.ts, where the proof script can check them and one edit
+-- changes both the calculator and the ranker. Copying them into Postgres to
+-- let a SQL ranker read them would give the site two sources of truth for the
+-- single number players argue about, and guarantee they drift.
+--
+-- So the work is split where each side is strong: SQL narrows, TypeScript
+-- ranks. trade_match_candidates() below returns the listings that touch a
+-- player's lists at all — an indexed set intersection, which is exactly what a
+-- database is for — and src/lib/match.ts decides what those are worth to them.
 -- ===========================================================================
-
-create or replace function public.recommended_listings(
-  p_game text,
-  p_limit int default 20,
-  p_cursor timestamptz default null
-)
-returns table (
-  listing_id  uuid,
-  user_id     uuid,
-  note        text,
-  bumped_at   timestamptz,
-  reason      text,
-  score       int
-)
-language sql stable security definer set search_path = public as $$
-  with me as (select auth.uid() as uid),
-  my_haves as (
-    select item_id from public.inventory_entries
-    where user_id = (select uid from me) and game_slug = p_game
-      and kind = 'have' and item_id is not null
-  ),
-  my_wants as (
-    select item_id from public.inventory_entries
-    where user_id = (select uid from me) and game_slug = p_game
-      and kind = 'want' and item_id is not null
-  ),
-  candidates as (
-    select l.id, l.user_id, l.note, l.bumped_at,
-           -- they offer something I want
-           count(*) filter (where s.side = 'offer' and s.item_id in (select item_id from my_wants)) as gives,
-           -- they want something I have
-           count(*) filter (where s.side = 'want'  and s.item_id in (select item_id from my_haves)) as takes
-      from public.trade_listings l
-      join public.listing_sides s on s.listing_id = l.id
-     where l.game_slug = p_game
-       and l.status = 'active'
-       and l.expires_at > now()
-       and l.user_id <> (select uid from me)
-       and not exists (
-         select 1 from public.blocks b
-         where (b.blocker_id = (select uid from me) and b.blocked_id = l.user_id)
-            or (b.blocker_id = l.user_id and b.blocked_id = (select uid from me))
-       )
-       and (p_cursor is null or l.bumped_at < p_cursor)
-     group by l.id, l.user_id, l.note, l.bumped_at
-  )
-  select id, user_id, note, bumped_at,
-         case
-           when gives > 0 and takes > 0 then 'RECIPROCAL_MATCH'
-           when gives > 0               then 'HAS_WHAT_YOU_WANT'
-           when takes > 0               then 'WANTS_WHAT_YOU_HAVE'
-           else 'NEW_IN_YOUR_GAME'
-         end,
-         -- Reciprocal matches are the ones that actually close, so they win.
-         (case when gives > 0 and takes > 0 then 60 else 0 end
-          + least(gives, 5)::int * 6
-          + least(takes, 5)::int * 4)::int
-    from candidates
-   order by 6 desc, bumped_at desc
-   limit least(p_limit, 50);
-$$;
-
 
 -- ===========================================================================
 -- Row level security
@@ -828,12 +778,10 @@ revoke all on function public.expire_listings()         from public, anon, authe
 revoke all on function public.handle_new_user()         from public, anon, authenticated;
 revoke all on function public.enforce_listing_limits()  from public, anon, authenticated;
 revoke all on function public.is_participant(uuid, uuid) from public, anon, authenticated;
-revoke all on function public.recommended_listings(text, int, timestamptz) from public, anon, authenticated;
 
 grant execute on function public.ensure_profile()        to authenticated;
 grant execute on function public.bump_listing(uuid)      to authenticated;
 grant execute on function public.listing_allowance(text) to authenticated;
-grant execute on function public.recommended_listings(text, int, timestamptz) to authenticated;
 
 -- expire_listings is a scheduled job, handle_new_user and
 -- enforce_listing_limits are trigger bodies, and is_participant is a helper
@@ -1768,3 +1716,360 @@ alter table public.service_templates
 
 -- admin_save_template() was replaced to carry all three; see the migration
 -- `five_game_build_out` for the full body.
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Item trading (September 2026)
+--
+-- The tables for this have existed since the first schema and nothing has ever
+-- written to them. Two things were in the way, and this section removes both.
+--
+-- The first was a key mismatch that made inventory impossible to save at all.
+-- `item_id` was `uuid references game_items(id)`, but `game_items` is never
+-- seeded — the catalogue lives in TypeScript (src/lib/items.ts), where the
+-- proof script can check it, and it reaches the browser compiled in. So
+-- getCatalog() falls back to that catalogue, whose ids are slugs, and every
+-- insert pushed a slug like 'gag2-cosmetic-bookcase' into a uuid column and
+-- came back 22P02. Not one inventory row was ever written.
+--
+-- The fix is to key on the slug, which is what the application has always
+-- actually held. Slugs are stable, readable in a query, and survive a
+-- catalogue rebuild; uuids would need a seeding job nobody has written and a
+-- drift bug for every row it missed. game_items keeps its uuid primary key for
+-- the admin Studio to edit — it is an override layer, not the source of truth,
+-- and it already records its slug in attributes->>'slug'.
+--
+-- The second was that matching lived entirely in SQL, where it cannot work.
+-- A verdict needs values, values live in values.ts, and duplicating them into
+-- Postgres would give the site two sources of truth for the only number
+-- players actually argue about. So the split is: SQL narrows (it has the
+-- indexes), TypeScript ranks (it has the values). See src/lib/match.ts.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- Re-key inventory and listing sides onto catalogue slugs
+--
+-- Written to be safe on a database that somehow does hold uuid rows: anything
+-- already there is translated back through game_items.attributes->>'slug'
+-- where a slug is recorded, and dropped where it is not, because a bare uuid
+-- means nothing once the column is text and would only ever fail to match.
+-- ---------------------------------------------------------------------------
+
+-- Done as add-copy-drop-rename rather than ALTER COLUMN TYPE, because the
+-- translation needs a lookup in game_items and a USING expression may not
+-- contain a subquery. The check constraint naming item_id is dropped first and
+-- restored after, so it never has to survive the column going away.
+
+do $$
+begin
+  if (select data_type from information_schema.columns
+       where table_schema = 'public' and table_name = 'inventory_entries'
+         and column_name = 'item_id') = 'uuid' then
+
+    alter table public.inventory_entries
+      drop constraint if exists inventory_entries_item_id_fkey,
+      drop constraint if exists inventory_needs_an_item;
+
+    alter table public.inventory_entries add column if not exists item_slug text;
+
+    update public.inventory_entries e
+       set item_slug = gi.attributes->>'slug'
+      from public.game_items gi
+     where gi.id = e.item_id;
+
+    alter table public.inventory_entries drop column item_id;
+    alter table public.inventory_entries rename column item_slug to item_id;
+
+    alter table public.inventory_entries add constraint inventory_needs_an_item
+      check (item_id is not null or custom_name is not null);
+  end if;
+end $$;
+
+do $$
+begin
+  if (select data_type from information_schema.columns
+       where table_schema = 'public' and table_name = 'listing_sides'
+         and column_name = 'item_id') = 'uuid' then
+
+    alter table public.listing_sides
+      drop constraint if exists listing_sides_item_id_fkey,
+      drop constraint if exists listing_side_needs_an_item;
+
+    alter table public.listing_sides add column if not exists item_slug text;
+
+    update public.listing_sides s
+       set item_slug = gi.attributes->>'slug'
+      from public.game_items gi
+     where gi.id = s.item_id;
+
+    alter table public.listing_sides drop column item_id;
+    alter table public.listing_sides rename column item_slug to item_id;
+
+    alter table public.listing_sides add constraint listing_side_needs_an_item
+      check (item_id is not null or custom_name is not null);
+  end if;
+end $$;
+
+-- A slug is a slug, and specifically is not a uuid.
+--
+-- The second half is the point. Every catalogue slug is lowercase letters,
+-- digits and hyphens — and so is a uuid, so a charset rule alone would accept
+-- the exact value this migration exists to stop being written. Anything still
+-- sending uuids is code that predates the change, and it should fail loudly on
+-- the insert rather than write a row that matches nothing and can never be
+-- explained. Requiring a leading letter also rules out the empty string, so the
+-- "an item_id or a custom_name" constraint cannot be satisfied by a blank.
+--
+-- Checked against the real catalogue by the proof script: all 10,323 ids match
+-- the first pattern and none matches the second.
+create or replace function mintplaza.is_item_slug(p text) returns boolean
+language sql immutable as $$
+  select p ~ '^[a-z][a-z0-9-]{0,119}$'
+     and p !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+$$;
+
+alter table public.inventory_entries drop constraint if exists inventory_item_slug_shape;
+alter table public.inventory_entries add constraint inventory_item_slug_shape
+  check (item_id is null or mintplaza.is_item_slug(item_id));
+
+alter table public.listing_sides drop constraint if exists listing_sides_item_slug_shape;
+alter table public.listing_sides add constraint listing_sides_item_slug_shape
+  check (item_id is null or mintplaza.is_item_slug(item_id));
+
+-- One row per item per variant per list. Without this, tapping Add twice on a
+-- flaky connection quietly doubles a holding and every total downstream is
+-- wrong. The variant is part of the key because a Midnight rod and a plain one
+-- are different holdings, not the same holding counted twice.
+--
+-- coalesce, not the bare expression. Most rows name no variant, so most rows
+-- have NULL there — and NULLs are distinct from each other in a unique index,
+-- which would have made this index hold for exactly the variant rows and do
+-- nothing at all for the common case. Folding NULL to '' is what makes two
+-- plain holdings collide. (NULLS NOT DISTINCT would also do it, and needs
+-- Postgres 15; this needs nothing.)
+create unique index if not exists inventory_entry_unique_idx
+  on public.inventory_entries
+     (user_id, game_slug, kind, item_id, (coalesce(attributes->>'variant', '')))
+  where item_id is not null;
+
+-- Matching reads "who has this / who wants this" far more often than it reads
+-- one person's list, and it always reads it per game.
+drop index if exists public.inventory_item_idx;
+create index if not exists inventory_match_idx
+  on public.inventory_entries (game_slug, kind, item_id) where item_id is not null;
+
+drop index if exists public.listing_sides_match_idx;
+create index if not exists listing_sides_match_idx
+  on public.listing_sides (item_id, side) where item_id is not null;
+
+
+
+-- ---------------------------------------------------------------------------
+-- Reading the board
+--
+-- One row shape for four questions — the whole board, the listings that touch
+-- my lists, one person's listings, and my own — so the application has a
+-- single mapper and the four surfaces cannot drift apart.
+--
+-- Every one of them filters on `expires_at > now()` as well as on status.
+-- expire_listings() is a scheduled job, and a job that has not run yet, or has
+-- been switched off, must not be able to put a stale listing in front of
+-- somebody. Status is the intent; the clock is the truth.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.recommended_listings(text, int, timestamptz);
+
+do $$ begin
+  create type mintplaza.listing_row as (
+    listing_id uuid, game_slug text,
+    user_id uuid, username text, display_name text,
+    avatar_url text, online boolean, deals int,
+    note text, created_at timestamptz, bumped_at timestamptz,
+    expires_at timestamptz, bumpable boolean, sides jsonb
+  );
+exception when duplicate_object then null; end $$;
+
+-- Every read below draws from this one. It is in the mintplaza schema, not
+-- public, so PostgREST cannot reach it: it applies no block filter and no
+-- ownership filter, and those are the wrappers' job.
+create or replace function mintplaza.live_listings(p_game text)
+returns setof mintplaza.listing_row
+language sql stable set search_path = public, pg_catalog as $$
+  select l.id, l.game_slug, l.user_id, p.username, p.display_name, p.avatar_url,
+         (p.hide_presence = false
+          and p.last_seen_at > now() - interval '120 minutes'),
+         coalesce(st.deals_done, 0),
+         l.note, l.created_at, l.bumped_at, l.expires_at,
+         (l.user_id = auth.uid() and l.bumped_at < now() - interval '24 hours'),
+         coalesce(
+           (select jsonb_agg(jsonb_build_object(
+                     'side', s.side, 'itemId', s.item_id,
+                     'customName', s.custom_name, 'quantity', s.quantity,
+                     'attributes', s.attributes) order by s.side, s.id)
+              from public.listing_sides s where s.listing_id = l.id),
+           '[]'::jsonb)
+    from public.trade_listings l
+    join public.profiles p on p.id = l.user_id
+    left join public.profile_stats st on st.user_id = l.user_id
+   where l.game_slug = p_game
+     and l.status = 'active'
+     and l.expires_at > now();
+$$;
+
+create or replace function mintplaza.hidden(p_other uuid)
+returns boolean language sql stable set search_path = public, pg_catalog as $$
+  select exists (
+    select 1 from public.blocks b
+     where (b.blocker_id = auth.uid() and b.blocked_id = p_other)
+        or (b.blocker_id = p_other and b.blocked_id = auth.uid()));
+$$;
+
+-- The public board. Newest bump first, the one ordering that does not need to
+-- know who is asking.
+create or replace function public.trade_feed(
+  p_game text, p_limit int default 30, p_cursor timestamptz default null
+)
+returns setof mintplaza.listing_row
+language sql stable security definer set search_path = public, pg_catalog as $$
+  select r.* from mintplaza.live_listings(p_game) r
+   where (p_cursor is null or r.bumped_at < p_cursor)
+     and not mintplaza.hidden(r.user_id)
+   order by r.bumped_at desc
+   limit least(coalesce(p_limit, 30), 100);
+$$;
+
+-- Candidates for matching: only listings that touch my lists in one direction
+-- or the other. A prefilter and nothing more — it decides what is worth
+-- loading, never what is worth showing. The ranking happens in TypeScript,
+-- where the values are.
+--
+-- The limit is deliberately generous, because ranking reorders heavily. Taking
+-- twenty by bump time and then sorting them by fit would mostly be sorting
+-- noise, and the one reciprocal match posted yesterday would never be inside
+-- the window to be found.
+create or replace function public.trade_match_candidates(
+  p_game text, p_limit int default 200
+)
+returns setof mintplaza.listing_row
+language sql stable security definer set search_path = public, pg_catalog as $$
+  with mine as (
+    select kind, item_id from public.inventory_entries
+     where user_id = auth.uid() and game_slug = p_game and item_id is not null
+  )
+  select r.* from mintplaza.live_listings(p_game) r
+   where r.user_id <> auth.uid()
+     and not mintplaza.hidden(r.user_id)
+     and exists (
+       select 1 from public.listing_sides s
+        join mine m on m.item_id = s.item_id
+       where s.listing_id = r.listing_id
+         -- they offer something I want, or they want something I have
+         and ((s.side = 'offer' and m.kind = 'want')
+           or (s.side = 'want'  and m.kind = 'have')))
+   order by r.bumped_at desc
+   limit least(coalesce(p_limit, 200), 400);
+$$;
+
+-- One person's listings, for their profile. No block filter: you opened this
+-- page on purpose, and a blocked person's profile is not linked to from
+-- anywhere the board renders.
+create or replace function public.trade_listings_of(p_user uuid, p_game text)
+returns setof mintplaza.listing_row
+language sql stable security definer set search_path = public, pg_catalog as $$
+  select r.* from mintplaza.live_listings(p_game) r
+   where r.user_id = p_user
+   order by r.bumped_at desc
+   limit 50;
+$$;
+
+create or replace function public.my_trade_listings(p_game text)
+returns setof mintplaza.listing_row
+language sql stable security definer set search_path = public, pg_catalog as $$
+  select r.* from mintplaza.live_listings(p_game) r
+   where r.user_id = auth.uid()
+   order by r.bumped_at desc;
+$$;
+
+revoke all on function public.trade_feed(text, int, timestamptz) from public, anon;
+revoke all on function public.trade_match_candidates(text, int) from public, anon;
+revoke all on function public.trade_listings_of(uuid, text) from public, anon;
+revoke all on function public.my_trade_listings(text) from public, anon;
+grant execute on function public.trade_feed(text, int, timestamptz) to authenticated, anon;
+grant execute on function public.trade_match_candidates(text, int) to authenticated;
+grant execute on function public.trade_listings_of(uuid, text) to authenticated, anon;
+grant execute on function public.my_trade_listings(text) to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- Posting
+--
+-- One call, one transaction. Posting the listing and then its sides as two
+-- round trips would leave a listing with no items on the board every time the
+-- second one failed, and the board has no way to render that except as an
+-- empty card.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.post_trade_listing(
+  p_game text, p_offer jsonb, p_want jsonb, p_note text default null
+)
+returns uuid language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_listing uuid;
+  v_row     jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+  if jsonb_typeof(p_offer) <> 'array' or jsonb_array_length(p_offer) = 0 then
+    raise exception 'A listing has to offer something.' using errcode = 'P0001';
+  end if;
+  -- An empty want array is legitimate — it means open to offers. A listing
+  -- with nothing on either side is not.
+  if jsonb_typeof(p_want) <> 'array' then
+    raise exception 'The wanted side must be a list.' using errcode = 'P0001';
+  end if;
+  if jsonb_array_length(p_offer) > 12 or jsonb_array_length(p_want) > 12 then
+    raise exception 'Twelve items a side is the most a listing can carry.'
+      using errcode = 'P0001';
+  end if;
+
+  -- The limit trigger on this insert is what enforces the window. It raises
+  -- P0001 with the reason, and that message is written to be shown to a player
+  -- exactly as it is.
+  insert into public.trade_listings (user_id, game_slug, note)
+  values (auth.uid(), p_game, nullif(btrim(coalesce(p_note, '')), ''))
+  returning id into v_listing;
+
+  for v_row in select * from jsonb_array_elements(p_offer) loop
+    insert into public.listing_sides (listing_id, side, item_id, quantity, attributes)
+    values (v_listing, 'offer', v_row->>'itemId',
+            greatest(1, least(9999, coalesce((v_row->>'quantity')::int, 1))),
+            coalesce(v_row->'attributes', '{}'::jsonb));
+  end loop;
+
+  for v_row in select * from jsonb_array_elements(p_want) loop
+    insert into public.listing_sides (listing_id, side, item_id, quantity, attributes)
+    values (v_listing, 'want', v_row->>'itemId',
+            greatest(1, least(9999, coalesce((v_row->>'quantity')::int, 1))),
+            coalesce(v_row->'attributes', '{}'::jsonb));
+  end loop;
+
+  return v_listing;
+end $$;
+
+create or replace function public.cancel_trade_listing(p_listing uuid)
+returns void language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+  update public.trade_listings
+     set status = 'cancelled', updated_at = now()
+   where id = p_listing and user_id = auth.uid() and status = 'active';
+  if not found then
+    raise exception 'That listing is not yours to cancel.' using errcode = 'P0001';
+  end if;
+end $$;
+
+revoke all on function public.post_trade_listing(text, jsonb, jsonb, text) from public, anon;
+revoke all on function public.cancel_trade_listing(uuid) from public, anon;
+grant execute on function public.post_trade_listing(text, jsonb, jsonb, text) to authenticated;
+grant execute on function public.cancel_trade_listing(uuid) to authenticated;

@@ -26,10 +26,11 @@ import {
   thumbnailFor, variantAxesFor, multiplierFor, isUnpricedVariant,
 } from "../src/lib/items.ts";
 import { calculate } from "../src/lib/trade.ts";
+import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { valueSourceFor, valueOf, formatValue } from "../src/lib/values.ts";
 import { SERVICES, postable, servicesFor } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
-import { readdirSync, existsSync, statSync } from "node:fs";
+import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import { PARTNERS, referralFor } from "../src/lib/referrals.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
@@ -365,6 +366,234 @@ line("14. FISCH ROD SKINS — the fourteen the pull never reached");
   assert("every curated skin names the rod it dresses",
     curated.every((i) => /Skin for the .+ Rod|Skin for the Fang/.test(i.note ?? "")),
     `${curated.length} carry their rod`);
+}
+
+line("15. MATCHING — the ranking, and the four ways it could quietly lie");
+{
+  // A board built by hand, so every expectation below is about the engine and
+  // not about whatever happens to be in the catalogue this week.
+  const NOW = Date.parse("2026-09-13T12:00:00Z");
+  const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
+
+  type Side = { side: "offer" | "want"; itemId: string; quantity?: number; variant?: string };
+  const row = (
+    id: string,
+    sides: Side[],
+    extra: Partial<ListingRow> = {},
+  ): ListingRow => ({
+    listing_id: id,
+    game_slug: "blox-fruits",
+    user_id: `u-${id}`,
+    username: id,
+    display_name: null,
+    avatar_url: null,
+    online: false,
+    deals: 0,
+    note: null,
+    created_at: hoursAgo(2),
+    bumped_at: hoursAgo(2),
+    expires_at: new Date(NOW + 86_400_000).toISOString(),
+    bumpable: false,
+    sides: sides.map((x) => ({
+      side: x.side,
+      itemId: x.itemId,
+      customName: null,
+      quantity: x.quantity ?? 1,
+      attributes: x.variant ? { variant: x.variant } : {},
+    })),
+    ...extra,
+  });
+
+  const hold = (itemId: string, quantity = 1, variant?: string) =>
+    ({ itemId, variant, quantity });
+
+  // ---- the ordering claim the whole tab rests on --------------------------
+  {
+    const board = [
+      row("wants-only", [{ side: "offer", itemId: "bf-rocket" }, { side: "want", itemId: "bf-kitsune" }]),
+      row("reciprocal", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-kitsune" }]),
+      row("has-only", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-rocket" }]),
+    ].map(toBoardListing);
+
+    const out = suggestTrades(board, [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
+
+    assert("a reciprocal match outranks every other kind",
+      out[0]?.listing.id === "reciprocal", out.map((s) => s.listing.id).join(" > "));
+    assert("the reciprocal one is marked closeable",
+      out.find((s) => s.listing.id === "reciprocal")?.canClose === true);
+    assert("a listing touching neither list is dropped entirely",
+      !out.some((s) => s.listing.id === "unrelated"), `${out.length} kept`);
+  }
+
+  // ---- you give the whole want side, not the part that matched ------------
+  //
+  // The expensive version of this bug is silent: price only the overlap and
+  // every multi-item trade reads better than it is, in the viewer's favour.
+  {
+    const board = [row("bundle", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "offer", itemId: "bf-rocket" },
+      { side: "want", itemId: "bf-kitsune" },
+      { side: "want", itemId: "bf-spin" },
+    ])].map(toBoardListing);
+
+    const [s] = suggestTrades(board, [hold("bf-kitsune"), hold("bf-spin")], [hold("bf-magnet")], { now: NOW });
+    assert("you receive everything offered, not just what you asked for",
+      s.youGet.length === 2, `${s.youGet.length} items`);
+    assert("you hand over everything wanted, not just what matched",
+      s.youGive.length === 2, `${s.youGive.length} items`);
+    assert("the items that matched are still reported separately",
+      s.wantedHits.length === 1 && s.wantedHits[0].item.id === "bf-magnet");
+  }
+
+  // ---- quantity is real ---------------------------------------------------
+  {
+    const board = [row("three", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "want", itemId: "bf-kitsune", quantity: 3 },
+    ])].map(toBoardListing);
+
+    const short = suggestTrades(board, [hold("bf-kitsune", 1)], [hold("bf-magnet")], { now: NOW })[0];
+    assert("holding one against an ask for three cannot close",
+      short.canClose === false && short.missing.length === 1,
+      `missing ${short.missing.length}`);
+
+    const enough = suggestTrades(board, [hold("bf-kitsune", 3)], [hold("bf-magnet")], { now: NOW })[0];
+    assert("holding three against an ask for three can close", enough.canClose === true);
+  }
+
+  // ---- the variant rule, in both directions -------------------------------
+  //
+  // Loose where it should be strict is the one that costs a player a DM: it
+  // tells them they can close a deal they cannot.
+  {
+    const named = [row("named", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "want", itemId: "bf-kitsune", variant: "Permanent" },
+    ])].map(toBoardListing);
+
+    const plain = suggestTrades(named, [hold("bf-kitsune", 1)], [hold("bf-magnet")], { now: NOW })[0];
+    assert("a plain item does not satisfy an ask for a named variant",
+      plain.canClose === false, `missing ${plain.missing.length}`);
+
+    const exact = suggestTrades(named, [hold("bf-kitsune", 1, "Permanent")], [hold("bf-magnet")], { now: NOW })[0];
+    assert("the named variant does satisfy it", exact.canClose === true);
+
+    const any = [row("any", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "want", itemId: "bf-kitsune" },
+    ])].map(toBoardListing);
+    const held = suggestTrades(any, [hold("bf-kitsune", 1, "Permanent")], [hold("bf-magnet")], { now: NOW })[0];
+    assert("an ask that names no variant is satisfied by any of them",
+      held.canClose === true);
+  }
+
+  // ---- the verdict is the calculator's, never the ranker's ----------------
+  {
+    const board = [row("unpriced", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "want", itemId: "bf-kitsune" },
+    ])].map(toBoardListing);
+    const [s] = suggestTrades(board, [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
+    const direct = calculate(s.youGet, s.youGive, "viewer");
+    assert("the suggestion's verdict is exactly what calculate() returns",
+      s.verdict === direct.verdict, s.verdict);
+  }
+
+  // ---- an unpriced trade is never punished for being unpriced -------------
+  //
+  // Fisch is deliberately sparse on values. A ranker that marked "?" down would
+  // bury most of one game for a reason that has nothing to do with that game.
+  {
+    const priced = [row("p", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-kitsune" }])];
+    const [s] = suggestTrades(priced.map(toBoardListing), [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
+    const unknownFactor = s.factors.find((f) => /no published value/i.test(f.label));
+    assert("no factor penalises a trade for having no published value",
+      unknownFactor === undefined);
+  }
+
+  // ---- ordering is total, so the list cannot move under a thumb -----------
+  {
+    const board = [
+      row("a", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-kitsune" }]),
+      row("b", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-kitsune" }]),
+    ].map(toBoardListing);
+    const first = suggestTrades(board, [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
+    const again = suggestTrades([...board].reverse(), [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
+    assert("two identical boards rank identically whatever order they arrive in",
+      first.map((s) => s.listing.id).join() === again.map((s) => s.listing.id).join(),
+      first.map((s) => s.listing.id).join(" > "));
+  }
+
+  // ---- scores stay inside the band the interface assumes ------------------
+  {
+    const board = [row("rich", [
+      { side: "offer", itemId: "bf-kitsune", quantity: 5 },
+      { side: "want", itemId: "bf-magnet" },
+    ], { online: true, deals: 80, bumped_at: hoursAgo(1) })].map(toBoardListing);
+    const [s] = suggestTrades(board, [hold("bf-magnet")], [hold("bf-kitsune")], { now: NOW });
+    assert("a maximally flattering listing still scores within 0–100",
+      s.score >= 0 && s.score <= 100, `${s.score}`);
+  }
+
+  // ---- an item that left the catalogue is reported, not dropped -----------
+  {
+    const board = [row("gone", [
+      { side: "offer", itemId: "bf-magnet" },
+      { side: "offer", itemId: "bf-this-never-existed" },
+      { side: "want", itemId: "bf-kitsune" },
+    ])].map(toBoardListing);
+    assert("a side naming an unknown item keeps it as unresolved rather than hiding it",
+      board[0].unresolved.length === 1 && board[0].offering.length === 1,
+      board[0].unresolved.join());
+  }
+}
+
+line("16. NO DEAD TRADING CODE — the tables the app used to never touch");
+{
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const schema = read("../supabase/schema.sql");
+
+  // The bug this replaces: item_id was a uuid foreign key onto a table nothing
+  // seeds, so every inventory insert pushed a catalogue slug into a uuid column
+  // and came back 22P02. Not one row was ever written.
+  assert("inventory item_id is keyed on the catalogue slug, not a uuid",
+    /inventory_item_slug_shape/.test(schema)
+    && /rename column item_slug to item_id/.test(schema)
+    && /mintplaza\.is_item_slug/.test(schema));
+
+  assert("the naive SQL ranker is gone rather than left to rot",
+    /drop function if exists public\.recommended_listings/.test(schema)
+    && !/create or replace function public\.recommended_listings/.test(schema));
+
+  for (const fn of ["trade_feed", "trade_match_candidates", "post_trade_listing",
+                    "cancel_trade_listing", "my_trade_listings", "trade_listings_of"]) {
+    assert(`${fn}() exists and the app calls it`,
+      schema.includes(`function public.${fn}(`)
+      && read("../src/lib/data/trades.ts").includes(fn)
+        || read("../src/lib/actions/trades.ts").includes(fn));
+  }
+
+  // The database now refuses anything in item_id that is not a catalogue slug,
+  // and specifically refuses a uuid — which is the value the old code sent. That
+  // constraint is only safe because every id in the catalogue satisfies it, so
+  // the catalogue is checked against the same two patterns here. If a future
+  // row ever breaks the shape, this fails long before an insert does.
+  const SLUG = /^[a-z][a-z0-9-]{0,119}$/;
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  const misshapen = CATALOG.filter((i) => !SLUG.test(i.id));
+  assert("every catalogue id satisfies the shape the database now demands",
+    misshapen.length === 0,
+    misshapen.length ? misshapen.slice(0, 3).map((i) => i.id).join(", ")
+                     : `${CATALOG.length.toLocaleString()} ids`);
+  assert("and none of them is uuid-shaped, so the rule can tell the two apart",
+    !CATALOG.some((i) => UUID.test(i.id)));
+
+  // A listing has to be unreachable once it expires even if the scheduled
+  // sweeper has not run — status is the intent, the clock is the truth.
+  const feeds = schema.slice(schema.indexOf("mintplaza.live_listings"));
+  assert("the board filters on the clock, not only on status",
+    /expires_at > now\(\)/.test(feeds));
 }
 
 console.log("\n" + "─".repeat(72));

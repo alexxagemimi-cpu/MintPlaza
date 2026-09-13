@@ -535,11 +535,20 @@ function EditForm({
 /* ------------------------------------------------------------------ */
 
 export function Profile({
-  profile, games, gameSlug,
+  profile, games, gameSlug, trades,
 }: {
   profile: ProfileView;
   games: readonly GameChip[];
   gameSlug: string;
+  /**
+   * The trading section, rendered on the server and passed in.
+   *
+   * This component is a client one — it owns the edit form's state — and the
+   * trading section reads the database and the catalogue. Passing it as a node
+   * keeps that work on the server instead of shipping the catalogue to the
+   * browser to render a list of six item names.
+   */
+  trades?: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const findTemplate = useFindTemplate();
@@ -666,6 +675,9 @@ export function Profile({
           </ul>
         </section>
       )}
+
+      {/* ---- lists, listings and the trades that come out of them ---- */}
+      {trades}
 
       {/* ---- proofs ---- */}
       <ProofsSection profile={profile} games={games} initialGame={gameSlug} />

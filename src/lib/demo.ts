@@ -20,6 +20,8 @@
  */
 
 import { tradableFor, ITEM_VARIANTS, type CatalogItem } from "./items";
+import type { ListingItem } from "./trade";
+import type { ReasonCode } from "./match";
 import { VALUES, valueOf } from "./values";
 import type { Contact, ContactSuggestion, DirectMessage } from "./contacts";
 
@@ -27,17 +29,7 @@ export const DEMO_ENABLED =
   process.env.NEXT_PUBLIC_DEMO_MODE === "on" &&
   process.env.NODE_ENV !== "production";
 
-export type ReasonCode =
-  | "RECIPROCAL_MATCH"
-  | "HAS_WHAT_YOU_WANT"
-  | "WANTS_WHAT_YOU_HAVE"
-  | "NEW_IN_YOUR_GAME";
-
-export interface ListingItem {
-  item: CatalogItem;
-  variant?: string;
-  quantity: number;
-}
+export type { ListingItem } from "./trade";
 
 export interface DemoListing {
   /** Always true. Nothing from this module renders without its badge. */
@@ -89,8 +81,8 @@ const NOTES = [
 ];
 
 const REASONS: ReasonCode[] = [
-  "RECIPROCAL_MATCH", "RECIPROCAL_MATCH",
-  "HAS_WHAT_YOU_WANT", "WANTS_WHAT_YOU_HAVE", "NEW_IN_YOUR_GAME",
+  "RECIPROCAL_MATCH", "RECIPROCAL_MATCH", "PARTIAL_MATCH",
+  "HAS_WHAT_YOU_WANT", "WANTS_WHAT_YOU_HAVE", "OPEN_TO_OFFERS",
 ];
 
 function pick<T>(rand: () => number, list: readonly T[]): T {
@@ -212,13 +204,7 @@ export function demoListings(gameSlug: string, count = 8): readonly DemoListing[
   });
 }
 
-/** Copy for each reason code. The engine explains itself; it never guesses. */
-export const REASON_COPY: Record<ReasonCode, string> = {
-  RECIPROCAL_MATCH: "They want something you have, and have something you want",
-  HAS_WHAT_YOU_WANT: "Has something on your wants list",
-  WANTS_WHAT_YOU_HAVE: "Looking for something you have",
-  NEW_IN_YOUR_GAME: "Recently posted in a game you follow",
-};
+/* Reason copy lives in match.ts, beside the engine that assigns the codes. */
 
 
 /* ==================================================================== *

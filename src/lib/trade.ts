@@ -17,8 +17,22 @@
  * L is the most a value estimate can honestly support.
  */
 
-import type { ListingItem } from "./demo";
+import type { CatalogItem } from "./items";
 import { valueOf, demandOf, type Demand } from "./values";
+
+/**
+ * One line of a trade: an item, the form it is in, and how many.
+ *
+ * It lives here rather than beside the listings that carry it because it is
+ * the calculator's input type, and both the example generator and the matcher
+ * feed the calculator. Defining it in either of those would make the other
+ * import it through a module it has no other business knowing about.
+ */
+export interface ListingItem {
+  item: CatalogItem;
+  variant?: string;
+  quantity: number;
+}
 
 export interface LineItem {
   name: string;

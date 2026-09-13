@@ -7,8 +7,10 @@ import { SettingsButton } from "@/components/SettingsButton";
 import type { SettingsProfile } from "@/components/SettingsSheet";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
+import { SuggestionCard } from "@/components/SuggestionCard";
 import { currentProfile } from "@/lib/supabase/server";
 import { readProfile } from "@/lib/data/profile";
+import { readAllowance, readSuggestions } from "@/lib/data/trades";
 import { PROOFS_WANTED, proofsFor } from "@/lib/profile";
 
 export function generateStaticParams() {
@@ -53,9 +55,17 @@ function TopBar({ game, settings }: { game: Game; settings: SettingsProfile | nu
   );
 }
 
-/** Honest about example content, every time it is on screen (§53). */
-function DemoBanner() {
-  if (!DEMO_ENABLED) return null;
+/**
+ * Honest about example content, every time it is on screen (§53).
+ *
+ * Conditioned on examples actually being rendered, not merely on demo mode
+ * being switched on. Now that real suggestions take the panel whenever there
+ * are any, a banner tied to the flag alone would sit above genuine listings
+ * calling them placeholders — which is the same failure as the reverse, told
+ * backwards.
+ */
+function DemoBanner({ showing }: { showing: boolean }) {
+  if (!DEMO_ENABLED || !showing) return null;
   return (
     <div className="mb-6 flex items-start gap-3 rounded-[var(--radius-inner)] border border-warn/30 bg-warn-wash px-4 py-3">
       <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="mt-px shrink-0 text-warn" strokeLinecap="round">
@@ -73,14 +83,19 @@ function DemoBanner() {
 /**
  * Listing slots.
  *
- * Three listings per rolling three-hour window (§6). With no account connected
- * yet this shows the true state of a new account — all three available — rather
- * than inventing usage.
+ * Three listings per rolling three-hour window (§6), read from
+ * listing_allowance() rather than assumed. It used to be a hardcoded zero, so
+ * it told every player all three slots were free however many they had just
+ * used — the one number on this screen somebody would plan around, and it was
+ * never true. Signed out there is no allowance to read, and it shows the state
+ * of a new account, which is what a signed-out visitor would get.
  */
-function SlotMeter() {
-  const used = 0;
-  const total = 3;
-  const left = total - used;
+function SlotMeter({ used, total, nextSlotAt }: {
+  used: number;
+  total: number;
+  nextSlotAt: string | null;
+}) {
+  const left = Math.max(0, total - used);
 
   return (
     <div className="glass rounded-[var(--radius-panel)] p-5 sm:p-6">
@@ -104,8 +119,9 @@ function SlotMeter() {
       </div>
 
       <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">
-        Slots free up three hours after each listing is posted. Listings expire
-        on their own after seven days.
+        {left === 0 && nextSlotAt
+          ? `All three are in use. The next frees up ${relative(nextSlotAt)}.`
+          : "Slots free up three hours after each listing is posted. Listings expire on their own after seven days."}
       </p>
     </div>
   );
@@ -124,7 +140,7 @@ function InventoryPrompt({ game }: { game: Game }) {
         this dashboard starts working for you.
       </p>
       <Link
-        href={`/app/${game.slug}/inventory`}
+        href={`/app/${game.slug}/trades?tab=inventory`}
         className="pill pill-ghost mt-5 w-full justify-center py-2.5"
       >
         Add items
@@ -172,7 +188,7 @@ function ProofPrompt({ game, count }: { game: Game; count: number }) {
 /* ------------------------------------------------------------------ */
 
 /** What the dashboard looks like before anyone has posted anything (§46). */
-function NoMatchesYet({ game }: { game: Game }) {
+function NoMatchesYet({ game, hasLists }: { game: Game; hasLists: boolean }) {
   return (
     <div className="glass-quiet flex flex-col items-center rounded-[var(--radius-panel)] px-6 py-16 text-center">
       <span className="grid h-12 w-12 place-items-center rounded-full border border-line bg-fill text-ink-faint">
@@ -182,15 +198,17 @@ function NoMatchesYet({ game }: { game: Game }) {
         </svg>
       </span>
       <p className="mt-5 text-[1.0625rem] font-bold tracking-[-0.02em] text-ink">
-        No matches in {game.shortName} yet
+        {hasLists
+          ? `Nothing on the ${game.shortName} board fits yet`
+          : `No matches in ${game.shortName} yet`}
       </p>
       <p className="measure mt-2 text-[0.875rem] leading-relaxed text-ink-mute">
-        Nothing here is invented to fill the space. Once players start posting,
-        anything that lines up with your lists shows up here with the reason it
-        matched.
+        {hasLists
+          ? "Nothing here is invented to fill the space. Your lists are in — as soon as somebody posts something that lines up with them, it appears here with the reason it matched."
+          : "Matching runs on what you have and what you want. Add a few of each and anything that lines up shows up here with the reason it matched."}
       </p>
-      <Link href={`/app/${game.slug}/inventory`} className="pill pill-mint mt-7 py-2.5">
-        Add what you have
+      <Link href={`/app/${game.slug}/trades?tab=inventory`} className="pill pill-mint mt-7 py-2.5">
+        {hasLists ? "Add more to your lists" : "Add what you have"}
       </Link>
     </div>
   );
@@ -263,10 +281,19 @@ export default async function GameDashboard({
   const game = getGame((await params).game);
   if (!game) notFound();
 
-  const listings = demoListings(game.slug);
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
+
+  // Real suggestions first. The examples are a review aid for a site with no
+  // database attached — they are off in production by construction — so they
+  // fill the panel only when there is genuinely nothing real to put in it.
+  const [{ trades, haveCount, wantCount }, allowance] = await Promise.all([
+    readSuggestions(game.slug, 8),
+    readAllowance(game.slug),
+  ]);
+  const examples = trades.length === 0 ? demoListings(game.slug) : [];
+  const hasLists = haveCount > 0 || wantCount > 0;
 
   // Only the fields the panel actually renders cross into the client. A profile
   // row carries more than the settings screen needs, and sending the whole
@@ -289,13 +316,17 @@ export default async function GameDashboard({
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8 sm:px-8 sm:pt-12">
       <TopBar game={game} settings={settings} />
-      <DemoBanner />
+      <DemoBanner showing={examples.length > 0} />
 
       <div className="grid gap-4 lg:grid-cols-[21rem_minmax(0,1fr)] lg:items-start lg:gap-5">
         {/* ---- context column ---- */}
         <div className="flex flex-col gap-4 lg:sticky lg:top-8">
           <GameSwitcher current={game} />
-          <SlotMeter />
+          <SlotMeter
+            used={allowance?.used ?? 0}
+            total={allowance ? allowance.used + allowance.remaining : 3}
+            nextSlotAt={allowance?.nextSlotAt ?? null}
+          />
           {me && proofCount < PROOFS_WANTED && (
             <ProofPrompt game={game} count={proofCount} />
           )}
@@ -325,11 +356,17 @@ export default async function GameDashboard({
             </span>
           </div>
 
-          {listings.length > 0 ? (
+          {trades.length > 0 ? (
+            <div className="grid gap-3">
+              {trades.map((s) => (
+                <SuggestionCard key={s.listing.id} suggestion={s} gameSlug={game.slug} />
+              ))}
+            </div>
+          ) : examples.length > 0 ? (
             // Rows, not cards. Eight fit on a phone; the second column on a
             // wide screen doubles that again.
             <div className="grid gap-2 xl:grid-cols-2">
-              {listings.map((l) => (
+              {examples.map((l) => (
                 <TradeListingCard
                   key={l.id}
                   listing={l}
@@ -338,7 +375,7 @@ export default async function GameDashboard({
               ))}
             </div>
           ) : (
-            <NoMatchesYet game={game} />
+            <NoMatchesYet game={game} hasLists={hasLists} />
           )}
 
           
@@ -346,4 +383,13 @@ export default async function GameDashboard({
       </div>
     </div>
   );
+}
+
+/** "in about 2 hours" — only ever shown beside a slot count that is zero. */
+function relative(iso: string): string {
+  const mins = Math.round((new Date(iso).getTime() - Date.now()) / 60_000);
+  if (mins <= 1) return "any moment";
+  if (mins < 60) return `in ${mins} minutes`;
+  const h = Math.round(mins / 60);
+  return `in about ${h} ${h === 1 ? "hour" : "hours"}`;
 }

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { getGame, getGames } from "@/lib/data/games";
 import { readProfile } from "@/lib/data/profile";
 import { Profile, type GameChip } from "@/components/Profile";
+import { ProfileTrades } from "@/components/ProfileTrades";
 import { touchPresence } from "@/lib/actions/board";
 
 /**
@@ -63,5 +64,20 @@ export default async function PlayerProfilePage({
     slug: g.slug, name: g.name, shortName: g.shortName, art: g.art, hue: g.hue,
   }));
 
-  return <Profile profile={profile} games={chips} gameSlug={slug} />;
+  return (
+    <Profile
+      profile={profile}
+      games={chips}
+      gameSlug={slug}
+      trades={
+        <ProfileTrades
+          gameSlug={slug}
+          gameName={game.shortName}
+          userId={profile.id}
+          username={profile.username}
+          isMe={profile.isMe}
+        />
+      }
+    />
+  );
 }

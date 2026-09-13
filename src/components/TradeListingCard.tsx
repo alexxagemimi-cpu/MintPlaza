@@ -1,6 +1,7 @@
 import { ItemTile } from "./ItemTile";
 import { ValueLookup } from "./ValueLookup";
-import { REASON_COPY, type DemoListing, type ListingItem } from "@/lib/demo";
+import { REASON_LABEL, type CardListing } from "@/lib/match";
+import type { ListingItem } from "@/lib/trade";
 import {
   DEMAND_LABEL, DEMAND_STYLE, checkedLabel, demandOf, formatValue, valueSourceFor,
   isStale, type Demand,
@@ -222,7 +223,7 @@ export function TradeListingCard({
   listing,
   viewerUsername,
 }: {
-  listing: DemoListing;
+  listing: CardListing;
   /**
    * The signed-in player's name. When it matches the poster the listing is
    * calculated from their side instead, which flips the verdict.
@@ -262,9 +263,11 @@ export function TradeListingCard({
                 YOURS
               </span>
             )}
-            <span className="shrink-0 rounded-[5px] border border-warn/30 bg-warn-wash px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em] text-warn">
-              DEMO
-            </span>
+            {listing.isDemo && (
+              <span className="shrink-0 rounded-[5px] border border-warn/30 bg-warn-wash px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em] text-warn">
+                DEMO
+              </span>
+            )}
             <span className="ml-auto shrink-0 font-mono text-[0.625rem] text-ink-faint">
               {listing.postedHoursAgo}h
             </span>
@@ -396,7 +399,7 @@ export function TradeListingCard({
             {listing.reason === "RECIPROCAL_MATCH" && (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-mint" />
             )}
-            <span className="truncate">{REASON_COPY[listing.reason]}</span>
+            <span className="truncate">{REASON_LABEL[listing.reason]}</span>
           </p>
           <div className="flex shrink-0 gap-2">
             <button type="button" className="pill pill-ghost py-1.5 text-[0.8125rem]">Message</button>

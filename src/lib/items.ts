@@ -1727,8 +1727,16 @@ export function searchTerms(item: CatalogItem): readonly string[] {
   return [item.name, ...(item.formerly ?? []), ...(item.aliases ?? [])];
 }
 
+/**
+ * Indexed rather than scanned, because matching asks this thousands of times.
+ * Turning one board of listings into suggestions resolves every item on every
+ * side of every listing, and a linear scan of a four-figure catalogue for each
+ * one is the difference between a page that renders and one that hangs.
+ */
+const BY_ID = new Map(CATALOG.map((i) => [i.id, i]));
+
 export function findItem(id: string): CatalogItem | undefined {
-  return CATALOG.find((i) => i.id === id);
+  return BY_ID.get(id);
 }
 
 /**
