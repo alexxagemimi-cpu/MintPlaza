@@ -1072,6 +1072,258 @@ const GAG2_UNTRADEABLE: CatalogItem[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* Grow a Garden 2 — cosmetics                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The category the catalogue was missing entirely.
+ *
+ * Before this block GAG2 had 296 rows across Crop, Pet, Egg, Gear, Crate,
+ * Chest and Pack — and not one cosmetic. The machine pull carried "Boombox
+ * Crate", "Bench Crate" and "Conveyor Crate" but none of the boomboxes,
+ * benches or conveyors that come out of them, so a player who opened a crate
+ * could not list what they got. That is the whole decorative economy of the
+ * game, and it is the half that actually trades: the crate is consumed, the
+ * cosmetic is the thing you keep.
+ *
+ * Source is gag2.gg's own Cosmetics tab, read in September 2026. Four rows
+ * carry a published number and are priced in values.ts; the rest show N/A
+ * there, which means nobody has a figure, not that the figure is zero. They
+ * are listable and unpriced, which is exactly the state the verdict path
+ * already refuses to guess at.
+ *
+ * `type` carries the group — Fence, Bench, Bridge — because "Small Arch",
+ * "Wood Arch" and "White Arch" are otherwise three names with no shared
+ * handle, and the group is what a player searching for a set actually wants.
+ *
+ * Two names the site files here are deliberately NOT repeated: Sign and
+ * Weather Machine already exist in the pull as Gear. A curated row wins its
+ * name outright, so adding them would silently re-file two existing rows on
+ * the strength of one screenshot. They stay where they are, findable.
+ */
+const gag2cos = (
+  name: string,
+  group: string,
+  rarity?: Rarity,
+  opts: { aliases?: readonly string[]; verified?: boolean; note?: string } = {},
+): CatalogItem => ({
+  id: `gag2-cosmetic-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  gameSlug: "gag2",
+  name,
+  category: "Cosmetic",
+  rarity,
+  type: group,
+  note: opts.note ?? `${group}. Listed on gag2.gg's cosmetics tab; no value published there.`,
+  aliases: opts.aliases,
+  verified: opts.verified ?? true,
+});
+
+/**
+ * The fences are the one place this list renames what the source shows.
+ *
+ * gag2.gg lists them by their bare variant word — "Wood", "Stone", "Star",
+ * "White", "Light" — because on that site they sit under a Fence heading that
+ * supplies the noun. Pulled out of that context those are not item names, they
+ * are adjectives: a row called "Light" would surface above Moss Light and Star
+ * Lights for the query "light", and a row called "Wood" would outrank Wood
+ * Floor, Wood Wall, Wood Arch and Wood Barrel for "wood". So each gets the
+ * noun back, and keeps the site's bare label as an alias so a player who reads
+ * the value list still finds it by the word they saw.
+ *
+ * Marked unverified because the grouping is read off the tile art and the
+ * site's own section, not off a wiki page naming them.
+ */
+const fence = (variant: string): CatalogItem =>
+  gag2cos(`${variant} Fence`, "Fence", undefined, {
+    aliases: [variant.toLowerCase()],
+    verified: false,
+    note: `Fence. gag2.gg lists this as just "${variant}" under its fence heading; the noun is added back here so the name survives being searched for on its own.`,
+  });
+
+const GAG2_COSMETICS: CatalogItem[] = [
+  // ---- the only four with a published number ----
+  gag2cos("Mega Picture Frame", "Picture Frame", undefined, {
+    note: "The most valuable cosmetic on gag2.gg by a wide margin — 165 against 2.5 for the Big. Picture frames are the one cosmetic line with a real market.",
+  }),
+  gag2cos("Big Picture Frame", "Picture Frame"),
+  gag2cos("Bookcase", "Prop"),
+  gag2cos("Wood Floor", "Floor"),
+
+  // ---- picture frames and wall decor ----
+  gag2cos("Small Picture Frame", "Picture Frame"),
+
+  // ---- floors and ground cover ----
+  gag2cos("Carpet", "Floor"),
+  gag2cos("Beach Towel", "Floor"),
+  gag2cos("Large Spruce Floor", "Floor"),
+  gag2cos("Medium Spruce Floor", "Floor"),
+  gag2cos("Small Spruce Floor", "Floor"),
+
+  // ---- signs ----
+  gag2cos("Big Sign", "Sign"),
+  gag2cos("Gold Sign", "Sign"),
+  gag2cos("Rainbow Sign", "Sign"),
+
+  // ---- fences, renamed. See `fence` above. ----
+  fence("Default"),
+  fence("Wood"),
+  fence("Stone"),
+  fence("White"),
+  fence("Stick"),
+  fence("Pole"),
+  fence("Spike"),
+  fence("Star"),
+  fence("Flower"),
+  fence("Light"),
+  fence("Futuristic"),
+  fence("Cupid"),
+
+  // ---- conveyors: the one cosmetic line that runs the full rarity ladder ----
+  gag2cos("Common Conveyor", "Conveyor", "Common"),
+  gag2cos("Uncommon Conveyor", "Conveyor", "Uncommon"),
+  gag2cos("Rare Conveyor", "Conveyor", "Rare"),
+  gag2cos("Epic Conveyor", "Conveyor", "Ultra-Rare", {
+    note: "Conveyor. GAG2's native Epic tier, which maps onto Ultra-Rare here — the same mapping the seeds and pets use.",
+  }),
+  gag2cos("Super Conveyor", "Conveyor", "Premium", {
+    note: "Conveyor. Native Super tier, the top of GAG2's ladder, which maps onto Premium here.",
+  }),
+
+  // ---- walls ----
+  gag2cos("Wood Wall", "Wall"),
+  gag2cos("Strong Wall", "Wall"),
+  gag2cos("Line Pattern Wall", "Wall"),
+  gag2cos("Cross Pattern Wall", "Wall"),
+  gag2cos("Cross Over Wall", "Wall"),
+  gag2cos("Cobblestone Wall", "Wall"),
+  gag2cos("Mossy Cobblestone Wall", "Wall"),
+  gag2cos("Cobblestone Wall Corner", "Wall"),
+
+  // ---- owner doors ----
+  gag2cos("Oak Owner Door", "Door"),
+  gag2cos("Dark Oak Owner Door", "Door"),
+  gag2cos("Gold Owner Door", "Door"),
+  gag2cos("Rainbow Owner Door", "Door"),
+
+  // ---- teleport pads ----
+  gag2cos("Teleport Pad", "Teleport Pad", undefined, {
+    // The crate that drops this is called "Teleporter Pad Crate" and the
+    // cosmetic is called "Teleport Pad". A player who just opened the crate
+    // searches for the word on the crate, so that word has to resolve.
+    aliases: ["teleporter pad"],
+    note: "Teleport pad. Dropped by the Teleporter Pad Crate, which spells it with the extra -er. Not the Teleporter gear, which is a separate row under Gear and not interchangeable with this.",
+  }),
+  gag2cos("Big Teleport Pad", "Teleport Pad"),
+  gag2cos("Huge Teleport Pad", "Teleport Pad"),
+
+  // ---- ladders ----
+  gag2cos("Ladder", "Ladder"),
+  gag2cos("Dark Oak Ladder", "Ladder"),
+  gag2cos("Gold Ladder", "Ladder"),
+  gag2cos("Rainbow Ladder", "Ladder"),
+
+  // ---- benches ----
+  gag2cos("Normal Bench", "Bench"),
+  gag2cos("White Bench", "Bench"),
+  gag2cos("Dark Bench", "Bench"),
+  gag2cos("Corner Bench", "Bench"),
+  gag2cos("Flower Bench", "Bench"),
+  gag2cos("Log Bench", "Bench"),
+
+  // ---- seesaws ----
+  gag2cos("Wood Seesaw", "Seesaw"),
+  gag2cos("Gold Seesaw", "Seesaw"),
+  gag2cos("Rainbow Seesaw", "Seesaw"),
+
+  // ---- bridges ----
+  gag2cos("Small Bridge", "Bridge"),
+  gag2cos("Big Bridge", "Bridge"),
+  gag2cos("White Bridge", "Bridge"),
+  gag2cos("Red Bridge", "Bridge"),
+  gag2cos("Fall Bridge", "Bridge"),
+
+  // ---- arches ----
+  gag2cos("Small Arch", "Arch"),
+  gag2cos("Wood Arch", "Arch"),
+  gag2cos("White Arch", "Arch"),
+  gag2cos("Circle Arch", "Arch"),
+  gag2cos("Pergola Arch", "Arch"),
+  gag2cos("Fall Arch", "Arch"),
+
+  // ---- bear traps ----
+  gag2cos("Common Bear Trap", "Bear Trap", "Common"),
+  gag2cos("Gold Bear Trap", "Bear Trap"),
+  gag2cos("Rainbow Bear Trap", "Bear Trap"),
+
+  // ---- springs ----
+  gag2cos("Uncommon Spring", "Spring", "Uncommon"),
+  gag2cos("Rare Spring", "Spring", "Rare"),
+  gag2cos("Mythic Spring", "Spring", "Mythical", {
+    note: "Spring. The site's Mythic badge; MintPlaza's ladder spells it Mythical.",
+  }),
+  gag2cos("Super Spring", "Spring", "Premium", {
+    note: "Spring. Native Super tier, the top of GAG2's ladder, which maps onto Premium here.",
+  }),
+
+  // ---- lights, lamps and fire ----
+  gag2cos("Star Lights", "Light"),
+  gag2cos("Rope Lights", "Light"),
+  gag2cos("Small Hanging Rope Light", "Light"),
+  gag2cos("Moss Light", "Light"),
+  gag2cos("Black Street Lamp", "Light"),
+  gag2cos("Hanging Lamp Post", "Light"),
+  gag2cos("Warm Lamp Post", "Light"),
+  gag2cos("Candle Cluster", "Light"),
+  gag2cos("Bonfire", "Light"),
+  gag2cos("Fire Pit", "Light"),
+
+  // ---- boomboxes ----
+  gag2cos("Boombox", "Boombox"),
+  gag2cos("Big Boombox", "Boombox"),
+  gag2cos("Mega Boombox", "Boombox"),
+
+  // ---- medals ----
+  gag2cos("Bronze Medal", "Medal"),
+  gag2cos("Emerald Medal", "Medal"),
+  gag2cos("Opal Medal", "Medal"),
+  gag2cos("Gold Medal", "Medal"),
+
+  // ---- the Fourth of July set ----
+  gag2cos("American Flag", "Patriotic"),
+  gag2cos("Patriotic Drums", "Patriotic"),
+  gag2cos("Patriotic Archway", "Patriotic"),
+  gag2cos("Patriotic Stars", "Patriotic"),
+  gag2cos("Patriotic Pinwheel", "Patriotic"),
+  gag2cos("Patriotic Balloons", "Patriotic"),
+  gag2cos("Patriotic Rope Lights", "Patriotic"),
+
+  // ---- the cobblestone set ----
+  gag2cos("Cobblestone Hero Statue", "Statue"),
+  gag2cos("Cobblestone Wolf Statue", "Statue"),
+  gag2cos("Cobblestone Pillar", "Prop"),
+  gag2cos("Cobblestone Stepping Stones", "Prop"),
+
+  // ---- farm props ----
+  gag2cos("Haystack", "Prop"),
+  gag2cos("Hay Bale", "Prop"),
+  gag2cos("Picnic Table", "Prop"),
+  gag2cos("Wood Wagon", "Prop"),
+  gag2cos("Windmill", "Prop"),
+  gag2cos("Wood Pile", "Prop"),
+  gag2cos("Wood Barrel", "Prop"),
+  gag2cos("Wood Crate", "Prop", undefined, {
+    note: "Prop. A decorative crate, not an openable one — every openable crate in this game is filed under Crate and this is not one of them.",
+  }),
+  gag2cos("Small Rock", "Prop"),
+
+  // ---- the big set pieces ----
+  gag2cos("Clock", "Prop"),
+  gag2cos("Water Fountain", "Prop"),
+  gag2cos("Swimming Pool", "Prop"),
+  gag2cos("Spruce Window", "Prop"),
+];
+
+/* ------------------------------------------------------------------ */
 /* Fisch — gliders                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -1248,7 +1500,7 @@ const CURATED: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
   ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
-  ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE,
+  ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE, ...GAG2_COSMETICS,
   ...FISCH_GLIDERS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
 ];
 
@@ -1506,12 +1758,15 @@ export const CATALOG_NOTES: Record<string, string> = {
     "move with updates.",
 
   gag2:
-    "302 rows: 112 crops, 72 gear, 49 pets, 31 crates, 16 packs, 13 eggs and " +
-    "the chests, plus the two currencies marked so you can see they never " +
-    "move. The crop count is 112, not the 33 an earlier hand-built list " +
-    "claimed. Rarities are the honest weak point — about a third of rows " +
-    "carry none, because the wiki never filed them under one, and a guessed " +
-    "tier would be worse than a blank.",
+    "419 rows: 117 cosmetics, 113 seeds and crops, 72 gear, 50 pets, 33 " +
+    "crates, 16 packs, 13 eggs and the chests, plus the two currencies " +
+    "marked so you can see they never move. The cosmetics are new and they " +
+    "are the half that actually trades — the crate is consumed, the thing " +
+    "that comes out of it is what you keep — so a catalogue with every " +
+    "crate and no boombox, bench or conveyor was missing the decorative " +
+    "economy entirely. Rarities are the honest weak point: 53% of rows " +
+    "carry none, because neither the wiki nor gag2.gg filed them under one, " +
+    "and a guessed tier would be worse than a blank.",
 
   "pet-simulator-99":
     "The full roster, straight from BIG Games' own API: 3,109 pets — 1,039 " +

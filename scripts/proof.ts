@@ -252,6 +252,62 @@ line("11. FISCH — text-only, and every variant a player can actually own");
     nessie.every((i) => Boolean(i.category)));
 }
 
+line("12. GAG2 — the cosmetics the catalogue used to be missing");
+{
+  const gag2 = catalogFor("gag2");
+  const cosmetics = gag2.filter((i) => i.category === "Cosmetic");
+
+  // The defect this block fixed: 31 crates and not one of the things that
+  // come out of them. A player who opened a Boombox Crate could not list what
+  // they got.
+  assert("GAG2 has a cosmetics category at all", cosmetics.length > 0,
+    `${cosmetics.length} rows across ${new Set(cosmetics.map((i) => i.type)).size} groups`);
+
+  const missing = ["Boombox", "Conveyor", "Bench", "Ladder", "Seesaw", "Bridge",
+    "Arch", "Bear Trap", "Spring", "Fence", "Owner Door", "Wood Wall"]
+    .filter((stem) => {
+      const crate = gag2.some((i) => i.category === "Crate" && i.name === `${stem} Crate`);
+      const drop = cosmetics.some((i) => i.type === stem || i.name.includes(stem));
+      return crate && !drop;
+    });
+  assert(
+    "every crate that names one cosmetic line has that line in the catalogue",
+    missing.length === 0,
+    missing.length ? `no cosmetic for ${missing.join(", ")}` : "12 crate/cosmetic pairs resolve",
+  );
+
+  // gag2.gg lists fences by a bare adjective because its own page heading
+  // supplies the noun. Carried across literally, "Light" and "Wood" would
+  // outrank Moss Light and Wood Floor for their own queries.
+  const fences = cosmetics.filter((i) => i.type === "Fence");
+  const bare = fences.filter((i) => !/ Fence$/.test(i.name));
+  assert("no fence is left named as a bare adjective", bare.length === 0,
+    bare.length ? `e.g. "${bare[0].name}"` : `${fences.length} fences carry the noun`);
+  assert(
+    "every fence still answers to the word printed on the value list",
+    fences.every((i) => i.aliases?.length),
+    fences.map((i) => i.aliases?.[0]).join(", "),
+  );
+
+  // Four rows, because four is all gag2.gg publishes a number for. The unit is
+  // an index the site keeps, not Sheckles, and nothing is scaled up to look
+  // more like the Blox Fruits column.
+  const priced = cosmetics.filter((i) => valueOf(i) !== undefined);
+  assert("the four published cosmetic values resolve", priced.length === 4,
+    priced.map((i) => `${i.name} ${valueOf(i)}`).join(", "));
+  assert("and they are quoted in GAG2's own unit",
+    valueSourceFor("gag2")?.unit === "Sheckle-points");
+
+  // A curated row wins its name outright, so adding a cosmetic that shares a
+  // name with an existing row would silently re-file that row. These two were
+  // left alone on purpose.
+  for (const name of ["Sign", "Weather Machine"]) {
+    const row = gag2.find((i) => i.name === name);
+    assert(`${name} was not re-filed out of Gear by the cosmetics block`,
+      row?.category === "Gear", row?.category);
+  }
+}
+
 console.log("\n" + "─".repeat(72));
 if (failures > 0) {
   console.log(`\n${failures} assertion${failures === 1 ? "" : "s"} FAILED.\n`);

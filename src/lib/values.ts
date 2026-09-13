@@ -367,6 +367,24 @@ export const VALUES: Record<string, ItemValue> = {
   // most valuable item in Creatures of Sonaria and the community list has
   // published it as TBD for months. Any trade naming it gets no verdict, which
   // is the correct answer and the whole reason the "no call" state exists.
+
+  // ---- Grow a Garden 2 ----
+  //
+  // Four rows. That is not an oversight, it is the whole of what gag2.gg
+  // publishes a number for: every other cosmetic on that tab reads N/A, and
+  // most of the crops, pets and gear have never had a figure at all. The
+  // numbers are small because this list is denominated in Sheckle-POINTS, a
+  // relative index the site keeps, not in Sheckles — 165 is the most valuable
+  // cosmetic in the game, not 165 coins. Nothing here is multiplied up to look
+  // more like the Blox Fruits column.
+  //
+  // No demand on any of them, for the same reason Sonaria carries none: our
+  // six demand levels are our own invention and gag2.gg publishes nothing that
+  // maps onto them.
+  "gag2-cosmetic-mega-picture-frame": { physical: 165, unstable: true },
+  "gag2-cosmetic-big-picture-frame":  { physical: 2.5, unstable: true },
+  "gag2-cosmetic-bookcase":           { physical: 2.4, unstable: true },
+  "gag2-cosmetic-wood-floor":         { physical: 1.5, unstable: true },
 };
 
 /**
