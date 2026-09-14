@@ -8,17 +8,41 @@ import { GameArt } from "./GameArt";
 /**
  * The game switcher.
  *
- * The current game sits in a large card. Activating it drops the other games
- * out from underneath, and choosing one changes the dashboard's context by
- * navigating — so the selection is a real, shareable URL rather than hidden
- * component state (§4).
+ * Activating it drops the other games out from underneath, and choosing one
+ * changes context by navigating — so the selection is a real, shareable URL
+ * rather than hidden component state (§4).
  *
  * It is a listbox, not a div that listens for clicks: arrow keys move, Home and
  * End jump, Enter and Space choose, Escape closes and returns focus. The
  * staggered entrance is suppressed under prefers-reduced-motion by the global
  * stylesheet, which leaves a plain instant panel.
+ *
+ * Two things are parameterised because the switcher now appears in two places
+ * that want different answers, and the alternative was a second copy of the
+ * keyboard handling.
+ *
+ *   `suffix` — what is appended to /app/<slug> when a game is chosen. The
+ *   dashboard wants the next dashboard and passes nothing; Trades passes
+ *   "/trades?tab=inventory", because somebody switching game while editing
+ *   their lists is switching lists, not leaving the screen. A string rather
+ *   than a function because this is a client component and props from a server
+ *   component have to survive serialisation.
+ *
+ *   `variant` — "card" is the dashboard's sidebar block, which has room to say
+ *   what each game is for. "bar" is a page heading that happens to be a
+ *   control: same listbox underneath, sized to sit where a title sits.
  */
-export function GameSwitcher({ current }: { current: Game }) {
+export function GameSwitcher({
+  current,
+  suffix = "",
+  variant = "card",
+  label = "Current game",
+}: {
+  current: Game;
+  suffix?: string;
+  variant?: "card" | "bar";
+  label?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -38,9 +62,9 @@ export function GameSwitcher({ current }: { current: Game }) {
   const choose = useCallback(
     (game: Game) => {
       setOpen(false);
-      router.push(`/app/${game.slug}`);
+      router.push(`/app/${game.slug}${suffix}`);
     },
-    [router],
+    [router, suffix],
   );
 
   /* Close on outside pointer or Escape. */
@@ -125,32 +149,51 @@ export function GameSwitcher({ current }: { current: Game }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        className="glass-lift group w-full rounded-[var(--radius-panel)] p-5 text-left transition-transform duration-200 ease-[var(--ease-out-soft)] hover:-translate-y-px sm:p-6"
+        aria-label={`${current.name} — switch game`}
+        className={
+          variant === "card"
+            ? "glass-lift group w-full rounded-[var(--radius-panel)] p-5 text-left transition-transform duration-200 ease-[var(--ease-out-soft)] hover:-translate-y-px sm:p-6"
+            : "group flex w-full items-center gap-4 rounded-[var(--radius-panel)] p-1 text-left"
+        }
       >
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 rounded-[var(--radius-panel)] opacity-70"
-          style={{ background: `radial-gradient(24rem 13rem at 6% -35%, ${current.hue}24, transparent 72%)` }}
-        />
-        <span className="relative flex items-center gap-4">
-          <GameArt game={current} size={54} />
+        {variant === "card" && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-[var(--radius-panel)] opacity-70"
+            style={{ background: `radial-gradient(24rem 13rem at 6% -35%, ${current.hue}24, transparent 72%)` }}
+          />
+        )}
+
+        <span className={variant === "card" ? "relative flex items-center gap-4" : "flex w-full items-center gap-4"}>
+          <GameArt game={current} size={variant === "card" ? 54 : 48} />
           <span className="min-w-0 flex-1">
-            <span className="label block">Current game</span>
-            <span className="mt-1 block truncate text-[1.25rem] font-extrabold tracking-[-0.03em] text-ink sm:text-[1.375rem]">
+            <span className="label block">{label}</span>
+            <span
+              className={
+                variant === "card"
+                  ? "mt-1 block truncate text-[1.25rem] font-extrabold tracking-[-0.03em] text-ink sm:text-[1.375rem]"
+                  : "mt-0.5 block truncate text-[1.5rem] font-extrabold tracking-[-0.035em] text-ink"
+              }
+            >
               {current.name}
             </span>
           </span>
           <span
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-fill text-ink-soft transition-all duration-300 ease-[var(--ease-out-soft)] group-hover:border-line group-hover:text-ink ${open ? "rotate-180" : ""}`}
+            className={`grid shrink-0 place-items-center rounded-full border border-line bg-fill text-ink-soft transition-all duration-300 ease-[var(--ease-out-soft)] group-hover:border-mint group-hover:text-mint ${
+              variant === "card" ? "h-9 w-9" : "h-8 w-8"
+            } ${open ? "rotate-180" : ""}`}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 6.5 8 10.5l4-4" />
             </svg>
           </span>
         </span>
-        <span className="relative mt-3 block text-[0.8125rem] leading-relaxed text-ink-mute">
-          {wantSummary(current)}
-        </span>
+
+        {variant === "card" && (
+          <span className="relative mt-3 block text-[0.8125rem] leading-relaxed text-ink-mute">
+            {wantSummary(current)}
+          </span>
+        )}
       </button>
 
       {/* ---- scrim, mobile only ---- */}

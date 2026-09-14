@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { GAMES } from "@/lib/games";
+import { GAMES, getGame as registryGame } from "@/lib/games";
 import { getGame, getCatalog } from "@/lib/data/games";
 import { variantAxesFor } from "@/lib/items";
 import { readInventory } from "@/lib/actions/inventory";
 import { readAllowance, readMyListings, readSuggestions } from "@/lib/data/trades";
 import { currentProfile } from "@/lib/supabase/server";
 import { touchPresence } from "@/lib/actions/board";
+import { GameSwitcher } from "@/components/GameSwitcher";
 import { InventoryEditor } from "@/components/InventoryEditor";
 import { SuggestionCard } from "@/components/SuggestionCard";
 import { PostTradeListing } from "@/components/PostTradeListing";
 import { MyTradeListings } from "@/components/MyTradeListings";
-import { GameArt } from "@/components/GameArt";
 
 /**
  * Trading, in one screen with two halves.
@@ -57,7 +57,7 @@ export default async function TradesPage({
 
   if (!profile) {
     return (
-      <Shell game={game} slug={slug} tab={tab}>
+      <Shell slug={slug} tab={tab}>
         <SignedOut slug={slug} tab={tab} />
       </Shell>
     );
@@ -66,7 +66,7 @@ export default async function TradesPage({
   await touchPresence();
 
   return (
-    <Shell game={game} slug={slug} tab={tab}>
+    <Shell slug={slug} tab={tab}>
       {tab === "inventory" ? (
         <InventoryTab slug={slug} shortName={game.shortName} />
       ) : (
@@ -79,23 +79,30 @@ export default async function TradesPage({
 /* ------------------------------------------------------------------ */
 
 function Shell({
-  game, slug, tab, children,
+  slug, tab, children,
 }: {
-  game: { name: string; shortName: string; slug: string; art?: string; hue: string };
   slug: string;
   tab: Tab;
   children: React.ReactNode;
 }) {
+  // The registry row, not the database one, because the switcher lists every
+  // game from the registry and the current one has to be the same object shape
+  // as its neighbours in that list.
+  const game = registryGame(slug)!;
+
   return (
     <div className="mx-auto max-w-5xl px-4 pt-8 sm:px-8 sm:pt-12">
-      <div className="mb-6 flex items-center gap-4">
-        <GameArt game={game as Parameters<typeof GameArt>[0]["game"]} size={48} />
-        <div className="min-w-0">
-          <p className="label">Trades</p>
-          <h1 className="mt-0.5 truncate text-[1.5rem] font-extrabold tracking-[-0.035em] text-ink">
-            {game.name}
-          </h1>
-        </div>
+      {/* The heading is the game picker. Somebody editing their Blox Fruits
+          lists who wants their PS99 lists is not navigating away — they are
+          changing which lists they are looking at — so the switch happens here
+          and lands on the same subtab rather than bouncing via the dashboard. */}
+      <div className="mb-6">
+        <GameSwitcher
+          current={game}
+          variant="bar"
+          label="Trades"
+          suffix={`/trades?tab=${tab}`}
+        />
       </div>
 
       <SubTabs slug={slug} tab={tab} />
