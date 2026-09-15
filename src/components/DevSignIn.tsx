@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { browserSupabase } from "@/lib/supabase/client";
 import { DEV_ACCOUNTS, DEV_LOGIN_ENABLED } from "@/lib/supabase/config";
+import { devSignIn } from "@/lib/actions/dev-login";
 
 /**
  * Sign in as a development account.
  *
- * Renders nothing unless the build is non-production AND the flag is set, so
- * there is no path by which this reaches a real player.
+ * Renders nothing unless the build is non-production AND the flag is set. That
+ * hides the buttons; it is not what makes this safe. The password is held by
+ * the server action this calls, because a value read here would be compiled
+ * into the bundle and readable by anyone, buttons or no buttons. See
+ * src/lib/actions/dev-login.ts — the same two conditions are re-checked there,
+ * which is the side of the wire where they count.
  */
 export function DevSignIn({ next = "/app" }: { next?: string }) {
   const router = useRouter();
@@ -19,19 +23,15 @@ export function DevSignIn({ next = "/app" }: { next?: string }) {
   if (!DEV_LOGIN_ENABLED) return null;
 
   async function signIn(email: string) {
-    const supabase = browserSupabase();
-    if (!supabase) return;
     setBusy(email);
     setFailed(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: process.env.NEXT_PUBLIC_DEV_PASSWORD ?? "",
-    });
+    // Only the email crosses the wire. The password never reaches the browser.
+    const result = await devSignIn(email);
 
-    if (error) {
+    if (!result.ok) {
       setBusy(null);
-      setFailed(error.message);
+      setFailed(result.error);
       return;
     }
     router.push(next);

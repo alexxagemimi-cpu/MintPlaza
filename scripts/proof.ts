@@ -596,6 +596,58 @@ line("16. NO DEAD TRADING CODE — the tables the app used to never touch");
     /expires_at > now\(\)/.test(feeds));
 }
 
+line("17. NOTHING SECRET IS PREFIXED NEXT_PUBLIC_");
+{
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  // NEXT_PUBLIC_ is not a label, it is an instruction: the value is substituted
+  // into the JavaScript at build time and ships to every visitor. The dev
+  // sign-in password was read that way, so it sat in the bundle as a string
+  // literal next to the two account emails it opened — verified by grepping a
+  // production build and finding it. The buttons were correctly hidden in
+  // production, which is why it went unnoticed: rendering nothing is not the
+  // same as shipping nothing, and Supabase's auth endpoint is public.
+  //
+  // Only the Supabase URL and anon key belong on that prefix. Both are
+  // publishable by design; row-level security is what protects the data.
+  const walk = (dir: string): string[] => {
+    const here = new URL(dir, import.meta.url);
+    return readdirSync(here, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`)
+        : /\.(ts|tsx)$/.test(e.name) ? [`${dir}/${e.name}`] : []);
+  };
+
+  const SECRETISH = /NEXT_PUBLIC_[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE|SERVICE_ROLE)[A-Z0-9_]*/g;
+  const offenders: string[] = [];
+
+  for (const f of walk("../src")) {
+    for (const hit of read(f).match(SECRETISH) ?? []) {
+      // The one in dev-login.ts is prose explaining why it was removed.
+      if (f.endsWith("dev-login.ts")) continue;
+      offenders.push(`${f.replace("../", "")}: ${hit}`);
+    }
+  }
+  assert("no NEXT_PUBLIC_ variable names a password, secret or token",
+    offenders.length === 0, offenders.slice(0, 3).join(" | "));
+
+  const envExample = read("../.env.example");
+  assert("and .env.example does not define one either",
+    !SECRETISH.test(envExample.replace(/^#.*$/gm, "")));
+
+  // The dev password must be read on the server and nowhere else.
+  const devAction = read("../src/lib/actions/dev-login.ts");
+  assert("the dev sign-in password is read by a server action",
+    /"use server"/.test(devAction) && /process\.env\.DEV_PASSWORD/.test(devAction));
+  assert("and that action re-checks the build and the flag on the server",
+    /NODE_ENV !== "production"/.test(devAction)
+    && /NEXT_PUBLIC_DEV_LOGIN === "on"/.test(devAction));
+  assert("and refuses any email that is not one of the dev accounts",
+    /DEV_ACCOUNTS\.some/.test(devAction));
+
+  const devUi = read("../src/components/DevSignIn.tsx");
+  assert("the component never touches the password",
+    !/DEV_PASSWORD/.test(devUi) && !/signInWithPassword/.test(devUi));
+}
+
 console.log("\n" + "─".repeat(72));
 if (failures > 0) {
   console.log(`\n${failures} assertion${failures === 1 ? "" : "s"} FAILED.\n`);
