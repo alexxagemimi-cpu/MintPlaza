@@ -3131,3 +3131,62 @@ grant execute on function public.admin_save_template(jsonb)               to aut
 grant execute on function public.admin_set_template_active(text, boolean) to authenticated;
 grant execute on function public.admin_add_media(text, text, text, text)  to authenticated;
 grant execute on function public.admin_delete_media(uuid)                 to authenticated;
+
+
+-- ===========================================================================
+-- Actually scheduling the two sweeps
+--
+-- Both cleanup functions were defined here and left for somebody to schedule
+-- by hand, which is the same mistake as documenting a rule and not enforcing
+-- it: the file said "run from a scheduled job" and then no job existed.
+--
+--   expire_listings()          marks trade listings expired after seven days
+--   cleanup_service_listings() deletes board posts once their window closes
+--
+-- Neither is load-bearing for correctness. Every read in this file filters on
+-- the clock as well as on status, precisely so a sweep that has not run is
+-- invisible rather than wrong. What they do is stop the tables growing without
+-- bound, which matters over months rather than minutes — so every five minutes
+-- is generous and the exact timing does not need to be defended.
+--
+-- pg_cron may not be available: it is an extension the project has to enable,
+-- and on some plans it is not offered at all. That must not fail this file, so
+-- the whole thing is guarded and says what to do instead. Enable it under
+-- Database -> Extensions -> pg_cron, then re-run this file and the jobs
+-- appear.
+-- ===========================================================================
+
+do $$
+begin
+  execute 'create extension if not exists pg_cron';
+exception when others then
+  raise notice 'pg_cron is not available here (%). The sweeps are defined but will not run on their own; every read filters on the clock regardless, so nothing breaks. Enable it under Database -> Extensions and re-run this file.', sqlerrm;
+end $$;
+
+do $$
+declare
+  jobs text[][] := array[
+    ['mintplaza-expire-trade-listings',  '*/5 * * * *', 'select public.expire_listings()'],
+    ['mintplaza-cleanup-board-listings', '*/5 * * * *', 'select public.cleanup_service_listings()']
+  ];
+  i int;
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    raise notice 'Skipping the scheduled sweeps: pg_cron is not installed.';
+    return;
+  end if;
+
+  for i in 1 .. array_length(jobs, 1) loop
+    -- Unschedule first so re-running this file replaces the job rather than
+    -- stacking a second copy of it beside the first.
+    begin
+      execute format('select cron.unschedule(%L)', jobs[i][1]);
+    exception when others then
+      null;  -- no job by that name yet, which is the normal first run
+    end;
+
+    execute format('select cron.schedule(%L, %L, %L)',
+                   jobs[i][1], jobs[i][2], jobs[i][3]);
+    raise notice 'Scheduled % (%).', jobs[i][1], jobs[i][2];
+  end loop;
+end $$;
