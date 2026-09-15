@@ -71,5 +71,15 @@ echo
 # psql writes the assertions to stderr as notices, prefixed with the script
 # path. The prefix is the same on every line and is just noise here.
 run -f "$HERE/pg-trade-test.sql" 2>&1 | sed -E 's#^psql:[^:]*:[0-9]+: NOTICE:  ##'
+
+# The trading path is not the whole application. This second file calls every
+# function the app calls by name, on a database of its own so the trade test's
+# fixtures cannot prop it up.
+psql -h /tmp -p "$PORT" -U postgres -q -c 'create database appsurface' >/dev/null
+runapp() { psql -h /tmp -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -d appsurface "$@"; }
+runapp -f "$HERE/pg-prelude.sql"         >"$LOG" 2>&1 || { cat "$LOG"; exit 1; }
+runapp -f "$HERE/../supabase/schema.sql" >"$LOG" 2>&1 || { cat "$LOG"; exit 1; }
+runapp -f "$HERE/pg-app-surface-test.sql" 2>&1 | sed -E 's#^psql:[^:]*:[0-9]+: NOTICE:  ##'
+
 echo
 echo "All database assertions passed."

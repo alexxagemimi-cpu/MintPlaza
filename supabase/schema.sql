@@ -1781,6 +1781,15 @@ begin
     alter table public.inventory_entries drop column item_id;
     alter table public.inventory_entries rename column item_slug to item_id;
 
+    -- The header above says an untranslatable row is dropped. This is where
+    -- that has to actually happen: a uuid no game_items row records a slug for
+    -- lands here as NULL, and a row with neither an item_id nor a custom_name
+    -- violates the constraint being restored on the very next line — which
+    -- aborts the whole migration on any database that has one. An empty
+    -- inventory (the usual case, since inventory never saved) deletes nothing.
+    delete from public.inventory_entries
+     where item_id is null and custom_name is null;
+
     alter table public.inventory_entries add constraint inventory_needs_an_item
       check (item_id is not null or custom_name is not null);
   end if;
@@ -1805,6 +1814,12 @@ begin
 
     alter table public.listing_sides drop column item_id;
     alter table public.listing_sides rename column item_slug to item_id;
+
+    -- Same reasoning as inventory_entries above. A side that can name neither
+    -- an item nor a custom name is not a side anybody could render, and
+    -- leaving it in place would fail the constraint on the next line.
+    delete from public.listing_sides
+     where item_id is null and custom_name is null;
 
     alter table public.listing_sides add constraint listing_side_needs_an_item
       check (item_id is not null or custom_name is not null);
@@ -2073,3 +2088,950 @@ revoke all on function public.post_trade_listing(text, jsonb, jsonb, text) from 
 revoke all on function public.cancel_trade_listing(uuid) from public, anon;
 grant execute on function public.post_trade_listing(text, jsonb, jsonb, text) to authenticated;
 grant execute on function public.cancel_trade_listing(uuid) to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Completing the file (September 2026)
+--
+-- Everything below was previously "applied live as a migration" and never
+-- written down here, which made this file's own claim to be the whole picture
+-- untrue. Applying it to a fresh Supabase project produced a database the
+-- application could not run against: seventeen of the twenty-nine functions
+-- the app calls by name did not exist, four tables had no row-level security
+-- at all, and one missing table broke sign-in for everybody.
+--
+-- Found by running the file against a real Postgres and then calling what the
+-- application actually calls, rather than by reading it. In order of how badly
+-- each one bit:
+--
+--   1. mintplaza.admin_allowlist was referenced by bind_admin_on_first_signin()
+--      and created nowhere. PL/pgSQL resolves table names at run time, not at
+--      CREATE time, so the file applied clean and then threw 42P01 on the
+--      first sign-in — inside ensure_profile(), whose only exception handler
+--      catches unique_violation. Every sign-in failed.
+--   2. fisch and gag2 had no games row. Both are in the app's registry and its
+--      switcher, and inventory_entries.game_slug is a foreign key onto
+--      games.slug, so adding any item in either game failed on the constraint.
+--   3. service_listings had no ref_id column, which postListing() writes.
+--   4. service_listings, _votes, _picks and _comments had RLS left off, so
+--      PostgREST exposed all four to any signed-in player: anybody could
+--      delete anybody's listing, or vote as somebody else.
+--   5. board_listings(), is_admin(), the four console_* and the eleven admin_*
+--      functions were all missing.
+--
+-- The rules encoded here are the ones the file already documented at
+-- "Raids & Services: the board" as verified against the live database. They
+-- are written out properly this time.
+-- ===========================================================================
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- The owner's allowlist
+--
+-- One row per person allowed into the control panel, seeded with a Roblox
+-- USERNAME because that is the only thing somebody knows about their own
+-- account before they have ever signed in. The username is used exactly once:
+-- the first sign-in that matches pins the numeric Roblox id, and every check
+-- afterwards is against that id alone, so somebody who later renames
+-- themselves to a seeded username matches nothing.
+--
+-- It ships EMPTY. An empty allowlist means nobody is an admin and /admin stays
+-- shut, which is the right way for this to fail. To open it, run this once
+-- with your own Roblox username:
+--
+--   insert into mintplaza.admin_allowlist (roblox_username) values ('YourName')
+--   on conflict do nothing;
+--
+-- then sign in. No password goes in this table and none is needed: the Roblox
+-- account is the credential.
+-- ---------------------------------------------------------------------------
+
+create table if not exists mintplaza.admin_allowlist (
+  roblox_username text primary key,
+  -- Null until the first matching sign-in pins it. Once set, it is the key.
+  roblox_user_id  text unique,
+  bound_at        timestamptz,
+  added_at        timestamptz not null default now()
+);
+
+alter table mintplaza.admin_allowlist enable row level security;
+-- No policy of any kind: the mintplaza schema is not exposed over PostgREST,
+-- and the only reader is is_admin(), which is SECURITY DEFINER.
+
+-- Redefined with a guard. The binding is a convenience — it decides who may
+-- open a control panel — and it must never be able to fail a sign-in, which is
+-- exactly what it did when the table above did not exist.
+create or replace function mintplaza.bind_admin_on_first_signin()
+returns void language plpgsql security definer
+set search_path = mintplaza, public, pg_catalog as $$
+begin
+  update mintplaza.admin_allowlist a
+     set roblox_user_id = p.roblox_user_id,
+         bound_at       = now()
+    from public.profiles p
+   where p.id = auth.uid()
+     and a.roblox_user_id is null
+     and lower(a.roblox_username) = lower(p.username);
+exception
+  -- Nobody gets locked out of the site because the panel's allowlist had a
+  -- problem. Worst case the owner is not bound yet and opens the panel later.
+  when others then
+    raise notice 'admin binding skipped: %', sqlerrm;
+end $$;
+
+revoke all on function mintplaza.bind_admin_on_first_signin() from public, anon, authenticated;
+
+/**
+ * Is the caller the owner?
+ *
+ * Read by the panel on every action, and the gate inside every admin_ function
+ * below. Matches on the pinned Roblox id, never on the username — see above.
+ */
+create or replace function public.is_admin()
+returns boolean language sql stable security definer
+set search_path = public, mintplaza, pg_catalog as $$
+  select exists (
+    select 1
+      from public.profiles p
+      join mintplaza.admin_allowlist a on a.roblox_user_id = p.roblox_user_id
+     where p.id = auth.uid()
+       and a.roblox_user_id is not null
+       and p.status = 'active'
+  );
+$$;
+
+revoke all on function public.is_admin() from public, anon;
+grant execute on function public.is_admin() to authenticated;
+
+-- Raised by every admin_ function when the caller is not the owner. "Not found"
+-- rather than "forbidden" on purpose: a signed-in stranger poking at the RPC
+-- surface learns nothing about whether these functions do anything.
+create or replace function mintplaza.require_admin() returns void
+language plpgsql stable security definer set search_path = public, pg_catalog as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Not found.' using errcode = 'P0001';
+  end if;
+end $$;
+
+revoke all on function mintplaza.require_admin() from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The two games the file never seeded
+--
+-- Both are in src/lib/games.ts and both appear in the game switcher, so the app
+-- offers them and then the database refused every write in them. Same upsert
+-- shape as the six above, so re-running changes nothing that has been edited
+-- since except the presentation fields, which the Studio owns anyway.
+-- ---------------------------------------------------------------------------
+
+insert into public.games (slug, name, short_name, blurb, modules, activity_kinds, item_categories, hue, art, sort_order) values
+  ('fisch', 'Fisch', 'Fisch',
+   'The huge fishing game — catch, mutate and trade over a thousand fish, and find the second pair of hands the Grotto puzzle actually needs.',
+   '{trades,inventory,activities,services,help}',
+   '{Puzzle,Crew,Hunt,Event,Island,Grind}',
+   '{Fish,"Rod Skins",Boats,Bobbers,Gliders,Relics}',
+   '#127D91', '/games/fisch.jpg', 7),
+
+  ('gag2', 'Grow a Garden 2', 'GAG2',
+   'Plant, grow offline, sell for Sheckles and defend against night raids. Items move by one-way Mailbox gift — there is no protected trade window in this game.',
+   '{trades,inventory,activities,help}',
+   '{Crew}',
+   '{Seed,Crop,Pet,Egg,Gear,Prop,Crate,"Mutation Item"}',
+   '#4CAF50', '', 8)
+on conflict (slug) do update set
+  name = excluded.name, short_name = excluded.short_name, blurb = excluded.blurb,
+  modules = excluded.modules, activity_kinds = excluded.activity_kinds,
+  item_categories = excluded.item_categories, hue = excluded.hue,
+  art = excluded.art, sort_order = excluded.sort_order;
+
+
+-- ---------------------------------------------------------------------------
+-- The column postListing() writes and the table did not have
+--
+-- The reference picture a poster picked, where the template offers a choice.
+-- Free text rather than a foreign key: the refs live in service_templates.refs
+-- as jsonb and in the code catalogue, so there is no table to point at.
+-- ---------------------------------------------------------------------------
+
+alter table public.service_listings
+  add column if not exists ref_id text;
+
+alter table public.service_listings drop constraint if exists service_listings_ref_id_check;
+alter table public.service_listings add constraint service_listings_ref_id_check
+  check (ref_id is null or length(ref_id) <= 80);
+
+
+-- ---------------------------------------------------------------------------
+-- Three live posts per game
+--
+-- A trigger rather than an application check, because two tabs submitting at
+-- the same moment is exactly when an application count is wrong. Counts LIVE
+-- posts, not posts created: a services listing is hard-deleted when its window
+-- closes, so counting creations would never let the slot back.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.enforce_service_listing_limit()
+returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_live int;
+begin
+  perform 1 from public.profiles where id = new.author_id for update;
+
+  select count(*) into v_live
+    from public.service_listings
+   where author_id = new.author_id
+     and game_slug = new.game_slug
+     and expires_at > now();
+
+  if v_live >= 3 then
+    raise exception 'You already have three live posts in this game. Take one down first.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists service_listings_limit on public.service_listings;
+create trigger service_listings_limit
+  before insert on public.service_listings
+  for each row execute function public.enforce_service_listing_limit();
+
+revoke all on function public.enforce_service_listing_limit() from public, anon, authenticated;
+
+-- You cannot put your hand up for your own post.
+create or replace function public.block_self_vote()
+returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+  if exists (select 1 from public.service_listings
+              where id = new.listing_id and author_id = new.user_id) then
+    raise exception 'That is your own post.' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists service_votes_no_self on public.service_votes;
+create trigger service_votes_no_self
+  before insert on public.service_votes
+  for each row execute function public.block_self_vote();
+
+revoke all on function public.block_self_vote() from public, anon, authenticated;
+
+-- The clock on an answer belongs to the database, not to the person answering.
+create or replace function public.stamp_pick_reply()
+returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+  if new.reply is distinct from old.reply then
+    new.replied_at := now();
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists service_picks_stamp on public.service_picks;
+create trigger service_picks_stamp
+  before update on public.service_picks
+  for each row execute function public.stamp_pick_reply();
+
+revoke all on function public.stamp_pick_reply() from public, anon, authenticated;
+
+/**
+ * Sweep the board.
+ *
+ * Services listings are hard-deleted rather than marked expired: the board is a
+ * "who is online right now" surface, and a week of dead posts in the table
+ * would be a week of rows every read has to filter. Run it from pg_cron every
+ * five minutes, or let the reads below carry it — they all filter on the clock
+ * anyway, so a sweep that has not run is invisible rather than wrong.
+ */
+create or replace function public.cleanup_service_listings()
+returns int language sql security definer set search_path = public, pg_catalog as $$
+  with gone as (
+    delete from public.service_listings where expires_at <= now() returning 1
+  )
+  select count(*)::int from gone;
+$$;
+
+revoke all on function public.cleanup_service_listings() from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- Row-level security for the board
+--
+-- These four tables were created with no RLS and no policies, which on Supabase
+-- means PostgREST hands them to anybody holding an anon key. Every rule below
+-- is one the file already claimed was enforced.
+-- ---------------------------------------------------------------------------
+
+alter table public.service_listings enable row level security;
+alter table public.service_votes    enable row level security;
+alter table public.service_picks    enable row level security;
+alter table public.service_comments enable row level security;
+
+-- A live listing is public; an expired one is nobody's business before the
+-- sweep gets to it.
+drop policy if exists service_listings_read on public.service_listings;
+create policy service_listings_read on public.service_listings for select
+  using (expires_at > now() or author_id = auth.uid() or public.is_moderator());
+
+drop policy if exists service_listings_insert_own on public.service_listings;
+create policy service_listings_insert_own on public.service_listings for insert
+  with check (
+    author_id = auth.uid()
+    and exists (select 1 from public.profiles p
+                 where p.id = auth.uid() and p.status = 'active')
+  );
+
+-- Restaging (voting -> requested -> locked) is the author's alone.
+drop policy if exists service_listings_update_own on public.service_listings;
+create policy service_listings_update_own on public.service_listings for update
+  using (author_id = auth.uid() or public.is_moderator())
+  with check (author_id = auth.uid() or public.is_moderator());
+
+drop policy if exists service_listings_delete_own on public.service_listings;
+create policy service_listings_delete_own on public.service_listings for delete
+  using (author_id = auth.uid() or public.is_moderator());
+
+-- Votes are public: the card shows who has put their hand up.
+drop policy if exists service_votes_read on public.service_votes;
+create policy service_votes_read on public.service_votes for select using (true);
+
+drop policy if exists service_votes_insert_own on public.service_votes;
+create policy service_votes_insert_own on public.service_votes for insert
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.service_listings l
+                 where l.id = listing_id and l.expires_at > now()
+                   and l.stage = 'voting')
+  );
+
+-- You may take your hand back, but not once you have been picked — the other
+-- side has already started counting on you.
+drop policy if exists service_votes_delete_own on public.service_votes;
+create policy service_votes_delete_own on public.service_votes for delete
+  using (
+    user_id = auth.uid()
+    and not exists (select 1 from public.service_picks p
+                     where p.listing_id = listing_id and p.user_id = auth.uid())
+  );
+
+drop policy if exists service_picks_read on public.service_picks;
+create policy service_picks_read on public.service_picks for select using (true);
+
+-- Only the author picks, and the composite foreign key already means they can
+-- only pick somebody who voted.
+drop policy if exists service_picks_insert_author on public.service_picks;
+create policy service_picks_insert_author on public.service_picks for insert
+  with check (exists (select 1 from public.service_listings l
+                       where l.id = listing_id and l.author_id = auth.uid()));
+
+-- The answer is the picked player's to give. The author cannot answer for them,
+-- which is the whole point of the row.
+drop policy if exists service_picks_answer_own on public.service_picks;
+create policy service_picks_answer_own on public.service_picks for update
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists service_picks_delete_author on public.service_picks;
+create policy service_picks_delete_author on public.service_picks for delete
+  using (exists (select 1 from public.service_listings l
+                  where l.id = listing_id and l.author_id = auth.uid()));
+
+drop policy if exists service_comments_read on public.service_comments;
+create policy service_comments_read on public.service_comments for select using (true);
+
+-- The thread is for people going. Voting is the price of posting in it, and the
+-- author is in it by definition.
+drop policy if exists service_comments_insert_voter on public.service_comments;
+create policy service_comments_insert_voter on public.service_comments for insert
+  with check (
+    author_id = auth.uid()
+    and (
+      exists (select 1 from public.service_votes v
+               where v.listing_id = listing_id and v.user_id = auth.uid())
+      or exists (select 1 from public.service_listings l
+                  where l.id = listing_id and l.author_id = auth.uid())
+    )
+  );
+
+drop policy if exists service_comments_delete_own on public.service_comments;
+create policy service_comments_delete_own on public.service_comments for delete
+  using (
+    author_id = auth.uid()
+    or public.is_moderator()
+    or exists (select 1 from public.service_listings l
+                where l.id = listing_id and l.author_id = auth.uid())
+  );
+
+
+-- ---------------------------------------------------------------------------
+-- The board, in one round trip
+--
+-- Returns the exact shape src/lib/data/board.ts destructures: snake_case at the
+-- top level, camelCase inside voters and comments, because that is what the
+-- mapper reads. A rename on either side empties the board rather than erroring,
+-- so the two are kept together deliberately.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.board_listings(p_game text)
+returns jsonb language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select coalesce(jsonb_agg(row_json order by created_at desc), '[]'::jsonb)
+  from (
+    select
+      l.created_at,
+      jsonb_build_object(
+        'id',                l.id,
+        'game_slug',         l.game_slug,
+        'side',              l.side,
+        'service_ids',       to_jsonb(l.service_ids),
+        'terms_kind',        l.terms_kind,
+        'terms_item_id',     l.terms_item_id,
+        'detail',            l.detail,
+        'ref_id',            l.ref_id,
+        'stage',             l.stage,
+        'created_at',        l.created_at,
+        'expires_at',        l.expires_at,
+        'vote_cap',          l.vote_cap,
+        'slots',             l.slots,
+        -- The card counts in minutes from posting against the window the
+        -- poster chose, so the window has to come back as a number.
+        'window_minutes',
+          greatest(1, round(extract(epoch from (l.expires_at - l.created_at)) / 60))::int,
+        'vote_count',        (select count(*) from public.service_votes v
+                               where v.listing_id = l.id),
+        'voters_online',     (select count(*) from public.service_votes v
+                               join public.profiles vp on vp.id = v.user_id
+                              where v.listing_id = l.id
+                                and vp.hide_presence = false
+                                and vp.last_seen_at > now() - interval '120 minutes'),
+        'you_voted',         exists (select 1 from public.service_votes v
+                                      where v.listing_id = l.id and v.user_id = auth.uid()),
+        'yours',             (l.author_id = auth.uid()),
+        'author',            ap.username,
+        'author_avatar_url', ap.avatar_url,
+        'author_online',     (ap.hide_presence = false
+                              and ap.last_seen_at > now() - interval '120 minutes'),
+        'voters', coalesce((
+          select jsonb_agg(jsonb_build_object(
+                   'userId',    v.user_id,
+                   'username',  vp.username,
+                   'avatarUrl', vp.avatar_url,
+                   'online',    (vp.hide_presence = false
+                                 and vp.last_seen_at > now() - interval '120 minutes'),
+                   'votedAt',   v.created_at,
+                   -- No pick row means they are still just a volunteer.
+                   'reply',     coalesce(pk.reply, 'none')
+                 ) order by v.created_at)
+            from public.service_votes v
+            join public.profiles vp on vp.id = v.user_id
+            left join public.service_picks pk
+              on pk.listing_id = v.listing_id and pk.user_id = v.user_id
+           where v.listing_id = l.id), '[]'::jsonb),
+        'comments', coalesce((
+          select jsonb_agg(jsonb_build_object(
+                   'id',        c.id,
+                   'author',    cp.username,
+                   'avatarUrl', cp.avatar_url,
+                   'online',    (cp.hide_presence = false
+                                 and cp.last_seen_at > now() - interval '120 minutes'),
+                   'body',      c.body,
+                   'replyTo',   c.reply_to,
+                   'createdAt', c.created_at
+                 ) order by c.created_at)
+            from public.service_comments c
+            join public.profiles cp on cp.id = c.author_id
+           where c.listing_id = l.id), '[]'::jsonb)
+      ) as row_json
+      from public.service_listings l
+      join public.profiles ap on ap.id = l.author_id
+     where l.game_slug = p_game
+       -- The clock, not the sweep. A cleanup job that has not run must never
+       -- put a dead post in front of somebody.
+       and l.expires_at > now()
+       and not exists (
+         select 1 from public.blocks b
+          where (b.blocker_id = auth.uid() and b.blocked_id = l.author_id)
+             or (b.blocker_id = l.author_id and b.blocked_id = auth.uid()))
+     order by l.created_at desc
+     limit 100
+  ) q;
+$$;
+
+revoke all on function public.board_listings(text) from public, anon;
+grant execute on function public.board_listings(text) to authenticated, anon;
+
+
+-- ---------------------------------------------------------------------------
+-- Value history
+--
+-- The panel can put an item's money fields back to an earlier version, which
+-- needs somewhere to have recorded them. Written by a trigger rather than by
+-- the panel, so a value changed by any route is still recoverable.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.item_value_history (
+  id              bigserial primary key,
+  item_id         uuid not null references public.game_items(id) on delete cascade,
+  value_physical  numeric,
+  value_permanent numeric,
+  demand          numeric,
+  beli            numeric,
+  robux           numeric,
+  changed_by      uuid references public.profiles(id) on delete set null,
+  changed_at      timestamptz not null default now()
+);
+
+create index if not exists item_value_history_item_idx
+  on public.item_value_history (item_id, changed_at desc);
+
+alter table public.item_value_history enable row level security;
+drop policy if exists item_value_history_read on public.item_value_history;
+create policy item_value_history_read on public.item_value_history for select
+  using (public.is_admin());
+-- No write policy: the trigger below is the only writer.
+
+create or replace function public.record_item_value()
+returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_num text[] := array['valuePhysical','valuePermanent','demand','beli','robux'];
+        k text;
+        changed boolean := false;
+begin
+  -- Only money moved matters. A rename or a category edit is not a value
+  -- change and should not fill the history with rows nobody can revert to.
+  foreach k in array v_num loop
+    if (old.attributes->>k) is distinct from (new.attributes->>k) then
+      changed := true;
+    end if;
+  end loop;
+  if not changed then return new; end if;
+
+  insert into public.item_value_history
+    (item_id, value_physical, value_permanent, demand, beli, robux, changed_by)
+  values (
+    old.id,
+    nullif(old.attributes->>'valuePhysical','')::numeric,
+    nullif(old.attributes->>'valuePermanent','')::numeric,
+    nullif(old.attributes->>'demand','')::numeric,
+    nullif(old.attributes->>'beli','')::numeric,
+    nullif(old.attributes->>'robux','')::numeric,
+    auth.uid()
+  );
+  return new;
+exception
+  -- History is a convenience. A row that cannot be recorded — a value that was
+  -- written as text by some earlier route, say — must not block the edit
+  -- itself, or one malformed attribute would make an item uneditable forever.
+  when others then
+    raise notice 'value history skipped for %: %', old.id, sqlerrm;
+    return new;
+end $$;
+
+drop trigger if exists game_items_value_history on public.game_items;
+create trigger game_items_value_history
+  before update on public.game_items
+  for each row execute function public.record_item_value();
+
+revoke all on function public.record_item_value() from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The latch on the panel door
+--
+-- The account is the lock; this is the latch. It exists for the case where the
+-- owner's tablet is left unlocked and signed in — whoever picks it up still
+-- cannot open the panel without the code. It is emphatically not what keeps an
+-- attacker out; being the one allowlisted Roblox account is, and is_admin()
+-- enforces that on every write regardless of this.
+--
+-- The code is never in the codebase. It lives here as a bcrypt hash, is
+-- compared here, and five wrong answers in fifteen minutes stops it answering.
+-- A success returns a random token stored only as a sha256 hash, good for eight
+-- hours.
+--
+-- It ships with NO passcode set, and with no passcode set it refuses everybody,
+-- which is the right way round. Set one with:
+--
+--   select mintplaza.set_console_passcode('whatever you will remember');
+--
+-- Run that as the owner in the SQL editor. Changing it later is the same call.
+-- ---------------------------------------------------------------------------
+
+create table if not exists mintplaza.console_secret (
+  id          boolean primary key default true check (id),
+  passcode    text not null,
+  updated_at  timestamptz not null default now()
+);
+
+create table if not exists mintplaza.console_attempt (
+  id         bigserial primary key,
+  at         timestamptz not null default now(),
+  succeeded  boolean not null
+);
+
+create index if not exists console_attempt_recent_idx on mintplaza.console_attempt (at desc);
+
+create table if not exists mintplaza.console_session (
+  token_hash text primary key,
+  opened_at  timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+
+alter table mintplaza.console_secret  enable row level security;
+alter table mintplaza.console_attempt enable row level security;
+alter table mintplaza.console_session enable row level security;
+-- No policies anywhere. Nothing reads these but the SECURITY DEFINER functions
+-- below, and the mintplaza schema is not exposed over PostgREST.
+
+create or replace function mintplaza.set_console_passcode(p_new text)
+returns void language plpgsql security definer
+set search_path = mintplaza, public, pg_catalog as $$
+begin
+  if p_new is null or length(btrim(p_new)) < 4 then
+    raise exception 'Pick a code of at least four characters.';
+  end if;
+  insert into mintplaza.console_secret (id, passcode, updated_at)
+  values (true, crypt(btrim(p_new), gen_salt('bf', 10)), now())
+  on conflict (id) do update
+    set passcode = excluded.passcode, updated_at = now();
+  -- A new code retires every open session, or an old tab keeps the door open
+  -- after the code was changed precisely because somebody else knew it.
+  delete from mintplaza.console_session;
+end $$;
+
+revoke all on function mintplaza.set_console_passcode(text) from public, anon, authenticated;
+
+create or replace function public.console_unlock(p_passcode text)
+returns text language plpgsql security definer
+set search_path = mintplaza, public, pg_catalog as $$
+declare
+  v_hash  text;
+  v_fails int;
+  v_token text;
+begin
+  -- The latch is behind the lock: only the owner can even try a code.
+  if not public.is_admin() then return null; end if;
+
+  select count(*) into v_fails from mintplaza.console_attempt
+   where succeeded = false and at > now() - interval '15 minutes';
+  if v_fails >= 5 then return null; end if;
+
+  select passcode into v_hash from mintplaza.console_secret where id;
+  -- No passcode set means the latch answers nobody. Fails shut.
+  if v_hash is null then return null; end if;
+
+  if crypt(coalesce(p_passcode, ''), v_hash) <> v_hash then
+    insert into mintplaza.console_attempt (succeeded) values (false);
+    return null;
+  end if;
+
+  insert into mintplaza.console_attempt (succeeded) values (true);
+  v_token := encode(gen_random_bytes(32), 'hex');
+  insert into mintplaza.console_session (token_hash, expires_at)
+  values (encode(digest(v_token, 'sha256'), 'hex'), now() + interval '8 hours');
+
+  -- Housekeeping on the way past, so neither table grows forever.
+  delete from mintplaza.console_session where expires_at <= now();
+  delete from mintplaza.console_attempt where at < now() - interval '1 day';
+
+  return v_token;
+end $$;
+
+create or replace function public.console_unlocked(p_token text)
+returns boolean language sql stable security definer
+set search_path = mintplaza, public, pg_catalog as $$
+  select public.is_admin() and exists (
+    select 1 from mintplaza.console_session
+     where token_hash = encode(digest(coalesce(p_token, ''), 'sha256'), 'hex')
+       and expires_at > now()
+  );
+$$;
+
+create or replace function public.console_lock(p_token text)
+returns void language sql security definer
+set search_path = mintplaza, public, pg_catalog as $$
+  delete from mintplaza.console_session
+   where token_hash = encode(digest(coalesce(p_token, ''), 'sha256'), 'hex');
+$$;
+
+/**
+ * Does this search phrase open the panel?
+ *
+ * The panel has no link anywhere in the interface. Typing the phrase in search
+ * is how the owner reaches it, and for everybody else the phrase matches
+ * nothing, so the panel does not exist as far as search is concerned.
+ */
+create or replace function public.console_phrase_matches(p_phrase text)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select public.is_admin()
+     and lower(btrim(coalesce(p_phrase, ''))) in ('control panel', 'console', 'studio', 'admin');
+$$;
+
+revoke all on function public.console_unlock(text)          from public, anon;
+revoke all on function public.console_unlocked(text)         from public, anon;
+revoke all on function public.console_lock(text)             from public, anon;
+revoke all on function public.console_phrase_matches(text)   from public, anon;
+grant execute on function public.console_unlock(text)        to authenticated;
+grant execute on function public.console_unlocked(text)      to authenticated;
+grant execute on function public.console_lock(text)          to authenticated;
+grant execute on function public.console_phrase_matches(text) to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The Studio
+--
+-- Every one of these opens with require_admin(). Supabase cannot gate an RPC
+-- beyond `authenticated`, so the gate lives inside the function: a signed-in
+-- stranger reaches it and is told "Not found." The tables these write have no
+-- write policy at all, so these functions are not defence in depth on top of a
+-- policy — they are the only door.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.admin_reports(p_status text default 'open')
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v jsonb;
+begin
+  perform mintplaza.require_admin();
+  select coalesce(jsonb_agg(x order by x->>'created_at' desc), '[]'::jsonb) into v
+  from (
+    select jsonb_build_object(
+      'id', r.id, 'created_at', r.created_at, 'status', r.status,
+      'subject_type', r.subject_type, 'subject_id', r.subject_id,
+      'subject_label', r.subject_label, 'reason', r.reason, 'detail', r.detail,
+      'evidence_url', r.evidence_url,
+      'reporter_username',  rp.username,
+      'reporter_roblox_id', rp.roblox_user_id,
+      'admin_note', r.admin_note
+    ) x
+    from public.reports r
+    left join public.profiles rp on rp.id = r.reporter_id
+    where p_status = 'all' or r.status = p_status
+    limit 500
+  ) q;
+  return v;
+end $$;
+
+create or replace function public.admin_resolve_report(
+  p_id uuid, p_status text, p_note text default null
+)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  if p_status not in ('open', 'reviewing', 'actioned', 'dismissed') then
+    raise exception 'Unknown status.' using errcode = 'P0001';
+  end if;
+  update public.reports
+     set status      = p_status,
+         admin_note  = coalesce(left(p_note, 500), admin_note),
+         reviewed_by = auth.uid(),
+         resolved_at = case when p_status in ('actioned','dismissed') then now() else null end
+   where id = p_id;
+end $$;
+
+create or replace function public.admin_set_explore_tabs(p_slug text, p_tabs jsonb)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  -- Checked here for a readable message; the CHECK on the column is what makes
+  -- it true for every other write path.
+  if not public.valid_explore_tabs(p_tabs) then
+    raise exception 'Every tab needs an id, a name under 40 characters, and one of the three kinds.'
+      using errcode = 'P0001';
+  end if;
+  update public.games set explore_tabs = p_tabs where slug = p_slug;
+end $$;
+
+create or replace function public.admin_save_game(p jsonb)
+returns text language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_slug text := btrim(coalesce(p->>'slug',''));
+begin
+  perform mintplaza.require_admin();
+  if v_slug !~ '^[a-z0-9][a-z0-9-]{1,40}$' then
+    raise exception 'The web address part must be lowercase letters, numbers and dashes.'
+      using errcode = 'P0001';
+  end if;
+  if coalesce(btrim(p->>'name'),'') = '' then
+    raise exception 'The game needs a name.' using errcode = 'P0001';
+  end if;
+  if not public.valid_explore_tabs(coalesce(p->'explore_tabs','[]'::jsonb)) then
+    raise exception 'One of those tabs is not valid.' using errcode = 'P0001';
+  end if;
+
+  insert into public.games
+    (slug, name, short_name, blurb, hue, art, modules, item_categories,
+     explore_tabs, is_active)
+  values (
+    v_slug,
+    btrim(p->>'name'),
+    coalesce(nullif(btrim(p->>'short_name'),''), btrim(p->>'name')),
+    nullif(btrim(coalesce(p->>'blurb','')),''),
+    nullif(btrim(coalesce(p->>'hue','')),''),
+    nullif(btrim(coalesce(p->>'art','')),''),
+    coalesce((select array_agg(value::text) from jsonb_array_elements_text(coalesce(p->'modules','[]'::jsonb)) value), '{}'),
+    coalesce((select array_agg(value::text) from jsonb_array_elements_text(coalesce(p->'item_categories','[]'::jsonb)) value), '{}'),
+    coalesce(p->'explore_tabs','[]'::jsonb),
+    coalesce((p->>'is_active')::boolean, true)
+  )
+  on conflict (slug) do update set
+    name = excluded.name, short_name = excluded.short_name, blurb = excluded.blurb,
+    hue = excluded.hue, art = excluded.art, modules = excluded.modules,
+    item_categories = excluded.item_categories, explore_tabs = excluded.explore_tabs,
+    is_active = excluded.is_active;
+
+  return v_slug;
+end $$;
+
+create or replace function public.admin_set_game_active(p_slug text, p_active boolean)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  update public.games set is_active = p_active where slug = p_slug;
+end $$;
+
+create or replace function public.admin_reorder_games(p_slugs text[])
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare i int;
+begin
+  perform mintplaza.require_admin();
+  for i in 1 .. coalesce(array_length(p_slugs, 1), 0) loop
+    update public.games set sort_order = i where slug = p_slugs[i];
+  end loop;
+end $$;
+
+create or replace function public.admin_save_template(p jsonb)
+returns text language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare
+  v_id      text := lower(btrim(coalesce(p->>'id','')));
+  v_section text := coalesce(nullif(btrim(p->>'section'),''), 'services');
+  v_players int  := nullif(btrim(coalesce(p->>'players','')), '')::int;
+begin
+  perform mintplaza.require_admin();
+  if v_id !~ '^[a-z0-9][a-z0-9-]{2,60}$' then
+    raise exception 'The id must be lowercase letters, numbers and dashes.'
+      using errcode = 'P0001';
+  end if;
+  -- The one rule that keeps the two boards from becoming one board, checked
+  -- here for a readable message and by the table constraint for everything else.
+  if v_players is not null and v_section = 'services' and v_players > 3 then
+    raise exception 'Raids & Services is for one or two helpers. Anything needing more belongs in Help & Recruitment.'
+      using errcode = 'P0001';
+  end if;
+  if v_players is not null and v_section = 'recruit' and v_players < 3 then
+    raise exception 'Help & Recruitment is for three or more. Anything smaller belongs in Raids & Services.'
+      using errcode = 'P0001';
+  end if;
+
+  insert into public.service_templates
+    (id, game_slug, name, kind, section, art, needs, players, gives, open_ended,
+     aliases, refs, verified, is_active, sort_order, everyone_rewarded, is_draft,
+     group_label, updated_at, updated_by)
+  values (
+    v_id,
+    p->>'game_slug',
+    left(btrim(p->>'name'), 80),
+    p->>'kind',
+    v_section,
+    nullif(btrim(coalesce(p->>'art','')),''),
+    nullif(btrim(coalesce(p->>'needs','')),''),
+    v_players,
+    nullif(btrim(coalesce(p->>'gives','')),''),
+    coalesce((p->>'open_ended')::boolean, false),
+    coalesce((select array_agg(value::text) from jsonb_array_elements_text(coalesce(p->'aliases','[]'::jsonb)) value), '{}'),
+    coalesce(p->'refs','[]'::jsonb),
+    coalesce((p->>'verified')::boolean, true),
+    coalesce((p->>'is_active')::boolean, true),
+    coalesce((p->>'sort_order')::int, 0),
+    -- Three-state: null is "nobody has looked", which is not the same as no.
+    case when p->>'everyone_rewarded' is null then null
+         else (p->>'everyone_rewarded')::boolean end,
+    coalesce((p->>'is_draft')::boolean, false),
+    nullif(btrim(coalesce(p->>'group_label','')),''),
+    now(), auth.uid()
+  )
+  on conflict (id) do update set
+    game_slug = excluded.game_slug, name = excluded.name, kind = excluded.kind,
+    section = excluded.section, art = excluded.art, needs = excluded.needs,
+    players = excluded.players, gives = excluded.gives,
+    open_ended = excluded.open_ended, aliases = excluded.aliases,
+    refs = excluded.refs, verified = excluded.verified,
+    is_active = excluded.is_active, sort_order = excluded.sort_order,
+    everyone_rewarded = excluded.everyone_rewarded, is_draft = excluded.is_draft,
+    group_label = excluded.group_label, updated_at = now(), updated_by = auth.uid();
+
+  return v_id;
+end $$;
+
+create or replace function public.admin_set_template_active(p_id text, p_active boolean)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  update public.service_templates
+     set is_active = p_active, updated_at = now(), updated_by = auth.uid()
+   where id = p_id;
+end $$;
+
+create or replace function public.admin_add_media(
+  p_url text, p_label text, p_kind text, p_game text default ''
+)
+returns uuid language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_id uuid;
+begin
+  perform mintplaza.require_admin();
+  if coalesce(p_url,'') !~* '^(/|https?://)' then
+    raise exception 'That does not look like a picture address.' using errcode = 'P0001';
+  end if;
+
+  insert into public.media (url, label, kind, game_slug, created_by)
+  values (
+    btrim(p_url),
+    coalesce(nullif(left(btrim(p_label), 80), ''), 'Untitled'),
+    case when p_kind in ('item','service','ref','game','other') then p_kind else 'other' end,
+    nullif(btrim(coalesce(p_game,'')), ''),
+    auth.uid()
+  )
+  on conflict (url) do update set label = excluded.label, kind = excluded.kind
+  returning id into v_id;
+
+  return v_id;
+end $$;
+
+create or replace function public.admin_delete_media(p_id uuid)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  delete from public.media where id = p_id;
+end $$;
+
+-- The panel is reachable only by the owner, but the RPC surface is reachable by
+-- anybody holding an anon key, so anon is named explicitly on every one.
+revoke all on function public.admin_reports(text)                       from public, anon;
+revoke all on function public.admin_resolve_report(uuid, text, text)    from public, anon;
+revoke all on function public.admin_set_explore_tabs(text, jsonb)       from public, anon;
+revoke all on function public.admin_save_game(jsonb)                    from public, anon;
+revoke all on function public.admin_set_game_active(text, boolean)      from public, anon;
+revoke all on function public.admin_reorder_games(text[])               from public, anon;
+revoke all on function public.admin_save_template(jsonb)                from public, anon;
+revoke all on function public.admin_set_template_active(text, boolean)  from public, anon;
+revoke all on function public.admin_add_media(text, text, text, text)   from public, anon;
+revoke all on function public.admin_delete_media(uuid)                  from public, anon;
+
+grant execute on function public.admin_reports(text)                      to authenticated;
+grant execute on function public.admin_resolve_report(uuid, text, text)   to authenticated;
+grant execute on function public.admin_set_explore_tabs(text, jsonb)      to authenticated;
+grant execute on function public.admin_save_game(jsonb)                   to authenticated;
+grant execute on function public.admin_set_game_active(text, boolean)     to authenticated;
+grant execute on function public.admin_reorder_games(text[])              to authenticated;
+grant execute on function public.admin_save_template(jsonb)               to authenticated;
+grant execute on function public.admin_set_template_active(text, boolean) to authenticated;
+grant execute on function public.admin_add_media(text, text, text, text)  to authenticated;
+grant execute on function public.admin_delete_media(uuid)                 to authenticated;
