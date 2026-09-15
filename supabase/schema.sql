@@ -12,13 +12,103 @@
 -- listing limit, read someone else's messages, or forge a timestamp.
 -- ===========================================================================
 
-create extension if not exists "pgcrypto";
-create extension if not exists "pg_trgm";   -- fuzzy item-name search
+-- ---------------------------------------------------------------------------
+-- Before anything else: where this file looks for things
+--
+-- Supabase does not install extensions into public. pgcrypto and pg_trgm live
+-- in a schema called `extensions`, and Supabase papers over that by adding it
+-- to the search_path of its own roles. Every statement below that names an
+-- extension-provided object — the two gin_trgm_ops indexes especially — is
+-- therefore relying on a role setting rather than on anything in this file.
+--
+-- Verified: with pg_trgm in `extensions` and a search_path of just
+-- `public, pg_catalog`, the index two statements down fails outright with
+-- "operator class gin_trgm_ops does not exist". That is the third statement in
+-- the file, so the whole thing stops there.
+--
+-- Setting it here makes the file independent of who runs it and how. It lasts
+-- for this session only and changes nothing permanently. `extensions` is named
+-- even on databases that have no such schema, which Postgres simply ignores.
+-- ---------------------------------------------------------------------------
+set search_path = public, extensions, pg_catalog;
+
+-- The extensions themselves. Guarded because a project can be configured so
+-- that the role running this cannot create extensions — in which case they are
+-- almost certainly already installed, and stopping the whole file over an
+-- "if not exists" that was going to be a no-op anyway helps nobody.
+do $$
+begin
+  create extension if not exists "pgcrypto";
+exception when insufficient_privilege then
+  raise notice 'Could not create pgcrypto (%). If it is already installed this changes nothing; if it is not, enable it under Database -> Extensions.', sqlerrm;
+end $$;
+
+do $$
+begin
+  create extension if not exists "pg_trgm";   -- fuzzy item-name search
+exception when insufficient_privilege then
+  raise notice 'Could not create pg_trgm (%). If it is already installed this changes nothing; if it is not, enable it under Database -> Extensions.', sqlerrm;
+end $$;
+
+-- Both are required, not optional, and failing here with a sentence beats
+-- failing forty statements later on an operator class nobody can place.
+do $$
+declare missing text[] := '{}';
+begin
+  if to_regproc('gen_random_uuid') is null then missing := array_append(missing, 'pgcrypto'); end if;
+  if not exists (select 1 from pg_opclass where opcname = 'gin_trgm_ops') then
+    missing := array_append(missing, 'pg_trgm');
+  end if;
+  if missing <> '{}' then
+    raise exception 'Missing required extension(s): %. Enable them under Database -> Extensions, then run this file again.',
+      array_to_string(missing, ' and ');
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Tuning knobs. Changing a rule means changing it here, in one place.
 -- ---------------------------------------------------------------------------
 create schema if not exists mintplaza;
+
+-- ---------------------------------------------------------------------------
+-- Adding a CHECK to a table that already holds rows
+--
+-- ALTER TABLE ... ADD CONSTRAINT validates every existing row, and one that
+-- fails takes down the whole file:
+--
+--   ERROR: check constraint "service_listings_window_check" of relation
+--          "service_listings" is violated by some row
+--
+-- which names neither the row nor what to do about it, and stops every
+-- statement after it — including, in this file, the inventory fix that is the
+-- main reason anybody is running it.
+--
+-- Neither obvious response is right on its own. Aborting punishes the whole
+-- migration for a handful of rows written before the rule existed. Skipping
+-- silently leaves the table unprotected while the file reports success, which
+-- is worse, because nothing will ever mention it again.
+--
+-- So: apply it, and if existing rows fail, say how many and leave a WARNING
+-- that names the constraint. The rest of the file still lands, and the person
+-- running it is told precisely what to clean up before running it again.
+-- ---------------------------------------------------------------------------
+create or replace function mintplaza.add_check(
+  p_table text, p_name text, p_expr text
+) returns void language plpgsql as $$
+declare v_bad bigint;
+begin
+  execute format('alter table %s drop constraint if exists %I', p_table, p_name);
+  begin
+    execute format('alter table %s add constraint %I check (%s)', p_table, p_name, p_expr);
+  exception when check_violation then
+    execute format('select count(*) from %s where not (%s)', p_table, p_expr) into v_bad;
+    raise warning
+      'Could not add % to %: % existing row(s) break it. The rule is NOT in force on that table. Fix or delete those rows (select * from % where not (%)) and run this file again.',
+      p_name, p_table, v_bad, p_table, p_expr;
+  end;
+end $$;
+
+revoke all on function mintplaza.add_check(text, text, text) from public, anon, authenticated;
 
 create or replace function mintplaza.listing_window() returns interval
   language sql immutable as $$ select interval '3 hours' $$;
@@ -1064,21 +1154,17 @@ alter table public.service_listings
   add column if not exists vote_cap integer,
   add column if not exists slots    integer;
 
-alter table public.service_listings
-  drop constraint if exists service_listings_vote_cap_check,
-  drop constraint if exists service_listings_slots_check,
-  drop constraint if exists service_listings_window_check;
-
-alter table public.service_listings
-  add constraint service_listings_vote_cap_check
-    check (vote_cap is null or (vote_cap between 1 and 500)),
-  add constraint service_listings_slots_check
-    check (slots is null or (slots between 1 and 18)),
-  -- Ten minutes is the shortest post anybody can answer in time; four hours the
-  -- longest that can still honestly be called live.
-  add constraint service_listings_window_check
-    check (expires_at > created_at + interval '10 minutes'
-       and expires_at <= created_at + interval '4 hours');
+-- Through add_check because this table can already hold posts written before
+-- these rules existed, and one of them must not cost the rest of the file.
+-- Ten minutes is the shortest post anybody can answer in time; four hours the
+-- longest that can still honestly be called live.
+select mintplaza.add_check('public.service_listings', 'service_listings_vote_cap_check',
+  'vote_cap is null or (vote_cap between 1 and 500)');
+select mintplaza.add_check('public.service_listings', 'service_listings_slots_check',
+  'slots is null or (slots between 1 and 18)');
+select mintplaza.add_check('public.service_listings', 'service_listings_window_check',
+  'expires_at > created_at + interval ''10 minutes''
+   and expires_at <= created_at + interval ''4 hours''');
 
 -- Voting closes at the cap. In a trigger rather than the app, because two people
 -- tapping at the same moment is exactly when an app-level count is wrong, and
@@ -1114,10 +1200,9 @@ alter table public.reports
   add column if not exists reviewed_by   uuid references public.profiles(id) on delete set null,
   add column if not exists admin_note    text;
 
-alter table public.reports drop constraint if exists reports_evidence_url_check;
-alter table public.reports add constraint reports_evidence_url_check
-  check (evidence_url is null
-         or (length(evidence_url) <= 500 and evidence_url ~* '^https?://'));
+select mintplaza.add_check('public.reports', 'reports_evidence_url_check',
+  'evidence_url is null
+   or (length(evidence_url) <= 500 and evidence_url ~* ''^https?://'')');
 
 -- The three boards are fixed, because the code behind each is different. What a
 -- game *calls* them is content: a fishing game forced to advertise raids reads
@@ -1141,9 +1226,8 @@ returns boolean language sql immutable set search_path = pg_catalog as $$
      );
 $$;
 
-alter table public.games drop constraint if exists games_explore_tabs_check;
-alter table public.games
-  add constraint games_explore_tabs_check check (public.valid_explore_tabs(explore_tabs));
+select mintplaza.add_check('public.games', 'games_explore_tabs_check',
+  'public.valid_explore_tabs(explore_tabs)');
 
 -- ===========================================================================
 -- Studio: templates and pictures become data
@@ -1202,9 +1286,8 @@ returns boolean language sql immutable set search_path = pg_catalog as $$
      );
 $$;
 
-alter table public.service_templates drop constraint if exists service_templates_refs_check;
-alter table public.service_templates
-  add constraint service_templates_refs_check check (public.valid_service_refs(refs));
+select mintplaza.add_check('public.service_templates', 'service_templates_refs_check',
+  'public.valid_service_refs(refs)');
 
 create index if not exists service_templates_game_idx
   on public.service_templates (game_slug, section, sort_order);
@@ -1277,15 +1360,11 @@ alter table public.profiles
   add column if not exists game_tags text[] not null default '{}',
   add column if not exists tags      text[] not null default '{}';
 
-do $$ begin
-  alter table public.profiles
-    add constraint profiles_game_tags_check check (cardinality(game_tags) <= 8);
-exception when duplicate_object then null; end $$;
+select mintplaza.add_check('public.profiles', 'profiles_game_tags_check',
+  'cardinality(game_tags) <= 8');
 
-do $$ begin
-  alter table public.profiles
-    add constraint profiles_tags_check check (cardinality(tags) <= 6);
-exception when duplicate_object then null; end $$;
+select mintplaza.add_check('public.profiles', 'profiles_tags_check',
+  'cardinality(tags) <= 6');
 
 
 -- --- 2. what a player shows -------------------------------------------------
@@ -1934,13 +2013,11 @@ language sql immutable as $$
      and p !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 $$;
 
-alter table public.inventory_entries drop constraint if exists inventory_item_slug_shape;
-alter table public.inventory_entries add constraint inventory_item_slug_shape
-  check (item_id is null or mintplaza.is_item_slug(item_id));
+select mintplaza.add_check('public.inventory_entries', 'inventory_item_slug_shape',
+  'item_id is null or mintplaza.is_item_slug(item_id)');
 
-alter table public.listing_sides drop constraint if exists listing_sides_item_slug_shape;
-alter table public.listing_sides add constraint listing_sides_item_slug_shape
-  check (item_id is null or mintplaza.is_item_slug(item_id));
+select mintplaza.add_check('public.listing_sides', 'listing_sides_item_slug_shape',
+  'item_id is null or mintplaza.is_item_slug(item_id)');
 
 -- One row per item per variant per list. Without this, tapping Add twice on a
 -- flaky connection quietly doubles a holding and every total downstream is
@@ -1985,15 +2062,55 @@ create index if not exists listing_sides_match_idx
 
 drop function if exists public.recommended_listings(text, int, timestamptz);
 
-do $$ begin
-  create type mintplaza.listing_row as (
-    listing_id uuid, game_slug text,
-    user_id uuid, username text, display_name text,
-    avatar_url text, online boolean, deals int,
-    note text, created_at timestamptz, bumped_at timestamptz,
-    expires_at timestamptz, bumpable boolean, sides jsonb
-  );
-exception when duplicate_object then null; end $$;
+-- The row shape every board read returns.
+--
+-- "Create it unless it exists" is not enough on a database that has seen an
+-- earlier version of this file: a type that exists with DIFFERENT columns is
+-- silently kept, and then every function below that returns it either fails to
+-- create or returns something the application cannot read. So the existing one
+-- is compared against the intended shape and replaced when it does not match.
+--
+-- CASCADE is safe precisely here: the only things that depend on this type are
+-- the six reader functions, and all six are defined further down this same
+-- file, so whatever the drop takes is put back before the file ends.
+do $$
+declare
+  want text := 'listing_id uuid, game_slug text, user_id uuid, username text, '
+            || 'display_name text, avatar_url text, online boolean, deals integer, '
+            || 'note text, created_at timestamp with time zone, '
+            || 'bumped_at timestamp with time zone, expires_at timestamp with time zone, '
+            || 'bumpable boolean, sides jsonb';
+  have text;
+begin
+  select string_agg(a.attname || ' ' || format_type(a.atttypid, a.atttypmod), ', '
+                    order by a.attnum)
+    into have
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'mintplaza' and c.relname = 'listing_row'
+     and a.attnum > 0 and not a.attisdropped;
+
+  if have is null then
+    create type mintplaza.listing_row as (
+      listing_id uuid, game_slug text,
+      user_id uuid, username text, display_name text,
+      avatar_url text, online boolean, deals int,
+      note text, created_at timestamptz, bumped_at timestamptz,
+      expires_at timestamptz, bumpable boolean, sides jsonb
+    );
+  elsif have <> want then
+    raise notice 'mintplaza.listing_row has an old shape; replacing it.';
+    drop type mintplaza.listing_row cascade;
+    create type mintplaza.listing_row as (
+      listing_id uuid, game_slug text,
+      user_id uuid, username text, display_name text,
+      avatar_url text, online boolean, deals int,
+      note text, created_at timestamptz, bumped_at timestamptz,
+      expires_at timestamptz, bumpable boolean, sides jsonb
+    );
+  end if;
+end $$;
 
 -- Every read below draws from this one. It is in the mintplaza schema, not
 -- public, so PostgREST cannot reach it: it applies no block filter and no
@@ -2218,6 +2335,66 @@ grant execute on function public.cancel_trade_listing(uuid) to authenticated;
 
 
 -- ---------------------------------------------------------------------------
+-- Clearing the way for the definitions below
+--
+-- CREATE OR REPLACE FUNCTION cannot change a function's return type, and it
+-- cannot rename an input parameter. It raises instead:
+--
+--   ERROR:  cannot change return type of existing function
+--   HINT:   Use DROP FUNCTION board_listings(text) first.
+--
+-- Every function named below either did not exist when this file was written
+-- or existed only in a migration applied straight to a live project. A
+-- database carrying one of those earlier versions — which is exactly what the
+-- project this was built for is carrying — stops dead here rather than being
+-- upgraded, and it stops at a statement whose error says nothing about how the
+-- database got that way.
+--
+-- So each name is dropped first, in every overload it may exist in. By name
+-- rather than by signature, because the whole problem is not knowing what
+-- signature is already there. RESTRICT, not CASCADE: if something genuinely
+-- depends on one of these, that is worth a notice rather than a silent
+-- demolition, and the CREATE below will then say so plainly.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  names text[] := array[
+    'is_admin', 'board_listings',
+    'console_unlock', 'console_unlocked', 'console_lock', 'console_phrase_matches',
+    'admin_reports', 'admin_resolve_report', 'admin_set_explore_tabs',
+    'admin_save_game', 'admin_set_game_active', 'admin_reorder_games',
+    'admin_save_template', 'admin_set_template_active',
+    'admin_add_media', 'admin_delete_media',
+    'enforce_service_listing_limit', 'block_self_vote', 'stamp_pick_reply',
+    'cleanup_service_listings', 'record_item_value'
+  ];
+  r record;
+  dropped int := 0;
+begin
+  for r in
+    select n.nspname, p.proname,
+           pg_get_function_identity_arguments(p.oid) as args
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname in ('public', 'mintplaza')
+       and p.proname = any (names)
+  loop
+    begin
+      execute format('drop function %I.%I(%s)', r.nspname, r.proname, r.args);
+      dropped := dropped + 1;
+    exception when dependent_objects_still_exist then
+      raise notice 'Kept %.%(%) — something depends on it; it will be replaced in place instead.',
+        r.nspname, r.proname, r.args;
+    end;
+  end loop;
+
+  if dropped > 0 then
+    raise notice 'Replaced % earlier function definition(s).', dropped;
+  end if;
+end $$;
+
+
+-- ---------------------------------------------------------------------------
 -- The owner's allowlist
 --
 -- One row per person allowed into the control panel, seeded with a Roblox
@@ -2356,9 +2533,8 @@ on conflict (slug) do update set
 alter table public.service_listings
   add column if not exists ref_id text;
 
-alter table public.service_listings drop constraint if exists service_listings_ref_id_check;
-alter table public.service_listings add constraint service_listings_ref_id_check
-  check (ref_id is null or length(ref_id) <= 80);
+select mintplaza.add_check('public.service_listings', 'service_listings_ref_id_check',
+  'ref_id is null or length(ref_id) <= 80');
 
 
 -- ---------------------------------------------------------------------------
