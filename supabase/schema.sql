@@ -437,13 +437,35 @@ create table if not exists public.messages (
 
 create index if not exists messages_thread_idx on public.messages (conversation_id, created_at desc);
 
-create or replace function public.is_participant(p_conversation uuid, p_user uuid)
-returns boolean language sql stable security definer set search_path = public as $$
+-- Are these two in the same conversation?
+--
+-- It lives in `mintplaza` rather than `public` for a specific reason. Every
+-- messaging policy below calls it, and a policy expression is evaluated as
+-- whoever is querying — so the querying role must hold EXECUTE on it or the
+-- read raises "permission denied for function" instead of returning no rows.
+-- That is a hard error on a page that should simply have been empty, and it
+-- made public.messages unreadable by everybody, signed in or not.
+--
+-- Granting it in `public` would have fixed the error and opened a probe: it
+-- takes an arbitrary conversation and an arbitrary user, so anyone could ask
+-- whether two strangers share a thread. The mintplaza schema is not in
+-- Supabase's exposed list, so PostgREST will not serve it as an RPC, while
+-- policies can still call it.
+--
+-- SECURITY DEFINER is load-bearing and not a convenience: conversation_
+-- participants has RLS whose own policy calls this function, so reading the
+-- table as the caller would recurse forever.
+create or replace function mintplaza.is_participant(p_conversation uuid, p_user uuid)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
   select exists (
     select 1 from public.conversation_participants
     where conversation_id = p_conversation and user_id = p_user
   );
 $$;
+
+revoke all on function mintplaza.is_participant(uuid, uuid) from public;
+grant execute on function mintplaza.is_participant(uuid, uuid) to anon, authenticated;
 
 
 -- ===========================================================================
@@ -498,8 +520,16 @@ create table if not exists public.audit_log (
 create index if not exists audit_log_actor_idx on public.audit_log (actor_id, created_at desc);
 
 -- Moderators are marked in app_metadata, which users cannot write to.
+--
+-- SECURITY DEFINER because this is read from inside row-level security
+-- policies, so it is evaluated as whoever is querying. Left as INVOKER it
+-- needs every caller to hold USAGE on the auth schema and EXECUTE on
+-- auth.jwt(), and a policy that raises "permission denied for schema auth"
+-- instead of returning false fails a read that should simply have been empty.
+-- It is not a privilege escalation: auth.jwt() reads a session setting, so it
+-- returns the caller's own claims either way.
 create or replace function public.is_moderator()
-returns boolean language sql stable as $$
+returns boolean language sql stable security definer as $$
   select coalesce(
     (auth.jwt() -> 'app_metadata' ->> 'role') in ('moderator', 'admin'),
     false
@@ -616,23 +646,23 @@ create policy sides_write_own on public.listing_sides for all
 -- Messaging: participants only, both directions.
 drop policy if exists conversations_read on public.conversations;
 create policy conversations_read on public.conversations for select
-  using (public.is_participant(id, auth.uid()) or public.is_moderator());
+  using (mintplaza.is_participant(id, auth.uid()) or public.is_moderator());
 
 drop policy if exists participants_read on public.conversation_participants;
 create policy participants_read on public.conversation_participants for select
-  using (public.is_participant(conversation_id, auth.uid()) or public.is_moderator());
+  using (mintplaza.is_participant(conversation_id, auth.uid()) or public.is_moderator());
 
 drop policy if exists messages_read on public.messages;
 create policy messages_read on public.messages for select
   using (
-    (status = 'visible' and public.is_participant(conversation_id, auth.uid()))
+    (status = 'visible' and mintplaza.is_participant(conversation_id, auth.uid()))
     or public.is_moderator()
   );
 drop policy if exists messages_send on public.messages;
 create policy messages_send on public.messages for insert
   with check (
     sender_id = auth.uid()
-    and public.is_participant(conversation_id, auth.uid())
+    and mintplaza.is_participant(conversation_id, auth.uid())
     and exists (select 1 from public.profiles p where p.id = auth.uid() and p.status = 'active')
     -- Cannot message across a block, in either direction.
     and not exists (
@@ -744,7 +774,32 @@ on conflict (slug) do update set
   art = excluded.art, sort_order = excluded.sort_order;
 
 -- Murder Mystery 2 was in an earlier draft by mistake and is not a launch game.
-delete from public.games where slug = 'murder-mystery-2';
+-- It stays removed.
+--
+-- games.slug is the parent of seven ON DELETE CASCADE foreign keys, so this one
+-- line can take catalogue rows, holdings, listings, posts and templates with
+-- it. On a new project there is nothing there and it removes nothing. On a
+-- database that has been live, the counts are printed first rather than
+-- discovered afterwards — a silent cascade is exactly the kind of data loss
+-- nobody notices until somebody asks where their inventory went.
+do $$
+declare v_items int; v_inv int; v_listings int; v_posts int; v_templates int;
+begin
+  if not exists (select 1 from public.games where slug = 'murder-mystery-2') then
+    return;
+  end if;
+
+  select count(*) into v_items     from public.game_items        where game_slug = 'murder-mystery-2';
+  select count(*) into v_inv       from public.inventory_entries where game_slug = 'murder-mystery-2';
+  select count(*) into v_listings  from public.trade_listings    where game_slug = 'murder-mystery-2';
+  select count(*) into v_posts     from public.service_listings  where game_slug = 'murder-mystery-2';
+  select count(*) into v_templates from public.service_templates where game_slug = 'murder-mystery-2';
+
+  raise notice 'Removing Murder Mystery 2, and with it: % catalogue items, % holdings, % trade listings, % board posts, % templates.',
+    v_items, v_inv, v_listings, v_posts, v_templates;
+
+  delete from public.games where slug = 'murder-mystery-2';
+end $$;
 
 
 -- ===========================================================================
@@ -777,16 +832,21 @@ revoke all on function public.listing_allowance(text)   from public, anon, authe
 revoke all on function public.expire_listings()         from public, anon, authenticated;
 revoke all on function public.handle_new_user()         from public, anon, authenticated;
 revoke all on function public.enforce_listing_limits()  from public, anon, authenticated;
-revoke all on function public.is_participant(uuid, uuid) from public, anon, authenticated;
 
 grant execute on function public.ensure_profile()        to authenticated;
 grant execute on function public.bump_listing(uuid)      to authenticated;
 grant execute on function public.listing_allowance(text) to authenticated;
 
--- expire_listings is a scheduled job, handle_new_user and
--- enforce_listing_limits are trigger bodies, and is_participant is a helper
--- used inside policies. None should be reachable over the REST API, so none
--- of them are granted to anybody.
+-- expire_listings is a scheduled job and handle_new_user and
+-- enforce_listing_limits are trigger bodies. None should be reachable over the
+-- REST API, so none of them are granted to anybody.
+--
+-- is_participant used to be revoked here too, on the same reasoning, and that
+-- was a mistake: it is called from inside the messaging policies, which are
+-- evaluated as the querying role, so revoking it turned every read of
+-- messages, conversations and participants into a permission error rather than
+-- an empty result. It now lives in mintplaza, where PostgREST cannot serve it
+-- but a policy can still call it. See its definition above.
 
 
 -- ===========================================================================
@@ -1663,35 +1723,65 @@ grant execute on function public.public_profile(text)               to authentic
 
 
 -- --- 8. where the pictures live ---------------------------------------------
+--
+-- The storage schema is not ours. On Supabase it belongs to
+-- supabase_storage_admin, and the SQL editor's role is not a member of it, so
+-- CREATE POLICY on storage.objects raises 42501 "must be owner of table
+-- objects" — which, unguarded, aborts the entire file at this line and leaves
+-- everything below it unapplied. Verified against a database set up the way a
+-- real project is.
+--
+-- So each one is attempted and carried past if the project will not allow it,
+-- the same way the auth.users trigger near the top of this file is. The
+-- fallback is the dashboard: Storage -> Policies, on the `proofs` bucket. The
+-- notice says so rather than failing silently, because a bucket with no policy
+-- is a feature that quietly does not work.
 
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('proofs', 'proofs', true, 3145728,
-        array['image/png', 'image/jpeg', 'image/webp'])
-on conflict (id) do update
-  set public = excluded.public,
-      file_size_limit = excluded.file_size_limit,
-      allowed_mime_types = excluded.allowed_mime_types;
--- No SVG. An SVG is a document that can run script, and this bucket is served
--- from the same origin as everything else.
+do $$
+begin
+  insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('proofs', 'proofs', true, 3145728,
+          array['image/png', 'image/jpeg', 'image/webp'])
+  on conflict (id) do update
+    set public = excluded.public,
+        file_size_limit = excluded.file_size_limit,
+        allowed_mime_types = excluded.allowed_mime_types;
+  -- No SVG. An SVG is a document that can run script, and this bucket is served
+  -- from the same origin as everything else.
+exception when insufficient_privilege then
+  raise notice 'Could not create the proofs bucket (%). Make it by hand: Storage -> New bucket -> name it "proofs", public, 3 MB, png/jpeg/webp only.', sqlerrm;
+end $$;
 
 do $$ begin
   create policy "proof pictures are readable" on storage.objects
     for select using (bucket_id = 'proofs');
-exception when duplicate_object then null; end $$;
+exception
+  when duplicate_object then null;
+  when insufficient_privilege then
+    raise notice 'Could not add the storage read policy (%). Add it in Storage -> Policies on the proofs bucket.', sqlerrm;
+end $$;
 
 do $$ begin
   create policy "upload into your own proof folder" on storage.objects
     for insert to authenticated
     with check (bucket_id = 'proofs'
                 and (storage.foldername(name))[1] = auth.uid()::text);
-exception when duplicate_object then null; end $$;
+exception
+  when duplicate_object then null;
+  when insufficient_privilege then
+    raise notice 'Could not add the storage upload policy (%). Add it in Storage -> Policies on the proofs bucket.', sqlerrm;
+end $$;
 
 do $$ begin
   create policy "delete your own proof pictures" on storage.objects
     for delete to authenticated
     using (bucket_id = 'proofs'
            and (storage.foldername(name))[1] = auth.uid()::text);
-exception when duplicate_object then null; end $$;
+exception
+  when duplicate_object then null;
+  when insufficient_privilege then
+    raise notice 'Could not add the storage delete policy (%). Add it in Storage -> Policies on the proofs bucket.', sqlerrm;
+end $$;
 
 
 -- ---------------------------------------------------------------------------
@@ -2202,8 +2292,14 @@ set search_path = public, mintplaza, pg_catalog as $$
   );
 $$;
 
-revoke all on function public.is_admin() from public, anon;
-grant execute on function public.is_admin() to authenticated;
+revoke all on function public.is_admin() from public;
+-- anon as well as authenticated, and deliberately. is_admin() is read inside
+-- the item_value_history policy, and a policy is evaluated as whoever is
+-- querying — so a role without EXECUTE turns a read that should return nothing
+-- into "permission denied for function is_admin". It answers from auth.uid(),
+-- which is null for a signed-out visitor, so to anon it is a function that
+-- returns false and discloses nothing.
+grant execute on function public.is_admin() to authenticated, anon;
 
 -- Raised by every admin_ function when the caller is not the owner. "Not found"
 -- rather than "forbidden" on purpose: a signed-in stranger poking at the RPC

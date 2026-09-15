@@ -464,11 +464,21 @@ end $$;
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo 'ANON'
+-- is_admin() is deliberately NOT in this list. It is read inside the
+-- item_value_history policy, and a policy is evaluated as whoever is querying,
+-- so revoking it from anon turns a read that should return nothing into
+-- "permission denied for function". It answers from auth.uid(), which is null
+-- when signed out, so to anon it is a function that returns false.
+do $$ begin
+  perform pg_temp.ok('is_admin stays callable by anon, because a policy reads it',
+    has_function_privilege('anon', 'public.is_admin()', 'EXECUTE'));
+end $$;
+
 do $$
 declare fn text; leaked text[] := '{}';
 begin
   foreach fn in array array[
-    'ensure_profile','is_admin','save_profile','add_proof','delete_proof',
+    'ensure_profile','save_profile','add_proof','delete_proof',
     'add_contact','remove_contact','delete_my_account','set_display_name',
     'set_hide_presence','touch_presence','console_unlock','console_unlocked',
     'console_lock','console_phrase_matches','admin_reports','admin_save_game',
