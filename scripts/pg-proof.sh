@@ -102,8 +102,14 @@ runrls -f "$HERE/pg-rls-test.sql" 2>&1 | sed -E 's#^psql:[^:]*:[0-9]+: NOTICE:  
 echo
 psql -h /tmp -p "$PORT" -U postgres -q -c 'create database supashape' >/dev/null
 psql -h /tmp -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -d supashape >"$LOG" 2>&1 <<'SHAPE' || { cat "$LOG"; exit 1; }
-create extension if not exists pgcrypto;
-create extension if not exists pg_trgm;
+-- Supabase does not put pgcrypto and pg_trgm in public: they live in an
+-- `extensions` schema, which Supabase then adds to the session search_path.
+-- That combination is why a function which sets its own search_path can be
+-- created without complaint and still fail the moment it calls digest() or
+-- crypt(). Reproduce the layout exactly, or that whole class is invisible.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+create extension if not exists pg_trgm  with schema extensions;
 do $$ begin create role anon nologin;          exception when duplicate_object then null; end $$;
 do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
 do $$ begin create role service_role nologin;  exception when duplicate_object then null; end $$;
@@ -140,10 +146,15 @@ grant select, insert, update on storage.buckets to app_owner;
 grant select on storage.objects to app_owner;
 grant anon, authenticated, service_role to app_owner;
 grant usage on schema auth to app_owner, authenticated, anon;
-grant select, references on auth.users to app_owner;
+grant select, insert, references on auth.users to app_owner;
 grant execute on function auth.uid() to app_owner, authenticated, anon;
 grant execute on function auth.jwt() to app_owner, authenticated, anon;
 grant execute on function storage.foldername(text) to app_owner, authenticated, anon;
+grant usage on schema extensions to app_owner, authenticated, anon;
+-- Supabase sets this on its roles, which is what makes gin_trgm_ops resolve in
+-- the CREATE INDEX statements while a function's own search_path does not
+-- inherit it.
+alter role app_owner set search_path = public, extensions;
 SHAPE
 
 if psql -h /tmp -p "$PORT" -U app_owner -q -v ON_ERROR_STOP=1 -d supashape \
@@ -154,6 +165,51 @@ else
   grep -iE "^psql.*(ERROR|FATAL)" "$LOG" | head -5
   exit 1
 fi
+
+# Applying is not enough. A function that sets its own search_path is created
+# happily and only fails when something calls it, so the pgcrypto path has to
+# be exercised here, in the layout that breaks it, rather than assumed.
+psql -h /tmp -p "$PORT" -U app_owner -q -t -A -v ON_ERROR_STOP=1 -d supashape 2>&1 <<'CALL' \
+  | sed -E 's#^(psql:[^:]*:[0-9]+: )?NOTICE:  ##' | grep -E '^(PASS|FAIL|ERROR)'
+create or replace function pg_temp.ok(label text, cond boolean) returns void
+language plpgsql as $$
+begin
+  if cond then raise notice 'PASS  %', label;
+  else raise exception 'FAIL  %', label;
+  end if;
+end $$;
+
+insert into auth.users (id, email)
+values ('aaaaaaaa-0000-0000-0000-00000000000a', 'owner@x.test');
+set request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-00000000000a';
+select public.ensure_profile();
+update public.profiles set username = 'Owner'
+ where id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+insert into mintplaza.admin_allowlist (roblox_username) values ('owner');
+select public.ensure_profile();
+
+do $$
+declare v_token text;
+begin
+  perform pg_temp.ok('the owner binds with pgcrypto in extensions', public.is_admin());
+
+  -- Each of these four reaches for crypt, gen_salt, gen_random_bytes or
+  -- digest. With `extensions` missing from their search_path every one raises
+  -- 42883 "function digest(text, unknown) does not exist".
+  perform mintplaza.set_console_passcode('open-sesame');
+  perform pg_temp.ok('set_console_passcode finds crypt()', true);
+
+  v_token := public.console_unlock('open-sesame');
+  perform pg_temp.ok('console_unlock finds gen_random_bytes() and digest()',
+    v_token is not null);
+  perform pg_temp.ok('console_unlocked finds digest()',
+    public.console_unlocked(v_token));
+
+  perform public.console_lock(v_token);
+  perform pg_temp.ok('console_lock finds digest()',
+    public.console_unlocked(v_token) = false);
+end $$;
+CALL
 
 echo
 echo "All database assertions passed."

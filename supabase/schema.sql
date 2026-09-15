@@ -2750,6 +2750,23 @@ revoke all on function public.record_item_value() from public, anon, authenticat
 --   select mintplaza.set_console_passcode('whatever you will remember');
 --
 -- Run that as the owner in the SQL editor. Changing it later is the same call.
+--
+-- ---------------------------------------------------------------------------
+-- Why these four functions put `extensions` in their search_path
+--
+-- They are the only ones here that call pgcrypto — crypt, gen_salt,
+-- gen_random_bytes and digest. On Supabase pgcrypto is installed into the
+-- `extensions` schema, not public, and Supabase puts `extensions` in the
+-- session search_path, which is why the CREATE INDEX statements using
+-- gin_trgm_ops near the top of this file resolve without help.
+--
+-- A function that sets its own search_path does not get that session default.
+-- Leaving `extensions` out here therefore created a fault that no amount of
+-- applying the file could reveal: every one of these was CREATED without
+-- complaint and then raised 42883 "function digest(text, unknown) does not
+-- exist" the first time it was actually called. It is listed last in the path
+-- so a local pgcrypto in public still wins, which keeps a self-hosted database
+-- and a Supabase one on the same code.
 -- ---------------------------------------------------------------------------
 
 create table if not exists mintplaza.console_secret (
@@ -2780,7 +2797,7 @@ alter table mintplaza.console_session enable row level security;
 
 create or replace function mintplaza.set_console_passcode(p_new text)
 returns void language plpgsql security definer
-set search_path = mintplaza, public, pg_catalog as $$
+set search_path = mintplaza, public, extensions, pg_catalog as $$
 begin
   if p_new is null or length(btrim(p_new)) < 4 then
     raise exception 'Pick a code of at least four characters.';
@@ -2798,7 +2815,7 @@ revoke all on function mintplaza.set_console_passcode(text) from public, anon, a
 
 create or replace function public.console_unlock(p_passcode text)
 returns text language plpgsql security definer
-set search_path = mintplaza, public, pg_catalog as $$
+set search_path = mintplaza, public, extensions, pg_catalog as $$
 declare
   v_hash  text;
   v_fails int;
@@ -2834,7 +2851,7 @@ end $$;
 
 create or replace function public.console_unlocked(p_token text)
 returns boolean language sql stable security definer
-set search_path = mintplaza, public, pg_catalog as $$
+set search_path = mintplaza, public, extensions, pg_catalog as $$
   select public.is_admin() and exists (
     select 1 from mintplaza.console_session
      where token_hash = encode(digest(coalesce(p_token, ''), 'sha256'), 'hex')
@@ -2844,7 +2861,7 @@ $$;
 
 create or replace function public.console_lock(p_token text)
 returns void language sql security definer
-set search_path = mintplaza, public, pg_catalog as $$
+set search_path = mintplaza, public, extensions, pg_catalog as $$
   delete from mintplaza.console_session
    where token_hash = encode(digest(coalesce(p_token, ''), 'sha256'), 'hex');
 $$;
