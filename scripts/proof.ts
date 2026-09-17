@@ -28,7 +28,7 @@ import {
 import { calculate } from "../src/lib/trade.ts";
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { valueSourceFor, valueOf, formatValue } from "../src/lib/values.ts";
-import { SERVICES, postable, servicesFor } from "../src/lib/sessions.ts";
+import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import { PARTNERS, referralFor } from "../src/lib/referrals.ts";
@@ -646,6 +646,122 @@ line("17. NOTHING SECRET IS PREFIXED NEXT_PUBLIC_");
   const devUi = read("../src/components/DevSignIn.tsx");
   assert("the component never touches the password",
     !/DEV_PASSWORD/.test(devUi) && !/signInWithPassword/.test(devUi));
+}
+
+line("18. NO GAME ADVERTISES A BOARD IT CANNOT FILL");
+{
+  // A tab a player can open and find nothing to post on is worse than no tab:
+  // it reads as broken rather than as empty. Two games are genuinely in that
+  // position — the research is not done — and the explore page says so through
+  // PARTIAL_SERVICES. What must never happen is a game landing in that state
+  // WITHOUT being listed, because then the screen just looks broken.
+  const SECTION = { services: "services", community: "recruit" } as const;
+  const silent: string[] = [];
+
+  for (const g of GAMES) {
+    for (const tab of g.exploreTabs ?? []) {
+      if (tab.kind === "trades") continue;
+      const section = SECTION[tab.kind as keyof typeof SECTION];
+      if (!section) continue;
+      const n = servicesFor(g.slug, section).length;
+      if (n === 0 && !PARTIAL_SERVICES.includes(g.slug)) {
+        silent.push(`${g.slug}/${tab.kind}`);
+      }
+    }
+  }
+  assert("every advertised board either has templates or is declared unfinished",
+    silent.length === 0, silent.join(", "));
+
+  // And the declaration has to stay honest in the other direction: a game
+  // listed as partial that has since been filled in is telling players it is
+  // unfinished when it is not.
+  const stale = PARTIAL_SERVICES.filter((slug) => {
+    const g = GAMES.find((x) => x.slug === slug);
+    if (!g) return false;
+    return (g.exploreTabs ?? [])
+      .filter((t) => t.kind !== "trades")
+      .every((t) => servicesFor(slug, SECTION[t.kind as keyof typeof SECTION] ?? "services").length > 0);
+  });
+  assert("and no game is still called unfinished after being filled in",
+    stale.length === 0, stale.join(", "));
+
+  // The post button writes these columns; the table has to have them. ref_id
+  // was missing for the whole life of the feature, so posting always failed.
+  const schema = readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8");
+  const board = readFileSync(new URL("../src/lib/actions/board.ts", import.meta.url), "utf8");
+  const written = [...board.matchAll(/^\s{6}([a-z_]+):/gm)].map((m) => m[1]);
+  const listingCols = ["game_slug","author_id","side","service_ids","terms_kind",
+                       "terms_item_id","detail","ref_id","expires_at","vote_cap","slots"];
+  const absent = listingCols.filter((c) => !new RegExp(`\\b${c}\\b`).test(schema));
+  assert("every column a posted listing writes exists in the schema",
+    absent.length === 0, absent.join(", "));
+  assert("and postListing still writes the ones the board reads back",
+    listingCols.every((c) => written.includes(c) || c === "slots"));
+}
+
+line("19. THE SECURITY POSTURE HOLDS");
+{
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const walk = (dir: string): string[] => {
+    const here = new URL(dir, import.meta.url);
+    return readdirSync(here, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`)
+        : /\.(ts|tsx)$/.test(e.name) ? [`${dir}/${e.name}`] : []);
+  };
+  const app = walk("../src");
+
+  // Clickjacking is the cheap attack against a trust site: iframe a profile,
+  // lay a fake "verified" badge over it, screenshot. And the paths here carry
+  // Roblox usernames, so a default referrer policy hands whose profile a
+  // player was reading to every third-party host the page touches.
+  const nextConfig = read("../next.config.ts");
+  for (const h of ["frame-ancestors", "X-Frame-Options", "X-Content-Type-Options",
+                   "Referrer-Policy", "Strict-Transport-Security", "Permissions-Policy"]) {
+    assert(`${h} is set`, nextConfig.includes(h));
+  }
+
+  // React escapes by default; the only way past it is to ask.
+  const raw = app.filter((f) => /dangerouslySetInnerHTML|\.innerHTML\s*=/.test(read(f)));
+  assert("nothing renders unescaped HTML", raw.length === 0, raw.join(", "));
+
+  // A target=_blank without noopener hands the opened page a handle back to
+  // this one, and every one of these points somewhere we do not control.
+  const leaky = app.filter((f) => {
+    const src = read(f);
+    return src.split("\n").some((l, i) =>
+      l.includes('target="_blank"') &&
+      !src.split("\n").slice(Math.max(0, i - 3), i + 4).join(" ").includes("noopener"));
+  });
+  assert("every new-tab link carries rel=noopener", leaky.length === 0, leaky.join(", "));
+
+  // "//evil.com" is a valid relative-looking URL that is not relative at all.
+  const callback = read("../src/app/auth/callback/route.ts");
+  assert("the sign-in redirect refuses an off-site destination",
+    /startsWith\("\/"\)/.test(callback) && /startsWith\("\/\/"\)/.test(callback));
+
+  // The panel answers 404 rather than 403 — "forbidden" would confirm there is
+  // something there — and must never be indexed or previewed.
+  const admin = read("../src/app/admin/page.tsx");
+  assert("the admin page 404s rather than forbidding", /notFound\(\)/.test(admin));
+  assert("and is never indexed", /index:\s*false/.test(admin));
+
+  // The one route that reaches out to another host. An unchecked id here would
+  // make the server fetch whatever a caller names.
+  const img = read("../src/app/api/item-image/[assetId]/route.ts");
+  assert("the image proxy validates the asset id before fetching",
+    /ASSET_ID\.test\(assetId\)/.test(img) && /thumbnails\.roblox\.com/.test(img));
+
+  // Every server action is a public HTTP endpoint. The ones without an inline
+  // identity check must be delegating to a database function that has one.
+  const board = read("../src/lib/actions/trades.ts");
+  const schema = read("../supabase/schema.sql");
+  for (const fn of ["cancel_trade_listing", "bump_listing"]) {
+    const body = schema.slice(schema.indexOf(`function public.${fn}`));
+    assert(`${fn}() checks the caller owns the listing`,
+      /user_id = auth\.uid\(\)/.test(body.slice(0, 900)));
+  }
+  assert("and the actions that rely on that do call those functions",
+    /cancel_trade_listing/.test(board) && /bump_listing/.test(board));
 }
 
 console.log("\n" + "─".repeat(72));
