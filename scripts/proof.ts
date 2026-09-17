@@ -79,7 +79,7 @@ line("5. A TEMPLATE THAT MAY NOT BE POSTED");
 }
 
 line("6. WHAT A PLAYER CAN ACTUALLY LIST, PER GAME");
-for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria", "grow-a-garden"]) {
+for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria"]) {
   const all = catalogFor(g);
   const tradeable = all.filter((i) => i.tradeable !== false);
   const priced = tradeable.filter((i) => valueOf(i) !== undefined || valueOf(i, "Permanent") !== undefined);

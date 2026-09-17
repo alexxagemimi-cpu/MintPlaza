@@ -823,13 +823,6 @@ insert into public.games (slug, name, short_name, blurb, modules, activity_kinds
    '{Fruit,Sword,Gun,"Fighting style",Accessory,Material}',
    '#D9542B', '/games/blox-fruits.jpg', 1),
 
-  ('grow-a-garden', 'Grow a Garden', 'Garden',
-   'Pet, seed and sheckle trades, plus getting a shout when the weather worth planting for actually arrives.',
-   '{trades,inventory,activities,help}',
-   '{"Weather window","Mutation run",Event,"Group session"}',
-   '{Crop,Seed,Pet,Gear,Cosmetic}',
-   '#5BAE3A', '/games/grow-a-garden.jpg', 2),
-
   ('adopt-me', 'Adopt Me!', 'Adopt Me',
    'Pet trades, and finding people who will actually sit through a neon or mega project with you.',
    '{trades,inventory,help,activities}',
@@ -875,7 +868,7 @@ declare
   g text;
   v_items int; v_inv int; v_listings int; v_posts int; v_templates int;
 begin
-  foreach g in array array['murder-mystery-2', 'royale-high'] loop
+  foreach g in array array['murder-mystery-2', 'royale-high', 'grow-a-garden'] loop
     if not exists (select 1 from public.games where slug = g) then
       continue;
     end if;

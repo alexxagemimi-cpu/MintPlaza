@@ -122,42 +122,6 @@ export const GAMES: readonly Game[] = [
   },
 
   {
-    slug: "grow-a-garden",
-    name: "Grow a Garden",
-    shortName: "Garden",
-    blurb:
-      "Pet, seed and sheckle trades, plus getting a shout when the weather worth planting for actually arrives.",
-    modules: ["trades", "inventory", "activities", "help"],
-    wants: [
-      { label: "Ping me on the next weather event", kind: "group" },
-      { label: "Mutation run — who's in?", kind: "group" },
-      { label: "Trading pets for sheckles", kind: "trade" },
-      { label: "Pet weight check", kind: "check" },
-      { label: "W/F/L on this?", kind: "check" },
-      { label: "Help finishing an event set", kind: "help" },
-    ],
-    exploreTabs: [
-      { id: "trades", label: "Trade & Offers", kind: "trades",
-        blurb: "Pets, seeds, gear and sheckles, with weights and mutations stated up front." },
-      { id: "weather", label: "Weather & Server Help", kind: "services",
-        blurb: "Weather windows worth joining, restock watches, and people sharing a server." },
-      { id: "community", label: "Help & Recruitment", kind: "community",
-        blurb: "Mutation runs, event sets, and gardeners looking for company." },
-    ],
-    exploreHighlights: ["Trades", "Weather pings", "Server help", "Mutation runs"],
-    activityKinds: ["Weather window", "Mutation run", "Event", "Group session"],
-    itemCategories: ["Crop", "Seed", "Pet", "Gear", "Cosmetic"],
-    itemAttributes: [
-      { key: "mutation", label: "Mutation", options: ["None", "Mutated"] },
-      { key: "weight", label: "Weight (kg)" },
-    ],
-    hue: "#5BAE3A",
-    art: "/games/grow-a-garden.jpg",
-    sourceNote:
-      "Weather, mutation and event mechanics from Grow a Garden community documentation; requests from Grow a Garden trading communities. Checked September 2026.",
-  },
-
-  {
     slug: "adopt-me",
     name: "Adopt Me!",
     shortName: "Adopt Me",

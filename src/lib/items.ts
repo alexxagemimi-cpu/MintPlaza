@@ -614,25 +614,6 @@ const PS99 = [
   ] as [string, Rarity][]),
 ];
 
-/** Grow a Garden. Crops, seeds and pets, with mutation and weight as variants. */
-const GARDEN = [
-  ...make("grow-a-garden", "gg", "Crop", [
-    ["Candy Blossom", "Mythical"], ["Ember Lily", "Legendary"],
-    ["Beanstalk", "Legendary"], ["Sugar Apple", "Legendary"],
-    ["Moon Melon", "Rare"], ["Dragon Fruit", "Rare"],
-    ["Grape", "Rare"], ["Mushroom", "Rare"],
-    ["Pepper", "Legendary"], ["Cacao", "Legendary"],
-  ] as [string, Rarity][]),
-  ...make("grow-a-garden", "gg", "Pet", [
-    ["Raccoon", "Mythical"], ["Dragonfly", "Legendary"],
-    ["Queen Bee", "Legendary"], ["Disco Bee", "Mythical"],
-    ["Butterfly", "Legendary"],
-  ] as [string, Rarity][]),
-  ...make("grow-a-garden", "gg", "Gear", [
-    ["Master Sprinkler", "Legendary"], ["Godly Sprinkler", "Rare"],
-    ["Lightning Rod", "Legendary"],
-  ] as [string, Rarity][]),
-];
 
 /**
  * Creatures of Sonaria. Value here comes from species, mutation, age, gender
@@ -662,7 +643,7 @@ const SONARIA = [
  * and a player browsing rod skins is seeing 96 of roughly 531.
  */
 export const PARTIAL_CATALOGUES: readonly string[] = [
-  "adopt-me", "grow-a-garden", "fisch",
+  "adopt-me", "fisch",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1537,7 +1518,7 @@ const ADOPT_ME_LIMITEDS: CatalogItem[] = [
  */
 const CURATED: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
-  ...ADOPT_ME, ...PS99, ...GARDEN, ...SONARIA,
+  ...ADOPT_ME, ...PS99, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
   ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE, ...GAG2_COSMETICS, ...GAG2_CRATES,
   ...FISCH_GLIDERS, ...FISCH_ROD_SKINS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
@@ -2011,11 +1992,6 @@ export const VARIANTS: Record<string, VariantModel> = {
     },
     unconfirmed: ["Frozen", "Electric", "Starstruck", "Bloodlit"],
     note: "Two systems that share a word. A PET variant (Big x2, Mega x3, Rainbow x1.25, and they stack — Mega Rainbow is x3.75) is not a CROP mutation (Gold x10, Glow x100), and Rainbow exists in both with different numbers. One mutation per crop, no stacking. Mega used to be called Huge; it is the same tier renamed.",
-  },
-
-  "grow-a-garden": {
-    axes: [{ key: "mutation", label: "Mutation", options: ["Normal", "Mutated"] }],
-    note: "The original Grow a Garden, which is a different game from GAG2 and has its own wiki. Not yet researched to the depth of the others.",
   },
 
 };
