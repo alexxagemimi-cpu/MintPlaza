@@ -1,3 +1,9 @@
+> **This file is a historical brief, kept for context. It is not current.**
+> For how to actually set the site up and run it, read `START-HERE.md`.
+> Two things in here are out of date on purpose: MintPlaza no longer keeps
+> values or a W/F/L calculator (see `src/lib/referrals.ts`), and messaging is
+> built rather than planned.
+
 # Brief for the brainstorming session
 
 Copy everything below the line into Claude and attach `mintplaza.zip`.
@@ -23,7 +29,7 @@ Every game has three boards inside an Explore tab:
 
 | Board | `kind` | What it is |
 | --- | --- | --- |
-| **Trade & Offers** | `trades` | I have X, I want Y. Carries a W/F/L calculator. |
+| **Trade & Offers** | `trades` | I have X, I want Y. |
 | **Raids & Services** | `services` | I am stuck; **one or two** people can unstick me. |
 | **Help & Recruitment** | `recruit` | Nobody is stuck — the content will not *start* with fewer than 3. |
 
