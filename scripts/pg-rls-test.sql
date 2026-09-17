@@ -61,6 +61,21 @@ insert into public.entitlements (user_id, expires_at, source, country)
 values ('11111111-1111-1111-1111-111111111111',
         now() + interval '60 days', 'purchase', 'IN');
 
+-- A third player, and a conversation between them and alice. Mallory is in no
+-- conversation with anybody, and must stay that way however hard she tries.
+insert into auth.users (id, email)
+values ('33333333-3333-3333-3333-333333333333', 'casey@x.test');
+update public.profiles set username = 'casey', last_seen_at = now()
+ where id = '33333333-3333-3333-3333-333333333333';
+
+insert into public.conversations (id) values ('dddddddd-dddd-dddd-dddd-dddddddddddd');
+insert into public.conversation_participants (conversation_id, user_id) values
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '33333333-3333-3333-3333-333333333333');
+insert into public.messages (conversation_id, sender_id, body)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111', 'meet me in trade realm');
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo 'POLICY HELPERS ARE CALLABLE'
@@ -153,6 +168,23 @@ begin
   -- holding valuable inventories that is not a small thing.
   select count(*) into n from public.entitlements;
   perform pg_temp.ok('another player''s Level Up is invisible', n = 0);
+
+  -- ---- somebody else's private conversation -----------------------------
+  --
+  -- The whole point of the messaging design. Mallory knows the conversation
+  -- id — assume she does; ids leak through logs, screenshots and referrers —
+  -- and must still get nothing from any of the three tables.
+  select count(*) into n from public.messages
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  perform pg_temp.ok('a stranger cannot read a private conversation''s messages', n = 0);
+
+  select count(*) into n from public.conversations
+   where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  perform pg_temp.ok('nor see that the conversation exists at all', n = 0);
+
+  select count(*) into n from public.conversation_participants
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  perform pg_temp.ok('nor who is in it', n = 0);
 end $$;
 
 do $$
@@ -238,7 +270,82 @@ begin
    where id = '11111111-1111-1111-1111-111111111111';
   get diagnostics n = row_count;
   perform pg_temp.ok('a stranger cannot rename somebody''s profile', n = 0);
+
+  -- Reading somebody's messages is one thing; editing them is another. A
+  -- stranger who could rewrite a message could put words in a trade
+  -- negotiation and then screenshot them.
+  update public.messages set body = 'send it first, I promise'
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor rewrite a message in it', n = 0);
+
+  delete from public.messages
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor delete one', n = 0);
+
+  -- Marking somebody else's thread read would hide a warning they had not seen.
+  update public.conversation_participants set last_read_at = now()
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor mark their thread as read', n = 0);
 end $$;
+
+-- Sending INTO a thread you are not in, which is the attack that would turn
+-- messaging into a spam channel aimed at anybody whose id you can guess.
+do $$
+declare v_sent boolean := false;
+begin
+  begin
+    insert into public.messages (conversation_id, sender_id, body)
+    values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+            '22222222-2222-2222-2222-222222222222', 'buy cheap robux here');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  -- The refusal is the whole assertion, and counting the rows afterwards is
+  -- not available here: mallory cannot READ that conversation either, so a
+  -- count run as her returns 0 whether the insert landed or not. An earlier
+  -- version of this test checked for one surviving row and failed against a
+  -- perfectly secure schema for exactly that reason. The row count is verified
+  -- below, as somebody who is allowed to see it.
+  perform pg_temp.ok('a stranger cannot send into a thread they are not in',
+    not v_sent);
+end $$;
+
+-- And forging the sender on a message, which would let somebody put words in
+-- another player's mouth inside a thread they ARE in.
+do $$
+declare v_id uuid; v_sent boolean := false;
+begin
+  -- Mallory opens a legitimate thread with alice first.
+  begin
+    insert into public.messages (conversation_id, sender_id, body)
+    values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+            '11111111-1111-1111-1111-111111111111', 'forged from alice');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  perform pg_temp.ok('nor send one as somebody else', not v_sent);
+end $$;
+
+-- Now from alice's side, who IS in that conversation and can therefore see
+-- what is actually in it. This is the half the stranger's own session cannot
+-- prove.
+do $$
+declare n int;
+begin
+  set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+  select count(*) into n from public.messages
+   where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  perform pg_temp.ok('and nothing a stranger sent ever reached the thread', n = 1);
+
+  perform pg_temp.ok('which still holds only what alice actually said',
+    (select body from public.messages
+      where conversation_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      limit 1) = 'meet me in trade realm');
+end $$;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 
 do $$ begin
   insert into public.service_votes (listing_id, user_id)
