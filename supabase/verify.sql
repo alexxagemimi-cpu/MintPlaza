@@ -15,7 +15,7 @@ select check_name, result from (
   union all select 2, 'All 8 games present',
     case when (select count(*) from public.games
                 where slug in ('blox-fruits','grow-a-garden','adopt-me','pet-simulator-99',
-                               'royale-high','creatures-of-sonaria','fisch','gag2')) = 8
+                               'creatures-of-sonaria','fisch','gag2')) = 8
          then 'OK' else 'MISSING: only '||(select count(*)::text from public.games) end
   union all select 3, 'All 29 app functions exist',
     case when (select count(*) from unnest(array[

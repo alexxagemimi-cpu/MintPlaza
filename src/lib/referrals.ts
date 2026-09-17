@@ -155,8 +155,6 @@ export const PARTNERS: readonly ReferralPartner[] = [
 export const NO_PARTNER_REASON: Record<string, string> = {
   "pet-simulator-99":
     "Pet Simulator 99's values come from BIG Games' own API, not from a value site, so there is nowhere to send you. The API's RAP figure is the closest thing to an official number any of these games has.",
-  "royale-high":
-    "No value list covers Royale High to a standard worth linking. Its market runs on Discord and trading servers, and pointing at one of those would be pointing at one person's opinion.",
   "grow-a-garden":
     "The original Grow a Garden has not been researched to the depth of the others yet.",
 };

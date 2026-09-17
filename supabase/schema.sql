@@ -844,13 +844,6 @@ insert into public.games (slug, name, short_name, blurb, modules, activity_kinds
    '{Pet,Egg,Enchant,Charm,Item}',
    '#D9538F', '/games/pet-simulator-99.jpg', 4),
 
-  ('royale-high', 'Royale High', 'Royale High',
-   'Halo and set trades, diamond grinding company, and partners for the quests nobody wants to do alone.',
-   '{trades,inventory,activities,help}',
-   '{"Quest run","Campus activity","Diamond grind","Seasonal event"}',
-   '{Halo,Set,Accessory,Skirt,Heels,Wings}',
-   '#D98BC4', '/games/royale-high.jpg', 5),
-
   ('creatures-of-sonaria', 'Creatures of Sonaria', 'Sonaria',
    'Creature trades where the details decide the value, and packs for the missions built to need a group.',
    '{trades,inventory,activities,help}',
@@ -863,32 +856,41 @@ on conflict (slug) do update set
   item_categories = excluded.item_categories, hue = excluded.hue,
   art = excluded.art, sort_order = excluded.sort_order;
 
--- Murder Mystery 2 was in an earlier draft by mistake and is not a launch game.
--- It stays removed.
+-- Games that were in an earlier draft and are not launch games. They stay
+-- removed, and this is the only place that decides which.
 --
--- games.slug is the parent of seven ON DELETE CASCADE foreign keys, so this one
--- line can take catalogue rows, holdings, listings, posts and templates with
--- it. On a new project there is nothing there and it removes nothing. On a
--- database that has been live, the counts are printed first rather than
--- discovered afterwards — a silent cascade is exactly the kind of data loss
--- nobody notices until somebody asks where their inventory went.
+--   murder-mystery-2  was never a launch game; it was a drafting mistake.
+--   royale-high       was researched and dropped: 26 items and no value list,
+--                     which is a trading screen that cannot answer the one
+--                     question a trader asks.
+--
+-- games.slug is the parent of seven ON DELETE CASCADE foreign keys, so one
+-- line here can take catalogue rows, holdings, listings, posts and templates
+-- with it. On a new project there is nothing to take. On a database that has
+-- been live, the counts are printed BEFORE the delete rather than discovered
+-- afterwards — a silent cascade is exactly the data loss nobody notices until
+-- somebody asks where their inventory went.
 do $$
-declare v_items int; v_inv int; v_listings int; v_posts int; v_templates int;
+declare
+  g text;
+  v_items int; v_inv int; v_listings int; v_posts int; v_templates int;
 begin
-  if not exists (select 1 from public.games where slug = 'murder-mystery-2') then
-    return;
-  end if;
+  foreach g in array array['murder-mystery-2', 'royale-high'] loop
+    if not exists (select 1 from public.games where slug = g) then
+      continue;
+    end if;
 
-  select count(*) into v_items     from public.game_items        where game_slug = 'murder-mystery-2';
-  select count(*) into v_inv       from public.inventory_entries where game_slug = 'murder-mystery-2';
-  select count(*) into v_listings  from public.trade_listings    where game_slug = 'murder-mystery-2';
-  select count(*) into v_posts     from public.service_listings  where game_slug = 'murder-mystery-2';
-  select count(*) into v_templates from public.service_templates where game_slug = 'murder-mystery-2';
+    select count(*) into v_items     from public.game_items        where game_slug = g;
+    select count(*) into v_inv       from public.inventory_entries where game_slug = g;
+    select count(*) into v_listings  from public.trade_listings    where game_slug = g;
+    select count(*) into v_posts     from public.service_listings  where game_slug = g;
+    select count(*) into v_templates from public.service_templates where game_slug = g;
 
-  raise notice 'Removing Murder Mystery 2, and with it: % catalogue items, % holdings, % trade listings, % board posts, % templates.',
-    v_items, v_inv, v_listings, v_posts, v_templates;
+    raise notice 'Removing %, and with it: % catalogue items, % holdings, % trade listings, % board posts, % templates.',
+      g, v_items, v_inv, v_listings, v_posts, v_templates;
 
-  delete from public.games where slug = 'murder-mystery-2';
+    delete from public.games where slug = g;
+  end loop;
 end $$;
 
 

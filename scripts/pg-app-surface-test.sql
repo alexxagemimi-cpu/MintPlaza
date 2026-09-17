@@ -133,7 +133,7 @@ do $$
 declare n int; missing text[] := '{}'; g text;
 begin
   foreach g in array array['blox-fruits','grow-a-garden','adopt-me',
-                           'pet-simulator-99','royale-high','creatures-of-sonaria',
+                           'pet-simulator-99','creatures-of-sonaria',
                            'fisch','gag2'] loop
     if not exists (select 1 from public.games where slug = g) then
       missing := array_append(missing, g);

@@ -246,47 +246,6 @@ export const GAMES: readonly Game[] = [
   },
 
   {
-    slug: "royale-high",
-    name: "Royale High",
-    shortName: "Royale High",
-    blurb:
-      "Halo and set trades, diamond grinding company, and partners for the quests nobody wants to do alone.",
-    modules: ["trades", "inventory", "activities", "help"],
-    wants: [
-      { label: "Trading a Winter halo", kind: "trade" },
-      { label: "Halo value check", kind: "check" },
-      { label: "Diamond farming partner", kind: "help" },
-      { label: "Campus quest help", kind: "help" },
-      { label: "Grinding to level 75 so I can trade", kind: "help", detail: "Trading unlocks at level 75" },
-      { label: "Anyone doing the seasonal set?", kind: "group" },
-    ],
-    exploreTabs: [
-      { id: "trades", label: "Trade & Offers", kind: "trades",
-        blurb: "Halos and sets by series, with diamond expectations stated openly." },
-      { id: "quests", label: "Quests & Services", kind: "services",
-        blurb: "Campus quest partners, class runs, and diamond grinding company." },
-      { id: "community", label: "Help & Recruitment", kind: "community",
-        blurb: "Getting to level 75, seasonal sets, and players to do it with." },
-    ],
-    exploreHighlights: ["Trades", "Halo checks", "Quest partners", "Diamond grinding"],
-    activityKinds: ["Quest run", "Campus activity", "Diamond grind", "Seasonal event"],
-    itemCategories: ["Halo", "Set", "Accessory", "Skirt", "Heels", "Wings"],
-    itemAttributes: [
-      { key: "kind", label: "Kind", options: ["Halo", "Set piece", "Accessory"] },
-      {
-        key: "series",
-        label: "Series",
-        options: ["Everfriend", "Flowering", "Tidalglow", "Eveningfall", "Glitterfrost", "Other"],
-      },
-    ],
-    tradeGate: "Trading in Royale High unlocks at level 75.",
-    hue: "#D98BC4",
-    art: "/games/royale-high.jpg",
-    sourceNote:
-      "Halo series, the level 75 trading gate and diamond sources from Royale High community documentation; requests from Royale High trading communities. Checked September 2026.",
-  },
-
-  {
     slug: "creatures-of-sonaria",
     name: "Creatures of Sonaria",
     shortName: "Sonaria",

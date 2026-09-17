@@ -62,7 +62,7 @@ line("3. A REAL, PRICEABLE TRADE — same game, both sides known");
 }
 
 line("4. UNITS ARE NEVER SHARED");
-for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "gag2", "pet-simulator-99", "adopt-me", "royale-high"]) {
+for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "gag2", "pet-simulator-99", "adopt-me"]) {
   const s = valueSourceFor(g);
   console.log("  " + g.padEnd(22), s ? `${s.unit}  · checked ${s.checked}` : "no value list — nothing is priced, and the card says so");
 }
@@ -79,7 +79,7 @@ line("5. A TEMPLATE THAT MAY NOT BE POSTED");
 }
 
 line("6. WHAT A PLAYER CAN ACTUALLY LIST, PER GAME");
-for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria", "grow-a-garden", "royale-high"]) {
+for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria", "grow-a-garden"]) {
   const all = catalogFor(g);
   const tradeable = all.filter((i) => i.tradeable !== false);
   const priced = tradeable.filter((i) => valueOf(i) !== undefined || valueOf(i, "Permanent") !== undefined);
@@ -170,7 +170,7 @@ line("8. THE MERGE DID NOT EAT A PRICED ROW");
 
 line("9. THE REFERRAL PATH — where an unpriced item sends a player");
 {
-  for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "adopt-me", "gag2", "pet-simulator-99", "royale-high"]) {
+  for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "adopt-me", "gag2", "pet-simulator-99"]) {
     const r = referralFor(g);
     console.log(
       "  " + g.padEnd(22),

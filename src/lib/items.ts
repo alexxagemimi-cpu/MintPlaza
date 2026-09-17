@@ -566,46 +566,6 @@ const make = (
  * These grow through the admin surface, not through code edits.
  */
 
-/**
- * Royale High halos. Each is tied to the event it was winnable in, and once
- * that event ends trading is the only way to get it — which is exactly why the
- * year belongs in the name.
- */
-const ROYALE_HIGH: CatalogItem[] = ([
-  ["Corrupt Halo", "Mythical"],
-  ["Halloween Halo 2018", "Mythical"],
-  ["Winter Crystal Halo 2018", "Mythical"],
-  ["Valentines Halo 2019", "Legendary"],
-  ["Lucky Halo 2019", "Legendary"],
-  ["Easter Halo 2019", "Legendary"],
-  ["Mermaid Halo 2019", "Legendary"],
-  ["Halloween Halo 2019", "Mythical"],
-  ["Autumn Halo 2019", "Legendary"],
-  ["Winter Halo 2019", "Mythical"],
-  ["Valentines Halo 2020", "Legendary"],
-  ["Lucky Halo 2020", "Legendary"],
-  ["Spring Halo 2020", "Legendary"],
-  ["Mermaid Halo 2020", "Legendary"],
-  ["Halloween Halo 2020", "Legendary"],
-  ["Winter Halo 2020", "Legendary"],
-  ["Valentines Halo 2021", "Legendary"],
-  ["Lucky Halo 2021", "Legendary"],
-  ["Spring Halo 2021", "Legendary"],
-  ["Mermaid Halo 2021", "Legendary"],
-  ["Halloween Halo 2021", "Legendary"],
-  ["Winter Halo 2021", "Legendary"],
-  ["Spring Halo 2022", "Rare"],
-  ["Mermaid Halo 2022", "Rare"],
-  ["Witching Hour Autumn Halo 2022", "Legendary"],
-  ["Winter Halo 2022", "Legendary"],
-] as [string, Rarity][]).map(([name, rarity]) => ({
-  id: `rh-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-  gameSlug: "royale-high",
-  name,
-  category: "Halo",
-  rarity,
-  verified: true,
-}));
 
 /**
  * Adopt Me. The wiki counts over thirty obtainable legendaries and far more
@@ -702,7 +662,7 @@ const SONARIA = [
  * and a player browsing rod skins is seeing 96 of roughly 531.
  */
 export const PARTIAL_CATALOGUES: readonly string[] = [
-  "adopt-me", "grow-a-garden", "fisch", "royale-high",
+  "adopt-me", "grow-a-garden", "fisch",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1577,7 +1537,7 @@ const ADOPT_ME_LIMITEDS: CatalogItem[] = [
  */
 const CURATED: readonly CatalogItem[] = [
   ...BLOX_FRUITS, ...BLOX_GAMEPASSES, ...BLOX_SCROLLS, ...BLOX_SKINS,
-  ...ADOPT_ME, ...PS99, ...ROYALE_HIGH, ...GARDEN, ...SONARIA,
+  ...ADOPT_ME, ...PS99, ...GARDEN, ...SONARIA,
   ...FISCH_CATALOG, ...GAG2_CATALOG,
   ...GAG2_PETS, ...GAG2_EGGS, ...GAG2_UNTRADEABLE, ...GAG2_COSMETICS, ...GAG2_CRATES,
   ...FISCH_GLIDERS, ...FISCH_ROD_SKINS, ...PS99_ENCHANTS, ...SONARIA_TOP, ...ADOPT_ME_LIMITEDS,
@@ -2058,7 +2018,6 @@ export const VARIANTS: Record<string, VariantModel> = {
     note: "The original Grow a Garden, which is a different game from GAG2 and has its own wiki. Not yet researched to the depth of the others.",
   },
 
-  "royale-high": { axes: [] },
 };
 
 /**

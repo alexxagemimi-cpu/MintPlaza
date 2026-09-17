@@ -596,8 +596,6 @@ const OTHER_SERVICES: Service[] = [
   { id: "gg-s-restock", gameSlug: "grow-a-garden", name: "Restock watch", kind: "Grind", players: 2 },
   { id: "gg-s-event-set", gameSlug: "grow-a-garden", name: "Finishing an event set", kind: "Unlock", players: 2 },
 
-  { id: "rh-s-story", gameSlug: "royale-high", name: "Story help", kind: "Unlock", players: 2 },
-  { id: "rh-s-diamond", gameSlug: "royale-high", name: "Diamond run", kind: "Grind", players: 2 },
 ];
 
 
@@ -1035,7 +1033,7 @@ export function findRef(
  * not been done yet.
  */
 export const PARTIAL_SERVICES: readonly string[] = [
-  "grow-a-garden", "royale-high",
+  "grow-a-garden",
 ];
 
 /**
