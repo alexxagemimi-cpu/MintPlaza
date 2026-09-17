@@ -91,9 +91,25 @@ function RequestCard({ want, game }: { want: Want; game: Game }) {
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-ink-mute">{want.detail}</p>
       )}
 
+      {/* This said "OPEN" and offered an "Ask to join" button, and both were
+          wrong. These cards are not posts — they are built from the game
+          registry's own `wants` list, which is a set of EXAMPLES of what people
+          ask for in this game. There is no listing behind them and no id to
+          join, so the button could never have worked.
+
+          Calling them examples and pointing at the board where a real one gets
+          posted turns a dead end into the thing the page was trying to do
+          anyway: show somebody what this game's board is for. */}
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-line-soft pt-4">
-        <span className="font-mono text-[0.625rem] tracking-[0.07em] text-ink-faint">OPEN</span>
-        <button type="button" className="pill pill-ghost shrink-0 py-2 text-[0.8125rem]">Ask to join</button>
+        <span className="font-mono text-[0.625rem] tracking-[0.07em] text-ink-faint">
+          EXAMPLE
+        </span>
+        <Link
+          href={`/app/${game.slug}/trades`}
+          className="pill pill-ghost shrink-0 py-2 text-[0.8125rem]"
+        >
+          Post one like this
+        </Link>
       </div>
     </article>
   );

@@ -170,10 +170,12 @@ export function ExploreCatalog({
         <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((item) => (
             <li key={item.id}>
-              <button
-                type="button"
-                className="glass-quiet flex w-full items-center gap-3 rounded-[var(--radius-inner)] p-3 text-left transition-colors hover:border-line"
-              >
+              {/* A div, not a button. There is nothing to click through to —
+                  this is a reference list of what exists in the game, and the
+                  listing form has its own picker. It was a <button> with no
+                  handler, which reads as clickable, does nothing, and makes a
+                  working page feel broken. */}
+              <div className="glass-quiet flex w-full items-center gap-3 rounded-[var(--radius-inner)] p-3 text-left">
                 <ItemTile item={item} size={44} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
@@ -224,7 +226,7 @@ export function ExploreCatalog({
                     {item.classes?.map((c) => <ClassChip key={c} label={c} />)}
                   </span>
                 </span>
-              </button>
+              </div>
             </li>
           ))}
         </ul>

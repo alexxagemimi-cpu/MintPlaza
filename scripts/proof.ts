@@ -1018,3 +1018,72 @@ line("21. LEVEL UP — the money, and the ways it could go wrong quietly");
   assert("nothing in this codebase asks for a card number", cardFields.length === 0,
     cardFields[0]);
 }
+
+line("22. NO BUTTON ON THIS SITE DOES NOTHING");
+{
+  // Three buttons shipped that did nothing at all when tapped: "Message" and
+  // "Make offer" on every trade listing, "Ask to join" on every explore card,
+  // and every item tile in the catalogue. None of them threw, none of them
+  // logged, none of them were caught by typechecking or the build — they just
+  // sat there looking like the point of the page.
+  //
+  // That is the worst class of bug on a site trying to earn trust from
+  // fourteen-year-olds, because it does not read as "broken", it reads as
+  // "ignoring me". So it is checked mechanically now.
+  //
+  // A <button> is honest if it does something: an onClick, a submit inside a
+  // form, or a disabled state. Anything else should have been a link or a div.
+  const files: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".tsx")) files.push(full);
+    }
+  })("src");
+
+  const dead: string[] = [];
+  for (const f of files) {
+    // Comments go first, and this is the second time that has mattered in this
+    // file. The components most likely to be scanned are the ones whose
+    // comments EXPLAIN a button that was removed — naming <button> while doing
+    // the opposite of what the check is looking for. A scanner that trips on
+    // its own documentation teaches whoever hits it that the check is noise.
+    //
+    // JSX comments are stripped as a whole ({/* ... */}), not just their inner
+    // /* ... */, because leaving the braces behind would unbalance the depth
+    // counter below and swallow the rest of the file.
+    const src = readFileSync(f, "utf8")
+      .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*\/\/.*$/gm, "");
+    // Match a whole <button ...> opening tag. Balanced-brace aware, because an
+    // onClick handler contains `=>` and `>` and a naive [^>]* stops inside it —
+    // which is exactly the false positive that made the first version of this
+    // check report four healthy buttons and hide nothing.
+    for (let i = src.indexOf("<button"); i !== -1; i = src.indexOf("<button", i + 1)) {
+      let depth = 0;
+      let end = -1;
+      for (let j = i; j < src.length; j++) {
+        const c = src[j];
+        if (c === "{") depth++;
+        else if (c === "}") depth--;
+        else if (c === ">" && depth === 0) { end = j; break; }
+      }
+      if (end === -1) continue;
+      const tag = src.slice(i, end + 1);
+      const acts =
+        /\bonClick\b/.test(tag) ||
+        /\bonPointerDown\b/.test(tag) ||
+        /type=["']submit["']/.test(tag) ||
+        /\bformAction\b/.test(tag);
+      if (!acts) {
+        dead.push(`${f}:${src.slice(0, i).split("\n").length}`);
+      }
+    }
+  }
+
+  assert("every <button> in the app actually does something when tapped",
+    dead.length === 0,
+    dead.length ? dead.join(", ") : `${files.length} components checked`);
+}

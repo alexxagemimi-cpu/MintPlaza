@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ItemTile } from "./ItemTile";
 import { ValuesCard } from "./ValuesCard";
 import { REASON_LABEL, type CardListing } from "@/lib/match";
@@ -289,10 +290,22 @@ export function TradeListingCard({
             )}
             <span className="truncate">{REASON_LABEL[listing.reason]}</span>
           </p>
-          <div className="flex shrink-0 gap-2">
-            <button type="button" className="pill pill-ghost py-1.5 text-[0.8125rem]">Message</button>
-            <button type="button" className="pill pill-mint py-1.5 text-[0.8125rem]">Make offer</button>
-          </div>
+          {/* This was a "Message" button and a "Make offer" button, and neither
+              did anything: messaging is not built (see /messages, which says so)
+              and there is no offer flow behind a listing. Two buttons that look
+              like the point of the card and do nothing when tapped is the
+              fastest way to teach somebody the site is broken.
+
+              What DOES work is the profile: their lists, their inventory, their
+              completed deals, and their Roblox name — which is how a trade
+              actually gets arranged on every site like this one. So the card
+              sends them there instead of nowhere. */}
+          <Link
+            href={`/app/${listing.gameSlug}/profile/${encodeURIComponent(listing.username)}`}
+            className="pill pill-mint shrink-0 py-1.5 text-[0.8125rem]"
+          >
+            See {listing.username}&rsquo;s profile
+          </Link>
         </div>
       </div>
     </details>
