@@ -276,6 +276,29 @@ export async function lockIn(listingId: string): Promise<Result> {
 }
 
 /**
+ * What the interface calls a thing, against what the table calls it.
+ *
+ * These drifted, and the report button was broken for two of its three kinds
+ * because of it. `reports.subject_type` is constrained to
+ * ('user','listing','message','proof'), and this action was inserting the
+ * interface's own words — "player" and "comment" — straight into it. Postgres
+ * rejected both with a check violation, and the catch below turned that into
+ * "Could not send that report. Try again.", so every report of a player and
+ * every report of a comment was silently discarded. Only listings, where the
+ * two vocabularies happened to agree, ever arrived.
+ *
+ * Translating here rather than renaming either side: "player" and "comment"
+ * are what a person reporting one sees on the button, and 'user' and 'message'
+ * are what the table has always stored. The boundary is the honest place for
+ * the two to meet.
+ */
+const SUBJECT_TYPE = {
+  player:  "user",
+  comment: "message",
+  listing: "listing",
+} as const satisfies Record<"player" | "comment" | "listing", string>;
+
+/**
  * Report something.
  *
  * Writes and returns. It never reads the table back — a reporter must not be
@@ -308,7 +331,7 @@ export async function submitReport(
 
   const { error } = await a.supabase.from("reports").insert({
     reporter_id: a.profile.id,
-    subject_type: kind,
+    subject_type: SUBJECT_TYPE[kind],
     subject_id: subjectId,
     reason,
     evidence_url: evidenceUrl,
@@ -317,6 +340,14 @@ export async function submitReport(
     // nothing.
     subject_label: extra?.subjectLabel?.slice(0, 200) ?? null,
   });
-  if (error) return fail("Could not send that report. Try again.");
+  if (error) {
+    // Logged, not just swallowed. A generic message is right for the player —
+    // a constraint name helps them not at all — but this failing invisibly on
+    // the server is exactly how the mapping above stayed broken: two of the
+    // three report kinds were rejected by the database and nothing anywhere
+    // said so.
+    console.error("submitReport failed", { kind, code: error.code, message: error.message });
+    return fail("Could not send that report. Try again.");
+  }
   return { ok: true };
 }

@@ -4,9 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { browserSupabase } from "@/lib/supabase/client";
 import {
   saveItem, setItemActive, saveGame, saveExploreTabs,
-  type ItemDraft, type AdminReport, type ExploreTabDraft,
-} from "@/lib/admin/actions";
+  type ItemDraft, type AdminReport, type ExploreTabDraft, type SupportMessage } from "@/lib/admin/actions";
 import { ReportsPanel } from "./ReportsPanel";
+import { SupportPanel } from "./SupportPanel";
 import { Studio } from "./Studio";
 import type { StudioTemplate, MediaRow } from "@/lib/data/templates";
 import { lockConsole } from "@/lib/admin/gate";
@@ -341,12 +341,13 @@ function ItemEditor({
 /* ------------------------------------------------------------------ */
 
 export function ConsolePanel({
-  who, games, items, reports = [], templates = [], library = [],
+  who, games, items, reports = [], support = [], templates = [], library = [],
 }: {
   who: string;
   games: ConsoleGame[];
   items: ConsoleItem[];
   reports?: readonly AdminReport[];
+  support?: readonly SupportMessage[];
   templates?: readonly StudioTemplate[];
   library?: readonly MediaRow[];
 }) {
@@ -586,6 +587,8 @@ export function ConsolePanel({
       <Studio games={games} templates={templates} library={library} />
 
       <ReportsPanel reports={reports} />
+
+      <SupportPanel messages={support} />
     </div>
   );
 }

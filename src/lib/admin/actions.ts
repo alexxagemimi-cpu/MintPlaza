@@ -550,3 +550,56 @@ export async function deleteMedia(id: string): Promise<ActionResult> {
   revalidatePath("/app", "layout");
   return { ok: true };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Support messages                                                   */
+/* ------------------------------------------------------------------ */
+
+export interface SupportMessage {
+  id: string;
+  created_at: string;
+  status: "open" | "answered" | "closed";
+  body: string;
+  context: string | null;
+  admin_note: string | null;
+  resolved_at: string | null;
+  sender_username: string | null;
+  sender_roblox_id: string | null;
+}
+
+/**
+ * The "tell us your problem" queue.
+ *
+ * Separate from reports on purpose. A report is about a person and needs a
+ * moderation decision; this is about the site and usually needs a fix or a
+ * sentence back. Folding them into one list would bury the moderation queue
+ * under "how do I trade", which is how a report button stops being answered.
+ */
+export async function listSupport(
+  status: "open" | "answered" | "closed" | "all" = "open",
+): Promise<SupportMessage[]> {
+  if (!(await isAdmin())) return [];
+  const supabase = await serverSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase.rpc("admin_support_messages", { p_status: status });
+  if (error || !Array.isArray(data)) return [];
+  return data as SupportMessage[];
+}
+
+export async function resolveSupport(
+  id: string,
+  status: "open" | "answered" | "closed",
+  note?: string,
+): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const { error } = await supabase.rpc("admin_resolve_support", {
+    p_id: id, p_status: status, p_note: note?.slice(0, 2000) ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true, id };
+}

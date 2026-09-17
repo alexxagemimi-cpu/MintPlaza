@@ -46,6 +46,9 @@ values ('11111111-1111-1111-1111-111111111111', 'user',
 insert into public.trade_listings (id, user_id, game_slug, note)
 values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
         '11111111-1111-1111-1111-111111111111', 'blox-fruits', 'alice note');
+insert into public.support_messages (id, user_id, body)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
+        '11111111-1111-1111-1111-111111111111', 'alice cannot load the board');
 
 -- ---------------------------------------------------------------------------
 \echo ''
@@ -131,6 +134,33 @@ begin
 
   select count(*) into n from public.item_value_history;
   perform pg_temp.ok('value history reads as empty rather than erroring', n = 0);
+
+  -- A support message can name a bug, a username, or anything else the sender
+  -- was in the middle of. It is theirs and the owner's, nobody else's.
+  select count(*) into n from public.support_messages;
+  perform pg_temp.ok('another player''s support message is invisible', n = 0);
+end $$;
+
+do $$
+declare n int;
+begin
+  update public.support_messages set status = 'closed'
+   where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('a stranger cannot close somebody''s support message', n = 0);
+
+  delete from public.support_messages
+   where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('a stranger cannot delete one either', n = 0);
+end $$;
+
+do $$ begin
+  insert into public.support_messages (user_id, body)
+  values ('11111111-1111-1111-1111-111111111111', 'forged, from someone else');
+  perform pg_temp.ok('a stranger cannot send one in somebody else''s name', false);
+exception when insufficient_privilege then
+  perform pg_temp.ok('a stranger cannot send one in somebody else''s name', true);
 end $$;
 
 -- Writes. Each has to end in zero rows or a refusal.
@@ -250,6 +280,9 @@ begin
   select count(*) into n from public.reports;
   perform pg_temp.ok('a reporter can see the report they filed', n = 1);
 
+  select count(*) into n from public.support_messages;
+  perform pg_temp.ok('and their own support message', n = 1);
+
   insert into public.inventory_entries (user_id, game_slug, item_id, kind)
   values ('11111111-1111-1111-1111-111111111111', 'blox-fruits', 'bf-magnet', 'want');
   perform pg_temp.ok('a player can add to their own inventory', true);
@@ -280,6 +313,9 @@ begin
 
   select count(*) into n from public.item_value_history;
   perform pg_temp.ok('a signed-out visitor sees no value history', n = 0);
+
+  select count(*) into n from public.support_messages;
+  perform pg_temp.ok('a signed-out visitor sees no support messages', n = 0);
 end $$;
 
 do $$ begin

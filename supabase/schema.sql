@@ -2366,7 +2366,8 @@ declare
     'admin_save_template', 'admin_set_template_active',
     'admin_add_media', 'admin_delete_media',
     'enforce_service_listing_limit', 'block_self_vote', 'stamp_pick_reply',
-    'cleanup_service_listings', 'record_item_value'
+    'cleanup_service_listings', 'record_item_value',
+    'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate'
   ];
   r record;
   dropped int := 0;
@@ -3383,3 +3384,143 @@ begin
     raise notice 'Scheduled % (%).', jobs[i][1], jobs[i][2];
   end loop;
 end $$;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Tell us your problem
+--
+-- The report button is for a person: somebody scammed me, this comment is
+-- abuse. This is the other half — the site itself is broken, or I cannot work
+-- out how to do something, and there is nowhere to say so. Without it the only
+-- route is the email address in the corner, which most players will not use
+-- and which arrives with no idea who sent it or whether they were even signed
+-- in.
+--
+-- Signed-in only, deliberately. An open box is a spam queue, and the person
+-- who genuinely cannot sign in is exactly who the email address in the corner
+-- is for — it is the fallback, not decoration.
+-- ===========================================================================
+-- ===========================================================================
+
+create table if not exists public.support_messages (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  body        text not null check (char_length(btrim(body)) between 1 and 2000),
+  -- What the player was looking at. Filled in by the page, not typed: "the
+  -- trades screen in PS99" is worth more than a paragraph describing it.
+  context     text check (context is null or char_length(context) <= 200),
+  status      text not null default 'open'
+              check (status in ('open', 'answered', 'closed')),
+  admin_note  text check (admin_note is null or char_length(admin_note) <= 2000),
+  handled_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index if not exists support_messages_queue_idx
+  on public.support_messages (status, created_at desc);
+create index if not exists support_messages_sender_idx
+  on public.support_messages (user_id, created_at desc);
+
+alter table public.support_messages enable row level security;
+
+-- You may send one, and you may read your own back so the page can show that
+-- it arrived. You may never read anybody else's, and you may never change the
+-- status — that is the owner's word on it, not yours.
+drop policy if exists support_send on public.support_messages;
+create policy support_send on public.support_messages for insert
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.profiles p
+                 where p.id = auth.uid() and p.status = 'active')
+  );
+
+drop policy if exists support_read_own on public.support_messages;
+create policy support_read_own on public.support_messages for select
+  using (user_id = auth.uid() or public.is_moderator());
+
+-- No update or delete policy at all. A sent message is a record; the owner
+-- resolves it through the admin function below.
+
+-- Five a day. Enough for a person having a bad time with the site, few enough
+-- that the queue cannot be flooded from one account. In a trigger because an
+-- application-side count is wrong exactly when two submits race.
+create or replace function public.enforce_support_rate()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_today int;
+begin
+  perform 1 from public.profiles where id = new.user_id for update;
+
+  select count(*) into v_today
+    from public.support_messages
+   where user_id = new.user_id
+     and created_at > now() - interval '24 hours';
+
+  if v_today >= 5 then
+    raise exception 'You have sent five messages today. If it is urgent, email us instead.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists support_messages_rate on public.support_messages;
+create trigger support_messages_rate
+  before insert on public.support_messages
+  for each row execute function public.enforce_support_rate();
+
+revoke all on function public.enforce_support_rate() from public, anon, authenticated;
+
+/**
+ * The support queue, for the owner.
+ *
+ * Same shape as admin_reports(): gated inside the function, because Supabase
+ * cannot gate an RPC beyond `authenticated`. Carries the sender's username so
+ * the panel can say who wrote it without a second round trip.
+ */
+create or replace function public.admin_support_messages(p_status text default 'open')
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v jsonb;
+begin
+  perform mintplaza.require_admin();
+  select coalesce(jsonb_agg(x order by x->>'created_at' desc), '[]'::jsonb) into v
+  from (
+    select jsonb_build_object(
+      'id', m.id, 'created_at', m.created_at, 'status', m.status,
+      'body', m.body, 'context', m.context,
+      'admin_note', m.admin_note, 'resolved_at', m.resolved_at,
+      'sender_username',  p.username,
+      'sender_roblox_id', p.roblox_user_id
+    ) x
+    from public.support_messages m
+    left join public.profiles p on p.id = m.user_id
+    where p_status = 'all' or m.status = p_status
+    limit 500
+  ) q;
+  return v;
+end $$;
+
+create or replace function public.admin_resolve_support(
+  p_id uuid, p_status text, p_note text default null
+)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  if p_status not in ('open', 'answered', 'closed') then
+    raise exception 'Unknown status.' using errcode = 'P0001';
+  end if;
+  update public.support_messages
+     set status      = p_status,
+         admin_note  = coalesce(left(p_note, 2000), admin_note),
+         handled_by  = auth.uid(),
+         resolved_at = case when p_status in ('answered','closed') then now() else null end
+   where id = p_id;
+end $$;
+
+revoke all on function public.admin_support_messages(text)             from public, anon;
+revoke all on function public.admin_resolve_support(uuid, text, text)  from public, anon;
+grant execute on function public.admin_support_messages(text)            to authenticated;
+grant execute on function public.admin_resolve_support(uuid, text, text) to authenticated;

@@ -365,13 +365,63 @@ export function SettingsSheet({
             </p>
           )}
 
+          <MakerCard />
+
           <div className="flex items-center justify-center gap-4 px-4 pb-6 pt-5 text-[0.75rem] text-ink-faint">
             <Link href="/privacy" className="hover:text-ink">Privacy</Link>
             <span aria-hidden="true">·</span>
             <Link href="/terms" className="hover:text-ink">Terms</Link>
+            <span aria-hidden="true">·</span>
+            <Link href="/support" className="hover:text-ink">Tell us your problem</Link>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Who made this.
+ *
+ * Every other card in here changes something. This one does not, and that is
+ * the point: a site with a person's name on it reads differently from one
+ * without, and a player deciding whether to trust a trading site with their
+ * account is making exactly that judgement.
+ *
+ * The Instagram mark is inline SVG rather than an image from Instagram's
+ * servers. A remote logo would mean every player who opens Settings quietly
+ * makes a request to Meta carrying their IP and referrer, which is a real cost
+ * for a decorative glyph. Drawn here it also inherits currentColor and works
+ * in both themes.
+ */
+function MakerCard() {
+  return (
+    <div className="mx-3 mt-4 rounded-[var(--radius-inner)] border border-line bg-surface p-4">
+      <p className="font-mono text-[0.5625rem] tracking-[0.1em] text-mint">
+        MADE BY AN INNOVATIVE TEENAGER
+      </p>
+      <p className="mt-1.5 text-[0.9375rem] font-bold tracking-[-0.02em] text-ink">
+        Albert Whitestroke <span className="font-semibold text-ink-mute">(Shashwat)</span>
+      </p>
+      <a
+        href="https://instagram.com/alx22n"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-ink-soft transition-colors hover:text-mint"
+      >
+        <svg
+          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className="shrink-0" aria-hidden="true"
+        >
+          <rect x="2" y="2" width="20" height="20" rx="5.5" />
+          <circle cx="12" cy="12" r="4.2" />
+          <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" stroke="none" />
+        </svg>
+        @alx22n
+      </a>
     </div>
   );
 }

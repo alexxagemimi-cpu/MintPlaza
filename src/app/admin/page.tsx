@@ -5,7 +5,7 @@ import { isUnlocked } from "@/lib/admin/gate";
 import { PasscodeScreen } from "@/components/admin/PasscodeScreen";
 import { serverSupabase } from "@/lib/supabase/server";
 import { ConsolePanel, type ConsoleGame, type ConsoleItem } from "@/components/admin/ConsolePanel";
-import { listReports } from "@/lib/admin/actions";
+import { listReports, listSupport } from "@/lib/admin/actions";
 import { allTemplates, mediaLibrary } from "@/lib/data/templates";
 
 /**
@@ -39,7 +39,7 @@ export default async function AdminPage() {
   const supabase = await serverSupabase();
   if (!supabase) notFound();
 
-  const [{ data: games }, { data: items }, reports] = await Promise.all([
+  const [{ data: games }, { data: items }, reports, support] = await Promise.all([
     supabase.from("games")
       .select("slug, name, short_name, blurb, hue, art, sort_order, explore_tabs")
       .order("sort_order"),
@@ -47,6 +47,7 @@ export default async function AdminPage() {
       .select("id, game_slug, name, category, attributes, is_active")
       .order("name"),
     listReports("open"),
+    listSupport("open"),
   ]);
 
   const [templates, library] = await Promise.all([allTemplates(), mediaLibrary()]);
@@ -57,6 +58,7 @@ export default async function AdminPage() {
       games={(games ?? []) as ConsoleGame[]}
       items={(items ?? []) as ConsoleItem[]}
       reports={reports}
+      support={support}
       templates={templates}
       library={library}
     />

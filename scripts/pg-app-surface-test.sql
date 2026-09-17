@@ -500,3 +500,93 @@ begin
            case when leaked = '{}' then '' else ' (reachable: ' || array_to_string(leaked, ', ') || ')' end),
     leaked = '{}');
 end $$;
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'REPORT KINDS'
+--
+-- The interface offers three: player, comment, listing. Two of them were
+-- rejected by this table's CHECK for months, because the action inserted the
+-- interface's words rather than the table's and then swallowed the error.
+-- Every one of those reports was lost. The mapping now lives in
+-- src/lib/actions/board.ts (SUBJECT_TYPE); these are the values it produces.
+-- ---------------------------------------------------------------------------
+do $$
+declare k text; rejected text[] := '{}';
+begin
+  foreach k in array array['user', 'message', 'listing'] loop
+    begin
+      insert into public.reports (reporter_id, subject_type, subject_id, reason)
+      values ('bbbbbbbb-0000-0000-0000-00000000000b', k,
+              'aaaaaaaa-0000-0000-0000-00000000000a', 'test');
+    exception when check_violation then
+      rejected := array_append(rejected, k);
+    end;
+  end loop;
+  perform pg_temp.ok(
+    format('every report kind the interface offers is storable%s',
+      case when rejected = '{}' then '' else ' — REJECTED: ' || array_to_string(rejected, ', ') end),
+    rejected = '{}');
+end $$;
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'SUPPORT'
+-- ---------------------------------------------------------------------------
+set "request.jwt.claim.sub" = 'bbbbbbbb-0000-0000-0000-00000000000b';
+
+do $$ begin
+  insert into public.support_messages (user_id, body, context)
+  values ('bbbbbbbb-0000-0000-0000-00000000000b', 'the trades screen is blank', 'pet-simulator-99');
+  perform pg_temp.ok('a player can send a support message', true);
+exception when others then
+  perform pg_temp.ok('a player can send a support message — ' || sqlerrm, false);
+end $$;
+
+do $$ begin
+  insert into public.support_messages (user_id, body) values
+    ('bbbbbbbb-0000-0000-0000-00000000000b', '   ');
+  perform pg_temp.ok('an empty message is refused', false);
+exception when check_violation then
+  perform pg_temp.ok('an empty message is refused', true);
+end $$;
+
+do $$
+declare i int;
+begin
+  for i in 1..5 loop
+    insert into public.support_messages (user_id, body)
+    values ('bbbbbbbb-0000-0000-0000-00000000000b', 'message ' || i);
+  end loop;
+  perform pg_temp.ok('the five-a-day limit bites', false);
+exception when sqlstate 'P0001' then
+  perform pg_temp.ok('the five-a-day limit bites', true);
+end $$;
+
+do $$
+declare q jsonb;
+begin
+  q := public.admin_support_messages('open');
+  perform pg_temp.ok('a normal player cannot read the support queue', false);
+exception when sqlstate 'P0001' then
+  perform pg_temp.ok('a normal player cannot read the support queue', true);
+end $$;
+
+set "request.jwt.claim.sub" = 'aaaaaaaa-0000-0000-0000-00000000000a';
+do $$
+declare q jsonb;
+begin
+  q := public.admin_support_messages('open');
+  perform pg_temp.ok('the owner sees the queue', jsonb_array_length(q) >= 1);
+  perform pg_temp.ok('and it carries the keys the panel reads',
+    q->0 ? 'id' and q->0 ? 'created_at' and q->0 ? 'status' and q->0 ? 'body'
+    and q->0 ? 'context' and q->0 ? 'admin_note' and q->0 ? 'resolved_at'
+    and q->0 ? 'sender_username' and q->0 ? 'sender_roblox_id');
+  perform pg_temp.ok('and names who sent it',
+    q->0->>'sender_username' = 'SomePlayer');
+
+  perform public.admin_resolve_support((q->0->>'id')::uuid, 'answered', 'fixed it');
+  perform pg_temp.ok('resolving one closes it',
+    (select status from public.support_messages
+      where id = (q->0->>'id')::uuid) = 'answered');
+end $$;
