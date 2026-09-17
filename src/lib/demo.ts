@@ -22,7 +22,6 @@
 import { tradableFor, ITEM_VARIANTS, type CatalogItem } from "./items";
 import type { ListingItem } from "./trade";
 import type { ReasonCode } from "./match";
-import type { Contact, ContactSuggestion, DirectMessage } from "./contacts";
 
 export const DEMO_ENABLED =
   process.env.NEXT_PUBLIC_DEMO_MODE === "on" &&
@@ -373,85 +372,16 @@ export function demoServiceListings(gameSlug: string, count = 12): readonly Serv
 export { findService, MAX_TEAM };
 
 /* ------------------------------------------------------------------ */
-/*  Contacts — example people, so the tab can be reviewed empty-handed */
+/*  What used to be here                                               */
 /* ------------------------------------------------------------------ */
-
-/**
- * Suggestions and contacts for one game.
+/*
+ * demoContacts(), demoSuggestions() and demoThread() lived here: invented
+ * people with invented conversations, so the Contacts tab could be reviewed
+ * before messaging existed.
  *
- * Built from the recruitment templates rather than invented, so the "you were
- * on this together" line on every card names something that genuinely exists
- * on the board next door. A suggestion that says "Leviathan hunt" when there is
- * no Leviathan hunt would make the whole feature read as decoration.
+ * Messaging exists now, the Contacts tab is Messages, and its screen reads
+ * real conversations out of the database. Keeping the generators would have
+ * left three exported functions nothing calls, in the one file whose whole
+ * job is to produce convincing fake data — which is exactly the file where
+ * dead code is most likely to get wired back into something real by accident.
  */
-export function demoSuggestions(gameSlug: string): readonly ContactSuggestion[] {
-  if (!DEMO_ENABLED) return [];
-  const crew = servicesFor(gameSlug, "recruit");
-  if (crew.length === 0) return [];
-
-  const rand = seededRandom(`${gameSlug}:suggest`);
-  const names = [...USERNAMES];
-  const service = crew[Math.floor(rand() * crew.length)];
-  const team = names.slice(0, 4);
-
-  return team.slice(0, 3).map((username, n) => ({
-    id: `${gameSlug}-suggest-${n}`,
-    person: { username, online: rand() > 0.45 },
-    serviceId: service.id,
-    alongside: team.filter((t) => t !== username),
-    // Spread across the window so the countdown reads differently on each,
-    // which is the only way to see that the "clears in" line works.
-    metMinutesAgo: 6 + n * 27,
-    isDemo: true as const,
-  }));
-}
-
-export function demoContacts(gameSlug: string): readonly Contact[] {
-  if (!DEMO_ENABLED) return [];
-  const crew = servicesFor(gameSlug, "recruit");
-  if (crew.length === 0) return [];
-
-  const rand = seededRandom(`${gameSlug}:contacts`);
-  return USERNAMES.slice(4, 9).map((username, n) => {
-    const service = crew[(n * 3) % crew.length];
-    const said = rand() > 0.35;
-    return {
-      id: `${gameSlug}-contact-${n}`,
-      person: { username, online: rand() > 0.55 },
-      metServiceId: service.id,
-      metDaysAgo: n,
-      lastMessage: said
-        ? pick(rand, [
-            "on now if you still need it",
-            "that worked, thanks",
-            "give me 10 and I'm free",
-            "which server are you in?",
-            "got the chip, ready when you are",
-          ])
-        : undefined,
-      lastMessageMinutesAgo: said ? Math.floor(rand() * 900) : undefined,
-      unread: rand() > 0.75 ? 1 + Math.floor(rand() * 3) : 0,
-      isDemo: true as const,
-    };
-  });
-}
-
-export function demoThread(contactId: string): readonly DirectMessage[] {
-  if (!DEMO_ENABLED) return [];
-  const rand = seededRandom(`thread:${contactId}`);
-  const lines: [boolean, string][] = [
-    [false, "hey, that was a good run"],
-    [true, "yeah it was. same time tomorrow?"],
-    [false, "should be on after school"],
-    [true, "cool, I'll post it again around then"],
-    [false, "sounds good, ping me here"],
-  ];
-  const n = 2 + Math.floor(rand() * (lines.length - 1));
-  return lines.slice(0, n).map(([them, text], i) => ({
-    id: `${contactId}-m${i}`,
-    mine: !them,
-    text,
-    minutesAgo: (n - i) * 7 + Math.floor(rand() * 5),
-    isDemo: true as const,
-  }));
-}
