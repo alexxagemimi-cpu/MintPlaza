@@ -9,6 +9,9 @@ import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { SuggestionCard } from "@/components/SuggestionCard";
 import { ValuesCard } from "@/components/ValuesCard";
+import { LevelUpCard } from "@/components/LevelUpCard";
+import { readLevelUp } from "@/lib/data/level-up";
+import type { LevelUpStatus } from "@/lib/level-up";
 import { currentProfile } from "@/lib/supabase/server";
 import { readProfile } from "@/lib/data/profile";
 import { readAllowance, readSuggestions } from "@/lib/data/trades";
@@ -29,7 +32,13 @@ export async function generateMetadata({
 
 /* ------------------------------------------------------------------ */
 
-function TopBar({ game, settings }: { game: Game; settings: SettingsProfile | null }) {
+function TopBar({
+  game, settings, levelUp,
+}: {
+  game: Game;
+  settings: SettingsProfile | null;
+  levelUp: LevelUpStatus;
+}) {
   return (
     <div className="mb-8 flex items-center justify-between gap-4">
       <div className="min-w-0">
@@ -50,7 +59,7 @@ function TopBar({ game, settings }: { game: Game; settings: SettingsProfile | nu
             <path d="M17.5 17.5 13.7 13.7" />
           </svg>
         </Link>
-        <SettingsButton profile={settings} />
+        <SettingsButton profile={settings} levelUp={levelUp} />
       </div>
     </div>
   );
@@ -289,9 +298,10 @@ export default async function GameDashboard({
   // Real suggestions first. The examples are a review aid for a site with no
   // database attached — they are off in production by construction — so they
   // fill the panel only when there is genuinely nothing real to put in it.
-  const [{ trades, haveCount, wantCount }, allowance] = await Promise.all([
+  const [{ trades, haveCount, wantCount }, allowance, levelUp] = await Promise.all([
     readSuggestions(game.slug, 8),
     readAllowance(game.slug),
+    readLevelUp(),
   ]);
   const examples = trades.length === 0 ? demoListings(game.slug) : [];
   const hasLists = haveCount > 0 || wantCount > 0;
@@ -316,7 +326,7 @@ export default async function GameDashboard({
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8 sm:px-8 sm:pt-12">
-      <TopBar game={game} settings={settings} />
+      <TopBar game={game} settings={settings} levelUp={levelUp} />
       <DemoBanner showing={examples.length > 0} />
 
       <div className="grid gap-4 lg:grid-cols-[21rem_minmax(0,1fr)] lg:items-start lg:gap-5">
@@ -332,6 +342,11 @@ export default async function GameDashboard({
             <ProofPrompt game={game} count={proofCount} />
           )}
           <InventoryPrompt game={game} />
+          {/* Directly under the slot meter, which is the one place on the site
+              where somebody is looking at a limit rather than being told about
+              one. A player who has just seen "0 slots left" is the only person
+              for whom this card is useful rather than noise. */}
+          <LevelUpCard status={levelUp} compact />
           {/* Values live off-site, so the way to them has to be somewhere a
               player can find without being mid-trade first. The listing cards
               and the catalogue footer both carry the compact version; this is

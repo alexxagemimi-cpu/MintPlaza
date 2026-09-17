@@ -315,6 +315,178 @@ create table if not exists public.inventory_proofs (
 create index if not exists inventory_proofs_entry_idx on public.inventory_proofs (entry_id);
 
 
+
+-- ===========================================================================
+-- ===========================================================================
+-- Level Up
+--
+-- A 60-day subscription. This block is the part that decides what somebody
+-- HAS; what they PAY is in src/lib/level-up.ts, and taking the money is a
+-- payment processor's job and nobody else's.
+--
+-- ---------------------------------------------------------------------------
+-- Why the entitlement lives here and not in the app
+-- ---------------------------------------------------------------------------
+--
+-- Every perk below is a limit the database already enforces in a trigger. That
+-- is the whole reason this design is safe: Level Up does not add a new code
+-- path that has to remember to check anything, it changes a number that four
+-- existing checks already read. A player who forges a request, calls PostgREST
+-- directly, or edits the page in their browser gets exactly the limits their
+-- row in this table says they get, because the limit is applied where the row
+-- is written rather than where the button is drawn.
+--
+-- ---------------------------------------------------------------------------
+-- Nobody can grant themselves anything
+-- ---------------------------------------------------------------------------
+--
+-- There is no insert, update or delete policy on this table. None. A signed-in
+-- player can read their own row and nothing else — not even that somebody
+-- else has one. Granting is an admin function, which is where a payment
+-- processor's webhook will eventually call in once one exists. Until then the
+-- owner grants by hand, which is slow and completely safe.
+--
+-- ---------------------------------------------------------------------------
+-- What Level Up is NOT
+-- ---------------------------------------------------------------------------
+--
+-- It is not a trust signal, and the badge must never be drawn as one. On a
+-- site where teenagers hand strangers items worth months of grinding, a mark
+-- that reads as "verified" or "trusted" is worth far more to a scammer than
+-- to an honest trader — they would be the first to buy it. So the entitlement
+-- carries no standing, no verification, and no priority in any dispute. It
+-- buys room to post and nothing else, and the interface says so in those
+-- words.
+-- ===========================================================================
+-- ===========================================================================
+
+create table if not exists public.entitlements (
+  user_id    uuid primary key references public.profiles(id) on delete cascade,
+  -- One kind today. A column rather than a boolean because the second kind is
+  -- always cheaper to add than to retrofit.
+  kind       text not null default 'level_up' check (kind in ('level_up')),
+  -- The whole subscription, in one column. No renewal state machine, no
+  -- "cancelled but still active" — a period either has not ended or it has.
+  -- Extending is `expires_at = greatest(now(), expires_at) + 60 days`, which
+  -- is correct whether the player renews early or comes back months later.
+  expires_at timestamptz not null,
+  -- Where it came from, for the owner reading their own records: 'purchase',
+  -- 'gift', 'refunded'. Never shown to the player.
+  source     text not null default 'purchase'
+             check (source in ('purchase', 'gift', 'comp', 'refunded')),
+  -- The country the player said they were in when they bought. Kept because
+  -- the price depends on it and a refund question a year later will ask.
+  country    text check (country is null or country ~ '^[A-Z]{2}$'),
+  -- The processor's own id for the payment, so one webhook delivered twice
+  -- cannot extend a subscription twice. Unique, and null until a processor
+  -- exists.
+  payment_ref text unique,
+  granted_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists entitlements_expiry_idx
+  on public.entitlements (expires_at desc);
+
+alter table public.entitlements enable row level security;
+
+-- Read your own, and nothing else. Not even the existence of anybody else's:
+-- who pays for what is not a fact this site publishes, and a list of paying
+-- accounts is a list of accounts worth targeting.
+--
+-- The owner is not carved out here, and that is on purpose twice over. This
+-- block runs before public.is_admin() is defined — a policy expression is
+-- parsed when the policy is created, so naming it here would abort the whole
+-- script — and it is not needed: admin_level_ups() below is security definer,
+-- so it reads the table without consulting this policy at all. One route in
+-- for the owner, through a function that checks the allowlist, rather than two.
+drop policy if exists entitlements_read_own on public.entitlements;
+create policy entitlements_read_own on public.entitlements for select
+  using (user_id = auth.uid());
+
+-- No insert, update or delete policy. Deliberate, and the single most
+-- important line in this block: without one, RLS denies every write from
+-- every client no matter what the app sends. The admin functions below are
+-- security definer and are the only way a row is ever written.
+
+
+-- ---------------------------------------------------------------------------
+-- Is this person on Level Up right now?
+--
+-- Takes the user id rather than reading auth.uid(), because the listing-limit
+-- trigger runs against new.user_id and must answer for the row being written
+-- rather than for whoever happens to be connected. It is called inside
+-- security definer triggers, so it is marked stable and pins its search_path.
+-- ---------------------------------------------------------------------------
+create or replace function mintplaza.is_level_up(p_user uuid)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select exists (
+    select 1 from public.entitlements e
+     where e.user_id = p_user
+       and e.kind = 'level_up'
+       and e.source <> 'refunded'
+       and e.expires_at > now()
+  );
+$$;
+
+revoke all on function mintplaza.is_level_up(uuid) from public, anon;
+grant execute on function mintplaza.is_level_up(uuid) to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The four limits, per player.
+--
+-- The free numbers stay exactly where they were, in the immutable functions
+-- near the top of this file, and these read them. That keeps one place to
+-- change the free tier and one place to change what paying adds, rather than
+-- two numbers that drift apart.
+--
+-- The multipliers are deliberately modest. A subscription that made a free
+-- account unusable would be a worse site that happens to earn money; these
+-- give an active trader room to work without burying anybody.
+-- ---------------------------------------------------------------------------
+create or replace function mintplaza.listings_per_window_for(p_user uuid)
+returns int language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user)
+              then 8 else mintplaza.listings_per_window() end;
+$$;
+
+create or replace function mintplaza.max_active_per_game_for(p_user uuid)
+returns int language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user)
+              then 25 else mintplaza.max_active_per_game() end;
+$$;
+
+create or replace function mintplaza.listing_lifetime_for(p_user uuid)
+returns interval language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user)
+              then interval '21 days' else mintplaza.listing_lifetime() end;
+$$;
+
+-- Bumps are the one perk that costs other players something: the board sorts
+-- on bumped_at, so three bumps a day pushes free listings down three times
+-- instead of once. Three, not thirty, for exactly that reason — and the
+-- upgrade page says out loud that this is what is being bought.
+create or replace function mintplaza.bumps_per_day_for(p_user uuid)
+returns int language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user) then 3 else 1 end;
+$$;
+
+revoke all on function mintplaza.listings_per_window_for(uuid) from public, anon;
+revoke all on function mintplaza.max_active_per_game_for(uuid) from public, anon;
+revoke all on function mintplaza.listing_lifetime_for(uuid)    from public, anon;
+revoke all on function mintplaza.bumps_per_day_for(uuid)       from public, anon;
+grant execute on function mintplaza.listings_per_window_for(uuid) to authenticated;
+grant execute on function mintplaza.max_active_per_game_for(uuid) to authenticated;
+grant execute on function mintplaza.listing_lifetime_for(uuid)    to authenticated;
+grant execute on function mintplaza.bumps_per_day_for(uuid)       to authenticated;
+
 -- ===========================================================================
 -- Trade listings
 -- ===========================================================================
@@ -368,6 +540,11 @@ create index if not exists listing_sides_listing_idx on public.listing_sides (li
 -- cannot cycle past the limit.
 -- ---------------------------------------------------------------------------
 
+-- The per-window cap depends on who is asking: Level Up raises it. Both the
+-- LIMIT and the arithmetic below have to use the same number, so it is bound
+-- once in `cap` rather than called four times — a mismatch there would report
+-- a slot free while the trigger refused to use it, which is the most annoying
+-- bug this screen could possibly have.
 create or replace function public.listing_allowance(p_game text)
 returns table (
   used           int,
@@ -378,13 +555,17 @@ returns table (
 )
 language sql stable security definer set search_path = public, pg_catalog as $$
   with me as (select auth.uid() as uid),
+  cap as (
+    select mintplaza.listings_per_window_for((select uid from me)) as per_window,
+           mintplaza.max_active_per_game_for((select uid from me)) as per_game
+  ),
   recent as (
     select created_at
     from public.trade_listings
     where user_id = (select uid from me)
       and created_at > now() - mintplaza.listing_window()
     order by created_at desc
-    limit mintplaza.listings_per_window()
+    limit (select per_window from cap)
   ),
   live as (
     select count(*)::int as n
@@ -394,14 +575,14 @@ language sql stable security definer set search_path = public, pg_catalog as $$
   )
   select
     (select count(*)::int from recent),
-    greatest(mintplaza.listings_per_window() - (select count(*)::int from recent), 0),
+    greatest((select per_window from cap) - (select count(*)::int from recent), 0),
     case
-      when (select count(*) from recent) >= mintplaza.listings_per_window()
+      when (select count(*) from recent) >= (select per_window from cap)
       then (select min(created_at) from recent) + mintplaza.listing_window()
       else null
     end,
     (select n from live),
-    mintplaza.max_active_per_game();
+    (select per_game from cap);
 $$;
 
 -- Enforced as a BEFORE INSERT trigger so every path hits it: the app, a direct
@@ -413,6 +594,19 @@ declare
   v_recent int;
   v_active int;
   v_next   timestamptz;
+  -- Read ONCE, from new.user_id rather than auth.uid(), and held for the rest
+  -- of the function. Two reasons, and both are the kind of bug that only shows
+  -- up in production:
+  --
+  --   The row being written is the authority on whose limits apply. A listing
+  --   inserted by any route other than a signed-in browser — a future webhook,
+  --   a repair script — would otherwise be checked against whoever happened to
+  --   be connected, or against nobody at all.
+  --
+  --   And a subscription that expires in the microseconds between the count
+  --   check and the message would report one cap while enforcing another.
+  v_per_window int := mintplaza.listings_per_window_for(new.user_id);
+  v_per_game   int := mintplaza.max_active_per_game_for(new.user_id);
 begin
   perform 1 from public.profiles where id = new.user_id for update;
 
@@ -421,17 +615,16 @@ begin
   where user_id = new.user_id
     and created_at > now() - mintplaza.listing_window();
 
-  if v_recent >= mintplaza.listings_per_window() then
+  if v_recent >= v_per_window then
     select min(created_at) + mintplaza.listing_window() into v_next
     from (
       select created_at from public.trade_listings
       where user_id = new.user_id and created_at > now() - mintplaza.listing_window()
-      order by created_at desc limit mintplaza.listings_per_window()
+      order by created_at desc limit v_per_window
     ) w;
     raise exception using
       errcode = 'P0001',
-      message = format('All %s listing slots are in use for this window.',
-                       mintplaza.listings_per_window()),
+      message = format('All %s listing slots are in use for this window.', v_per_window),
       detail  = format('next_slot_at=%s', v_next),
       hint    = 'A slot frees up three hours after the listing that used it.';
   end if;
@@ -440,18 +633,17 @@ begin
   from public.trade_listings
   where user_id = new.user_id and game_slug = new.game_slug and status = 'active';
 
-  if v_active >= mintplaza.max_active_per_game() then
+  if v_active >= v_per_game then
     raise exception using
       errcode = 'P0001',
-      message = format('You already have %s active listings in this game.',
-                       mintplaza.max_active_per_game()),
+      message = format('You already have %s active listings in this game.', v_per_game),
       hint    = 'Complete or cancel one before posting another.';
   end if;
 
   -- Server owns every timestamp on the row.
   new.created_at := now();
   new.bumped_at  := now();
-  new.expires_at := now() + mintplaza.listing_lifetime();
+  new.expires_at := now() + mintplaza.listing_lifetime_for(new.user_id);
   new.status     := 'active';
   return new;
 end $$;
@@ -461,21 +653,33 @@ create trigger trade_listings_enforce_limits
   before insert on public.trade_listings
   for each row execute function public.enforce_listing_limits();
 
--- One bump per listing per day, and only by its owner.
+-- Bumping, and only by the listing's owner.
+--
+-- A bump is a cooldown rather than a counter: 24 hours divided by however many
+-- bumps a day that player gets, so free is one every 24 hours and Level Up is
+-- one every 8. A cooldown needs no daily reset job, cannot be gamed across a
+-- midnight boundary, and — the part that matters on a board sorted by
+-- bumped_at — spreads a paying player's bumps through the day instead of
+-- letting them fire three in a row.
 create or replace function public.bump_listing(p_listing uuid)
 returns timestamptz language plpgsql security definer set search_path = public as $$
-declare v_new timestamptz;
+declare
+  v_new      timestamptz;
+  v_cooldown interval := interval '24 hours'
+                         / greatest(mintplaza.bumps_per_day_for(auth.uid()), 1);
 begin
   update public.trade_listings
      set bumped_at = now(), updated_at = now()
    where id = p_listing
      and user_id = auth.uid()
      and status = 'active'
-     and bumped_at < now() - interval '24 hours'
+     and bumped_at < now() - v_cooldown
   returning bumped_at into v_new;
 
   if v_new is null then
-    raise exception 'This listing cannot be bumped yet.' using errcode = 'P0001';
+    raise exception 'This listing cannot be bumped yet.'
+      using errcode = 'P0001',
+            hint = format('Bumps are one every %s.', v_cooldown);
   end if;
   return v_new;
 end $$;
@@ -2362,7 +2566,8 @@ declare
     'admin_add_media', 'admin_delete_media',
     'enforce_service_listing_limit', 'block_self_vote', 'stamp_pick_reply',
     'cleanup_service_listings',
-    'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate'
+    'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate',
+    'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups'
   ];
   r record;
   dropped int := 0;
@@ -3512,3 +3717,170 @@ revoke all on function public.admin_support_messages(text)             from publ
 revoke all on function public.admin_resolve_support(uuid, text, text)  from public, anon;
 grant execute on function public.admin_support_messages(text)            to authenticated;
 grant execute on function public.admin_resolve_support(uuid, text, text) to authenticated;
+
+
+-- ===========================================================================
+-- Level Up: reading it, and granting it
+--
+-- Split from the entitlement table itself because that block has to exist
+-- before the listing limits that read it, and these do not — they only need to
+-- exist before the app calls them. Keeping them here means require_admin() and
+-- is_admin() are already defined above, rather than being forward-referenced
+-- from four hundred lines earlier.
+-- ===========================================================================
+
+-- What the signed-in player has. Answers for the caller and nobody else, which
+-- is why it takes no argument: a function that accepted a user id would let any
+-- signed-in account check whether any other account pays, and a list of paying
+-- accounts is a list of accounts worth targeting.
+create or replace function public.my_level_up()
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v_row public.entitlements%rowtype;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('active', false, 'expires_at', null, 'days_left', null);
+  end if;
+
+  select * into v_row from public.entitlements
+   where user_id = auth.uid() and kind = 'level_up';
+
+  if v_row.user_id is null or v_row.source = 'refunded' or v_row.expires_at <= now() then
+    -- An expired subscription still reports its end date. "It ran out on the
+    -- 3rd" is a different message from "you have never had this", and the
+    -- player deserves the first one rather than being quietly demoted.
+    return jsonb_build_object(
+      'active', false,
+      'expires_at', v_row.expires_at,
+      'days_left', null,
+      'lapsed', v_row.user_id is not null and v_row.source <> 'refunded'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'active', true,
+    'expires_at', v_row.expires_at,
+    -- Rounded UP, so the last day of a subscription reads "1 day left" rather
+    -- than "0 days left" while it is still working.
+    'days_left', ceil(extract(epoch from (v_row.expires_at - now())) / 86400)::int,
+    'lapsed', false
+  );
+end $$;
+
+revoke all on function public.my_level_up() from public, anon;
+grant execute on function public.my_level_up() to authenticated;
+
+
+-- The only way a row is ever written. Admin-only today; this is also the exact
+-- shape a payment processor's webhook will call once one exists, which is why
+-- it takes a payment reference and why that reference is unique.
+--
+-- Extending rather than replacing: greatest(now(), expires_at) means renewing
+-- early adds to what is left instead of throwing it away, and coming back
+-- after a lapse starts from today instead of from a date in the past.
+create or replace function public.admin_grant_level_up(
+  p_roblox_username text,
+  p_days            int  default 60,
+  p_country         text default null,
+  p_source          text default 'purchase',
+  p_payment_ref     text default null
+)
+returns jsonb language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_user uuid; v_until timestamptz;
+begin
+  perform mintplaza.require_admin();
+
+  if p_days is null or p_days < 1 or p_days > 3650 then
+    raise exception 'Days must be between 1 and 3650.' using errcode = 'P0001';
+  end if;
+  if p_source not in ('purchase', 'gift', 'comp', 'refunded') then
+    raise exception 'Unknown source.' using errcode = 'P0001';
+  end if;
+
+  select id into v_user from public.profiles
+   where lower(username) = lower(btrim(p_roblox_username));
+  if v_user is null then
+    raise exception 'No player called % has signed in yet.', p_roblox_username
+      using errcode = 'P0001',
+            hint = 'They have to sign in once before anything can be granted to them.';
+  end if;
+
+  insert into public.entitlements as e
+    (user_id, kind, expires_at, source, country, payment_ref, granted_by)
+  values
+    (v_user, 'level_up', now() + make_interval(days => p_days), p_source,
+     nullif(upper(btrim(coalesce(p_country, ''))), ''), nullif(btrim(coalesce(p_payment_ref,'')), ''), auth.uid())
+  on conflict (user_id) do update
+     set expires_at  = greatest(now(), e.expires_at) + make_interval(days => p_days),
+         source      = excluded.source,
+         country     = coalesce(excluded.country, e.country),
+         payment_ref = coalesce(excluded.payment_ref, e.payment_ref),
+         granted_by  = auth.uid(),
+         updated_at  = now()
+  returning e.expires_at into v_until;
+
+  return jsonb_build_object('username', p_roblox_username, 'expires_at', v_until);
+exception
+  -- The unique index on payment_ref is what stops one webhook delivered twice
+  -- from granting 120 days. It is not an error the owner needs to act on, so
+  -- it reports what already happened rather than failing the call.
+  when unique_violation then
+    select expires_at into v_until from public.entitlements
+     where payment_ref = btrim(p_payment_ref);
+    return jsonb_build_object(
+      'username', p_roblox_username, 'expires_at', v_until, 'already_applied', true);
+end $$;
+
+-- Ending one early. A refund, or a chargeback, or somebody who bought it and
+-- then got themselves suspended. Not a delete: the row is the record of what
+-- was sold, and deleting it loses the only trace that money changed hands.
+create or replace function public.admin_revoke_level_up(p_roblox_username text)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_user uuid;
+begin
+  perform mintplaza.require_admin();
+  select id into v_user from public.profiles
+   where lower(username) = lower(btrim(p_roblox_username));
+  if v_user is null then
+    raise exception 'No player called %.', p_roblox_username using errcode = 'P0001';
+  end if;
+  update public.entitlements
+     set source = 'refunded', expires_at = least(expires_at, now()), updated_at = now()
+   where user_id = v_user and kind = 'level_up';
+end $$;
+
+-- Everyone who has ever had it, for the owner's own records.
+create or replace function public.admin_level_ups()
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v jsonb;
+begin
+  perform mintplaza.require_admin();
+  select coalesce(jsonb_agg(x order by x->>'expires_at' desc), '[]'::jsonb) into v
+  from (
+    select jsonb_build_object(
+      'username', p.username,
+      'roblox_user_id', p.roblox_user_id,
+      'expires_at', e.expires_at,
+      'active', e.expires_at > now() and e.source <> 'refunded',
+      'source', e.source,
+      'country', e.country,
+      'payment_ref', e.payment_ref,
+      'created_at', e.created_at
+    ) x
+    from public.entitlements e
+    join public.profiles p on p.id = e.user_id
+    where e.kind = 'level_up'
+    limit 1000
+  ) q;
+  return v;
+end $$;
+
+revoke all on function public.admin_grant_level_up(text, int, text, text, text) from public, anon;
+revoke all on function public.admin_revoke_level_up(text)                       from public, anon;
+revoke all on function public.admin_level_ups()                                 from public, anon;
+grant execute on function public.admin_grant_level_up(text, int, text, text, text) to authenticated;
+grant execute on function public.admin_revoke_level_up(text)                       to authenticated;
+grant execute on function public.admin_level_ups()                                 to authenticated;

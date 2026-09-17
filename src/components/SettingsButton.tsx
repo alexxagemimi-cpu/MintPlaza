@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SettingsSheet, type SettingsProfile } from "./SettingsSheet";
+import type { LevelUpStatus } from "@/lib/level-up";
 
 /**
  * The gear in the corner of the dashboard.
@@ -16,7 +17,13 @@ import { SettingsSheet, type SettingsProfile } from "./SettingsSheet";
  * Signed out, it is a plain link to sign in instead. A gear that opens a panel
  * of controls that cannot do anything is worse than no gear.
  */
-export function SettingsButton({ profile }: { profile: SettingsProfile | null }) {
+export function SettingsButton({
+  profile,
+  levelUp,
+}: {
+  profile: SettingsProfile | null;
+  levelUp: LevelUpStatus;
+}) {
   const [open, setOpen] = useState(false);
   const params = useSearchParams();
   const router = useRouter();
@@ -65,7 +72,9 @@ export function SettingsButton({ profile }: { profile: SettingsProfile | null })
       >
         {gear}
       </button>
-      {open && <SettingsSheet profile={profile} onClose={() => setOpen(false)} />}
+      {open && (
+        <SettingsSheet profile={profile} levelUp={levelUp} onClose={() => setOpen(false)} />
+      )}
     </>
   );
 }

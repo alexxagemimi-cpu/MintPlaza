@@ -10,11 +10,19 @@
 -- Run through scripts/pg-proof.sh.
 \set ON_ERROR_STOP on
 
+-- A failure raises TF001, a SQLSTATE nothing else in this project uses.
+--
+-- `raise exception 'FAIL %'` defaults to P0001, which is exactly what the
+-- schema raises when a limit or a guard bites — so a test shaped "do the
+-- forbidden thing, expect P0001" would catch its OWN failure report and turn
+-- it into a pass. That made three checks in pg-trade-test.sql unfalsifiable,
+-- found by granting the permission they test for and watching them still pass.
+-- A distinct code makes that class of mistake impossible here too.
 create or replace function pg_temp.ok(label text, cond boolean) returns void
 language plpgsql as $$
 begin
   if cond then raise notice 'PASS  %', label;
-  else raise exception 'FAIL  %', label;
+  else raise exception 'FAIL  %', label using errcode = 'TF001';
   end if;
 end $$;
 
@@ -49,6 +57,9 @@ values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
 insert into public.support_messages (id, user_id, body)
 values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
         '11111111-1111-1111-1111-111111111111', 'alice cannot load the board');
+insert into public.entitlements (user_id, expires_at, source, country)
+values ('11111111-1111-1111-1111-111111111111',
+        now() + interval '60 days', 'purchase', 'IN');
 
 -- ---------------------------------------------------------------------------
 \echo ''
@@ -136,6 +147,12 @@ begin
   -- was in the middle of. It is theirs and the owner's, nobody else's.
   select count(*) into n from public.support_messages;
   perform pg_temp.ok('another player''s support message is invisible', n = 0);
+
+  -- Who pays is not a fact this site publishes. A list of paying accounts is a
+  -- list of accounts worth targeting, and on a site whose users are children
+  -- holding valuable inventories that is not a small thing.
+  select count(*) into n from public.entitlements;
+  perform pg_temp.ok('another player''s Level Up is invisible', n = 0);
 end $$;
 
 do $$
@@ -158,6 +175,44 @@ do $$ begin
   perform pg_temp.ok('a stranger cannot send one in somebody else''s name', false);
 exception when insufficient_privilege then
   perform pg_temp.ok('a stranger cannot send one in somebody else''s name', true);
+end $$;
+
+-- Level Up, from the account that would most like to have it for free.
+--
+-- This is the same ground pg-trade-test.sql covers, run the way that actually
+-- proves it: as `authenticated`, holding the blanket table grants Supabase
+-- hands that role, with RLS as the only thing in the way. The other file runs
+-- as superuser, which bypasses RLS entirely — so on its own it proves nothing
+-- about who can write here.
+do $$
+declare n int; v_got_in boolean := false;
+begin
+  begin
+    insert into public.entitlements (user_id, expires_at)
+    values ('22222222-2222-2222-2222-222222222222', now() + interval '10 years');
+    v_got_in := true;
+  exception when others then
+    v_got_in := false;
+  end;
+  select count(*) into n from public.entitlements
+   where user_id = '22222222-2222-2222-2222-222222222222';
+  perform pg_temp.ok('a player cannot give themselves Level Up', not v_got_in and n = 0);
+
+  -- Nor take somebody else's and point it at themselves.
+  update public.entitlements set user_id = '22222222-2222-2222-2222-222222222222'
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor reassign somebody else''s to themselves', n = 0);
+
+  -- Nor extend one that exists.
+  update public.entitlements set expires_at = now() + interval '10 years';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor extend anybody''s, including their own', n = 0);
+
+  -- Nor delete the record of a refund.
+  delete from public.entitlements;
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor delete the record that money changed hands', n = 0);
 end $$;
 
 -- Writes. Each has to end in zero rows or a refusal.
@@ -310,6 +365,9 @@ begin
 
   select count(*) into n from public.support_messages;
   perform pg_temp.ok('a signed-out visitor sees no support messages', n = 0);
+
+  select count(*) into n from public.entitlements;
+  perform pg_temp.ok('a signed-out visitor sees who pays for nothing', n = 0);
 end $$;
 
 do $$ begin

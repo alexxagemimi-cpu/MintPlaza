@@ -33,6 +33,9 @@ import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import {
   PARTNERS, partnerFor, valuesLink, outboundUrl, isValuesIntent,
 } from "../src/lib/referrals.ts";
+import {
+  COUNTRIES, PERKS, checkoutUrlFor, isCountryCode, isLocalCurrency, priceFor, priceNote,
+} from "../src/lib/level-up.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
 const line = (n: string) => console.log("\n" + "─".repeat(72) + "\n" + n + "\n");
@@ -871,3 +874,147 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log("\nAll assertions passed.\n");
+
+line("20. LEVEL UP — the page cannot promise what the database will not give");
+{
+  // The sales page names four numbers. The database enforces four numbers. They
+  // are in different files, in different languages, and nothing but this check
+  // makes them the same — which is the exact shape of a bug that gets somebody
+  // to pay for eight listing slots and receive three.
+  //
+  // So the SQL is read as text and the paid figures are pulled straight out of
+  // it. A regex against source is usually a smell; here it is the point, because
+  // the alternative is trusting that two hand-maintained lists agree.
+  const sql = readFileSync("supabase/schema.sql", "utf8");
+
+  const fn = (name: string, re: RegExp): string | undefined => {
+    const body = sql.match(
+      new RegExp(`create or replace function mintplaza\\.${name}\\(p_user uuid\\)[\\s\\S]*?\\$\\$;`),
+    )?.[0];
+    return body?.match(re)?.[1];
+  };
+
+  const slots    = fn("listings_per_window_for", /then\s+(\d+)\s+else/);
+  const perGame  = fn("max_active_per_game_for", /then\s+(\d+)\s+else/);
+  const lifetime = fn("listing_lifetime_for",    /then\s+interval\s+'(\d+) days'/);
+  const bumps    = fn("bumps_per_day_for",       /then\s+(\d+)\s+else/);
+
+  const perk = (title: string) => PERKS.find((p) => p.title === title)?.levelUp ?? "";
+
+  assert("the slot count on the page is the one the trigger enforces",
+    slots === "8" && perk("Post more often").includes("8"),
+    `sql says ${slots}, page says "${perk("Post more often")}"`);
+
+  assert("and the per-game cap",
+    perGame === "25" && perk("Keep more up at once").includes("25"),
+    `sql says ${perGame}, page says "${perk("Keep more up at once")}"`);
+
+  assert("and how long a listing lives",
+    lifetime === "21" && perk("Listings last three times as long").includes("21"),
+    `sql says ${lifetime} days, page says "${perk("Listings last three times as long")}"`);
+
+  // Bumps are the one perk the page states as a cooldown rather than a count,
+  // because that is how it is enforced — 24 hours divided by the daily figure.
+  // So the check does the same division rather than matching the raw number.
+  const cooldown = bumps ? 24 / Number(bumps) : NaN;
+  assert("and the bump cooldown, which the page states in hours",
+    bumps === "3" && perk("Bump three times a day").includes(String(cooldown)),
+    `sql allows ${bumps}/day = every ${cooldown}h, page says "${perk("Bump three times a day")}"`);
+
+  // ---- the free numbers on the page are the real free numbers -------------
+  const freeSlots = sql.match(/function mintplaza\.listings_per_window\(\)[\s\S]*?select (\d+)/)?.[1];
+  const freeGame  = sql.match(/function mintplaza\.max_active_per_game\(\)[\s\S]*?select (\d+)/)?.[1];
+  assert("the 'before' column is the real free tier too",
+    freeSlots === "3" && freeGame === "10" &&
+    PERKS[0].free.includes("3") && PERKS[1].free.includes("10"),
+    `free is ${freeSlots}/window and ${freeGame}/game`);
+
+  // ---- every perk is a real limit, not a vibe ------------------------------
+  //
+  // One perk is a badge and has no number. Every OTHER perk must name a figure
+  // on both sides, because a perk with nothing measurable behind it is a
+  // promise nobody can hold the site to.
+  const vague = PERKS.filter(
+    (p) => !/profile/i.test(p.title) && !(/\d/.test(p.free) && /\d/.test(p.levelUp)),
+  );
+  assert("every perk except the badge names a number on both sides",
+    vague.length === 0, vague.map((p) => p.title).join(", ") || `${PERKS.length} perks`);
+}
+
+line("21. LEVEL UP — the money, and the ways it could go wrong quietly");
+{
+  // ---- the two prices the owner actually chose ---------------------------
+  assert("India is ₹399", priceFor("IN").display === "₹399" && priceFor("IN").currency === "INR");
+  assert("the United States is $6", priceFor("US").display === "$6" && priceFor("US").currency === "USD");
+
+  // Everywhere else falls back to dollars rather than to nothing. A country
+  // with no price would render an empty button on a payment page.
+  const priceless = COUNTRIES.filter((c) => !priceFor(c.code).display);
+  assert("every country in the picker has a price", priceless.length === 0,
+    priceless.length ? priceless[0].name : `${COUNTRIES.length} countries covered`);
+
+  // ---- and everyone charged in dollars is told so -------------------------
+  //
+  // The one thing that turns into a chargeback: somebody in Brazil expecting
+  // reais, seeing "$6", and finding out from their bank. Every non-local
+  // country must carry the note, and the local one must not (it would be
+  // false).
+  const undisclosed = COUNTRIES.filter(
+    (c) => !isLocalCurrency(c.code) && !priceNote(c.code),
+  );
+  assert("everyone paying in dollars is told their bank converts it",
+    undisclosed.length === 0, undisclosed[0]?.name);
+  assert("and the rupee price carries no conversion note, because there is none",
+    priceNote("IN") === undefined);
+
+  // ---- the picker is a closed list ----------------------------------------
+  const escapes = ["IN", "US", "in", "zz", "XX", "", "../../etc", null]
+    .filter((v) => isCountryCode(v as string | null))
+    .filter((v) => !COUNTRIES.some((c) => c.code === (v as string).toUpperCase()));
+  assert("the country parameter is a closed list", escapes.length === 0,
+    escapes.length ? String(escapes[0]) : "only the 56 listed codes pass");
+
+  // Duplicate codes would make the <select> ambiguous and the record wrong.
+  const codes = COUNTRIES.map((c) => c.code);
+  assert("no country code appears twice", new Set(codes).size === codes.length);
+
+  // ---- nothing here can take money ----------------------------------------
+  //
+  // The single most important check in this block. There is no processor
+  // connected, and the correct behaviour is to say so — not to render a button
+  // that goes nowhere, and emphatically not to collect a card.
+  delete process.env.LEVEL_UP_CHECKOUT_URL_INR;
+  delete process.env.LEVEL_UP_CHECKOUT_URL_USD;
+  assert("with no processor configured, there is no checkout link at all",
+    checkoutUrlFor("IN") === undefined && checkoutUrlFor("US") === undefined);
+
+  // A typo in a deploy config must not become a javascript: link on a page
+  // full of children. Anything that is not plain https reads as unconfigured.
+  for (const bad of ["javascript:alert(1)", "http://evil.example", "not a url", " "]) {
+    process.env.LEVEL_UP_CHECKOUT_URL_USD = bad;
+    assert(`a checkout URL of "${bad.trim() || "(blank)"}" is refused`,
+      checkoutUrlFor("US") === undefined);
+  }
+  process.env.LEVEL_UP_CHECKOUT_URL_USD = "https://pay.example/level-up";
+  assert("and a real https one is accepted",
+    checkoutUrlFor("US") === "https://pay.example/level-up");
+  delete process.env.LEVEL_UP_CHECKOUT_URL_USD;
+
+  // ---- no card form exists anywhere ---------------------------------------
+  //
+  // Holding card data means being inside PCI scope, which is not somewhere a
+  // site run by one person belongs. This is a grep rather than a promise.
+  const pages: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(e.name)) pages.push(full);
+    }
+  })("src");
+  const cardFields = pages.filter((f) =>
+    /\b(cardNumber|card_number|cvv|cvc|expiry|cardholder)\b/i.test(readFileSync(f, "utf8")),
+  );
+  assert("nothing in this codebase asks for a card number", cardFields.length === 0,
+    cardFields[0]);
+}

@@ -7,8 +7,10 @@ import {
   type ItemDraft, type AdminReport, type ExploreTabDraft, type SupportMessage } from "@/lib/admin/actions";
 import { ReportsPanel } from "./ReportsPanel";
 import { SupportPanel } from "./SupportPanel";
+import { LevelUpPanel } from "./LevelUpPanel";
 import { Studio } from "./Studio";
 import type { StudioTemplate, MediaRow } from "@/lib/data/templates";
+import type { LevelUpRow } from "@/lib/admin/actions";
 import { lockConsole } from "@/lib/admin/gate";
 import { MoneyInput } from "./MoneyInput";
 import type { Rarity } from "@/lib/items";
@@ -332,6 +334,7 @@ function ItemEditor({
 
 export function ConsolePanel({
   who, games, items, reports = [], support = [], templates = [], library = [],
+  levelUps = [],
 }: {
   who: string;
   games: ConsoleGame[];
@@ -340,6 +343,7 @@ export function ConsolePanel({
   support?: readonly SupportMessage[];
   templates?: readonly StudioTemplate[];
   library?: readonly MediaRow[];
+  levelUps?: readonly LevelUpRow[];
 }) {
   const [rows, setRows] = useState(items);
   const [game, setGame] = useState(games[0]?.slug ?? "");
@@ -576,6 +580,8 @@ export function ConsolePanel({
       <ReportsPanel reports={reports} />
 
       <SupportPanel messages={support} />
+
+      <LevelUpPanel rows={levelUps} />
     </div>
   );
 }

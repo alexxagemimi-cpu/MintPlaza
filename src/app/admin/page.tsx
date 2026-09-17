@@ -5,7 +5,7 @@ import { isUnlocked } from "@/lib/admin/gate";
 import { PasscodeScreen } from "@/components/admin/PasscodeScreen";
 import { serverSupabase } from "@/lib/supabase/server";
 import { ConsolePanel, type ConsoleGame, type ConsoleItem } from "@/components/admin/ConsolePanel";
-import { listReports, listSupport } from "@/lib/admin/actions";
+import { listReports, listSupport, listLevelUps } from "@/lib/admin/actions";
 import { allTemplates, mediaLibrary } from "@/lib/data/templates";
 
 /**
@@ -50,7 +50,11 @@ export default async function AdminPage() {
     listSupport("open"),
   ]);
 
-  const [templates, library] = await Promise.all([allTemplates(), mediaLibrary()]);
+  const [templates, library, levelUps] = await Promise.all([
+    allTemplates(),
+    mediaLibrary(),
+    listLevelUps(),
+  ]);
 
   return (
     <ConsolePanel
@@ -61,6 +65,7 @@ export default async function AdminPage() {
       support={support}
       templates={templates}
       library={library}
+      levelUps={levelUps}
     />
   );
 }

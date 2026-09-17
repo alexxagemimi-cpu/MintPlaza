@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { setDisplayName, setHidePresence, deleteAccount } from "@/lib/actions/account";
+import { LevelUpCard } from "./LevelUpCard";
+import type { LevelUpStatus } from "@/lib/level-up";
 
 /**
  * Settings.
@@ -92,9 +94,10 @@ function Toggle({
 }
 
 export function SettingsSheet({
-  profile, onClose,
+  profile, levelUp, onClose,
 }: {
   profile: SettingsProfile;
+  levelUp: LevelUpStatus;
   onClose: () => void;
 }) {
   const [name, setName] = useState(profile.displayName ?? "");
@@ -364,6 +367,13 @@ export function SettingsSheet({
               {error ?? note}
             </p>
           )}
+
+          {/* Above the maker credit and below the account controls, because
+              this is the one thing in the panel that is a decision about the
+              account rather than about the screen. */}
+          <div className="px-3 pt-4">
+            <LevelUpCard status={levelUp} />
+          </div>
 
           <MakerCard />
 

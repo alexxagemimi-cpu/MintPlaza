@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { serverSupabase } from "@/lib/supabase/server";
 import { isAdmin } from "./auth";
 import type { Rarity } from "@/lib/items";
+import { LEVEL_UP_DAYS } from "@/lib/level-up";
 
 /**
  * Everything the admin panel can change.
@@ -568,4 +569,103 @@ export async function resolveSupport(
   if (error) return { ok: false, error: error.message };
   revalidatePath("/app", "layout");
   return { ok: true, id };
+}
+
+/* ------------------------------------------------------------------ */
+/* Level Up                                                            */
+/* ------------------------------------------------------------------ */
+
+export interface LevelUpRow {
+  username: string;
+  roblox_user_id: string;
+  expires_at: string;
+  active: boolean;
+  source: "purchase" | "gift" | "comp" | "refunded";
+  country: string | null;
+  payment_ref: string | null;
+  created_at: string;
+}
+
+/**
+ * Everyone who has ever had Level Up.
+ *
+ * Including the lapsed and the refunded, because this is the owner's record of
+ * what was sold rather than a list of current subscribers. "Who paid me in
+ * March" is the question this gets asked, and a list that quietly drops
+ * everybody whose 60 days ran out cannot answer it.
+ */
+export async function listLevelUps(): Promise<LevelUpRow[]> {
+  if (!(await isAdmin())) return [];
+  const supabase = await serverSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase.rpc("admin_level_ups");
+  if (error || !Array.isArray(data)) return [];
+  return data as LevelUpRow[];
+}
+
+/**
+ * Grant it by hand.
+ *
+ * This is the whole payment system until a processor is connected, and it is
+ * not a stopgap so much as the honest shape of the thing: money arrives
+ * somewhere, a person confirms it arrived, and the entitlement is written. A
+ * webhook would do the same three steps with the person replaced by a
+ * signature check.
+ *
+ * The username is a Roblox username, and it has to belong to somebody who has
+ * signed in at least once — there is no profile row to attach an entitlement to
+ * before that. The database says so in those words rather than failing with a
+ * null.
+ */
+export async function grantLevelUp(input: {
+  username: string;
+  days?: number;
+  country?: string;
+  source?: "purchase" | "gift" | "comp";
+  paymentRef?: string;
+}): Promise<ActionResult & { expiresAt?: string; alreadyApplied?: boolean }> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const username = input.username.trim();
+  if (!username) return { ok: false, error: "Which player?" };
+
+  const { data, error } = await supabase.rpc("admin_grant_level_up", {
+    p_roblox_username: username,
+    p_days: input.days ?? LEVEL_UP_DAYS,
+    p_country: input.country?.trim() || null,
+    p_source: input.source ?? "purchase",
+    p_payment_ref: input.paymentRef?.trim() || null,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  const row = (data ?? {}) as { expires_at?: string; already_applied?: boolean };
+  revalidatePath("/app", "layout");
+  return {
+    ok: true,
+    expiresAt: row.expires_at,
+    alreadyApplied: row.already_applied === true,
+  };
+}
+
+/**
+ * End one early — a refund, a chargeback, or somebody who bought it and then
+ * got themselves suspended.
+ *
+ * Never a delete. The row is the record that money changed hands, and deleting
+ * it loses the only trace of a transaction the owner may later have to explain.
+ */
+export async function revokeLevelUp(username: string): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const { error } = await supabase.rpc("admin_revoke_level_up", {
+    p_roblox_username: username.trim(),
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/app", "layout");
+  return { ok: true };
 }

@@ -11,11 +11,19 @@
 -- Run through scripts/pg-proof.sh.
 \set ON_ERROR_STOP on
 
+-- A failure raises TF001, a SQLSTATE nothing else in this project uses.
+--
+-- `raise exception 'FAIL %'` defaults to P0001, which is exactly what the
+-- schema raises when a limit or a guard bites — so a test shaped "do the
+-- forbidden thing, expect P0001" would catch its OWN failure report and turn
+-- it into a pass. That made three checks in pg-trade-test.sql unfalsifiable,
+-- found by granting the permission they test for and watching them still pass.
+-- A distinct code makes that class of mistake impossible here too.
 create or replace function pg_temp.ok(label text, cond boolean) returns void
 language plpgsql as $$
 begin
   if cond then raise notice 'PASS  %', label;
-  else raise exception 'FAIL  %', label;
+  else raise exception 'FAIL  %', label using errcode = 'TF001';
   end if;
 end $$;
 
