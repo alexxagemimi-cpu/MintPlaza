@@ -2567,7 +2567,10 @@ declare
     'enforce_service_listing_limit', 'block_self_vote', 'stamp_pick_reply',
     'cleanup_service_listings',
     'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate',
-    'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups'
+    'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups',
+    'start_conversation', 'my_conversations', 'conversation_thread',
+    'mark_conversation_read', 'unread_count', 'block_player',
+    'enforce_message_rate', 'bump_conversation'
   ];
   r record;
   dropped int := 0;
@@ -3884,3 +3887,408 @@ revoke all on function public.admin_level_ups()                                 
 grant execute on function public.admin_grant_level_up(text, int, text, text, text) to authenticated;
 grant execute on function public.admin_revoke_level_up(text)                       to authenticated;
 grant execute on function public.admin_level_ups()                                 to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Messaging: starting a thread, and the limits on it
+--
+-- The tables, the policies and is_participant() are all defined much earlier
+-- in this file. What was missing is the part that makes them usable: there is
+-- no INSERT policy on conversations or conversation_participants, so until now
+-- nobody could start a conversation at all. Every player could read a thread
+-- they were in and send to it; none of them could ever be in one.
+--
+-- ---------------------------------------------------------------------------
+-- Why starting a thread is a function and not a policy
+-- ---------------------------------------------------------------------------
+--
+-- The obvious fix is an insert policy on conversation_participants saying
+-- `user_id = auth.uid()`. It is also a disaster: it says you may add YOURSELF
+-- to a conversation, and it does not say WHICH one. Any signed-in player could
+-- insert themselves into any existing thread by id and read two strangers'
+-- entire private conversation, because the read policy would then honestly
+-- report them as a participant.
+--
+-- So there is still no insert policy on either table, and this function is the
+-- only way a row appears. It is SECURITY DEFINER, it decides both sides of the
+-- thread itself, and nothing it writes comes from a caller-supplied id.
+--
+-- ---------------------------------------------------------------------------
+-- Why it must be idempotent
+-- ---------------------------------------------------------------------------
+--
+-- Tapping "Message" twice, or from two different listings by the same person,
+-- must land in the SAME thread. Otherwise the inbox fills with duplicate
+-- conversations with the same person, each holding part of the history, and
+-- the feature is unusable within a week. The lookup below finds an existing
+-- one-to-one thread before creating anything.
+-- ===========================================================================
+-- ===========================================================================
+
+-- How many NEW people one account may open a thread with per day.
+--
+-- This is the anti-spam limit that matters. Messaging inside an existing
+-- conversation is between two people who already agreed to talk; opening a
+-- hundred new ones is how a scammer works a whole game's player list in an
+-- afternoon. Ten is more than a real trader needs in a day and far fewer than
+-- a spammer needs to be worth the effort.
+create or replace function mintplaza.new_threads_per_day() returns int
+  language sql immutable as $$ select 10 $$;
+
+-- Burst and daily caps on messages themselves, across all conversations.
+create or replace function mintplaza.messages_per_minute() returns int
+  language sql immutable as $$ select 30 $$;
+
+create or replace function mintplaza.messages_per_day() returns int
+  language sql immutable as $$ select 600 $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Open a conversation with somebody, or return the one you already have.
+--
+-- Takes a USERNAME rather than a user id, deliberately. A caller who can only
+-- name people they can already see cannot enumerate the user table by walking
+-- uuids, and the app has the username in hand everywhere this is offered.
+-- ---------------------------------------------------------------------------
+create or replace function public.start_conversation(
+  p_username text,
+  p_listing  uuid default null
+)
+returns uuid language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare
+  v_me     uuid := auth.uid();
+  v_them   uuid;
+  v_id     uuid;
+  v_today  int;
+begin
+  if v_me is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+
+  -- The caller must be in good standing. A suspended account that could still
+  -- open new threads would make suspension meaningless for the one behaviour
+  -- it most often exists to stop.
+  if not exists (select 1 from public.profiles where id = v_me and status = 'active') then
+    raise exception 'Your account cannot start conversations.' using errcode = 'P0001';
+  end if;
+
+  select id into v_them from public.profiles
+   where lower(username) = lower(btrim(p_username)) and status = 'active';
+  if v_them is null then
+    raise exception 'No player called %.', p_username using errcode = 'P0001';
+  end if;
+
+  if v_them = v_me then
+    raise exception 'You cannot message yourself.' using errcode = 'P0001';
+  end if;
+
+  -- Blocks stop a thread being opened at all, in either direction, and the
+  -- message is the same both ways on purpose: telling somebody "they blocked
+  -- you" hands a harasser a confirmation they were blocked, which is exactly
+  -- what tends to start the next account.
+  if exists (
+    select 1 from public.blocks
+     where (blocker_id = v_them and blocked_id = v_me)
+        or (blocker_id = v_me and blocked_id = v_them)
+  ) then
+    raise exception 'You cannot message this player.' using errcode = 'P0001';
+  end if;
+
+  -- ---- already talking? -------------------------------------------------
+  --
+  -- A one-to-one thread is one with exactly these two participants and no
+  -- others. Counting is what makes that exact: a thread containing both of
+  -- them plus a third person is a different conversation and must not be
+  -- reused.
+  select c.id into v_id
+    from public.conversations c
+   where exists (select 1 from public.conversation_participants p
+                  where p.conversation_id = c.id and p.user_id = v_me)
+     and exists (select 1 from public.conversation_participants p
+                  where p.conversation_id = c.id and p.user_id = v_them)
+     and (select count(*) from public.conversation_participants p
+           where p.conversation_id = c.id) = 2
+   order by c.last_message_at desc
+   limit 1;
+
+  if v_id is not null then
+    return v_id;
+  end if;
+
+  -- ---- a new one, and the limit that guards it --------------------------
+  select count(*) into v_today
+    from public.conversations c
+    join public.conversation_participants p on p.conversation_id = c.id
+   where p.user_id = v_me
+     and c.created_at > now() - interval '24 hours';
+
+  if v_today >= mintplaza.new_threads_per_day() then
+    raise exception 'You have started as many new conversations as one day allows.'
+      using errcode = 'P0001',
+            hint = 'This limit exists so nobody can message a whole game at once.';
+  end if;
+
+  -- The listing is kept only when it is real, so a deleted or forged id
+  -- becomes a plain conversation rather than a dangling reference.
+  insert into public.conversations (listing_id)
+  values ((select l.id from public.trade_listings l where l.id = p_listing))
+  returning id into v_id;
+
+  insert into public.conversation_participants (conversation_id, user_id)
+  values (v_id, v_me), (v_id, v_them);
+
+  return v_id;
+end $$;
+
+revoke all on function public.start_conversation(text, uuid) from public, anon;
+grant execute on function public.start_conversation(text, uuid) to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- Message rate limits, in a trigger so every route hits them.
+--
+-- The RLS policy on messages already decides WHO may send; this decides HOW
+-- OFTEN. Keeping them apart matters: the policy is about permission and must
+-- stay readable, and a rate limit expressed as a policy would make an ordinary
+-- send fail with "new row violates row-level security", which tells the player
+-- nothing about what they did.
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_message_rate()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_minute int; v_day int;
+begin
+  select count(*) into v_minute from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '1 minute';
+  if v_minute >= mintplaza.messages_per_minute() then
+    raise exception 'You are sending messages too quickly.'
+      using errcode = 'P0001', hint = 'Wait a moment and try again.';
+  end if;
+
+  select count(*) into v_day from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '24 hours';
+  if v_day >= mintplaza.messages_per_day() then
+    raise exception 'You have sent as many messages as one day allows.'
+      using errcode = 'P0001';
+  end if;
+
+  -- The server owns the clock and the status. A client that set created_at
+  -- could sit outside its own rate window forever, and one that set status
+  -- could post a message already marked hidden from moderation.
+  new.created_at := now();
+  new.status     := 'visible';
+  new.edited_at  := null;
+  return new;
+end $$;
+
+drop trigger if exists messages_rate on public.messages;
+create trigger messages_rate
+  before insert on public.messages
+  for each row execute function public.enforce_message_rate();
+
+-- The inbox sorts on last_message_at, so it has to move when a message lands.
+-- A trigger rather than the sender's own update: there is no update policy on
+-- conversations, and there should not be one — a participant who could write
+-- to the conversation row could reorder somebody else's inbox.
+create or replace function public.bump_conversation()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  update public.conversations
+     set last_message_at = new.created_at
+   where id = new.conversation_id;
+  return new;
+end $$;
+
+drop trigger if exists messages_bump_conversation on public.messages;
+create trigger messages_bump_conversation
+  after insert on public.messages
+  for each row execute function public.bump_conversation();
+
+revoke all on function public.enforce_message_rate() from public, anon, authenticated;
+revoke all on function public.bump_conversation()    from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The inbox.
+--
+-- Returns the other person, the last thing said, and how much of it is unread.
+-- Shaped as jsonb for the same reason board_listings() is: one round trip, and
+-- the app reads exactly the keys named here rather than joining four tables in
+-- TypeScript.
+-- ---------------------------------------------------------------------------
+create or replace function public.my_conversations()
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v jsonb; v_me uuid := auth.uid();
+begin
+  if v_me is null then return '[]'::jsonb; end if;
+
+  select coalesce(jsonb_agg(x order by x->>'last_message_at' desc), '[]'::jsonb) into v
+  from (
+    select jsonb_build_object(
+      'id', c.id,
+      'last_message_at', c.last_message_at,
+      'listing_id', c.listing_id,
+      'other_username', o.username,
+      'other_display_name', o.display_name,
+      'other_avatar_url', o.avatar_url,
+      -- Presence is the profile's own setting to hide, and this respects it:
+      -- an inbox that leaked "online now" for somebody who turned it off would
+      -- be the one place the setting silently did not apply.
+      'other_online', (not coalesce(o.hide_presence, false))
+                      and o.last_seen_at > now() - interval '5 minutes',
+      'last_body', (select m.body from public.messages m
+                     where m.conversation_id = c.id and m.status = 'visible'
+                     order by m.created_at desc limit 1),
+      'last_sender_is_me', (select m.sender_id = v_me from public.messages m
+                             where m.conversation_id = c.id and m.status = 'visible'
+                             order by m.created_at desc limit 1),
+      'unread', (select count(*) from public.messages m
+                  where m.conversation_id = c.id
+                    and m.status = 'visible'
+                    and m.sender_id <> v_me
+                    and (me.last_read_at is null or m.created_at > me.last_read_at))
+    ) x
+    from public.conversations c
+    join public.conversation_participants me
+      on me.conversation_id = c.id and me.user_id = v_me
+    join public.conversation_participants them
+      on them.conversation_id = c.id and them.user_id <> v_me
+    join public.profiles o on o.id = them.user_id
+    -- A blocked person disappears from the inbox in both directions rather
+    -- than sitting there as a row you cannot open.
+    where not exists (
+      select 1 from public.blocks b
+       where (b.blocker_id = v_me and b.blocked_id = them.user_id)
+          or (b.blocker_id = them.user_id and b.blocked_id = v_me)
+    )
+    order by c.last_message_at desc
+    limit 200
+  ) q;
+  return v;
+end $$;
+
+
+-- One thread, oldest first, with the other person's name attached so the
+-- screen can title itself without a second call.
+create or replace function public.conversation_thread(p_conversation uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = public, pg_catalog as $$
+declare v jsonb; v_other jsonb; v_me uuid := auth.uid();
+begin
+  if v_me is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+
+  -- SECURITY DEFINER means RLS is not consulted, so this check IS the access
+  -- control. Without it the function would hand any signed-in player any
+  -- conversation in the database by id.
+  if not mintplaza.is_participant(p_conversation, v_me) then
+    raise exception 'No such conversation.' using errcode = 'P0001';
+  end if;
+
+  select jsonb_build_object(
+    'username', o.username,
+    'display_name', o.display_name,
+    'avatar_url', o.avatar_url,
+    'online', (not coalesce(o.hide_presence, false))
+              and o.last_seen_at > now() - interval '5 minutes',
+    'blocked_by_me', exists (select 1 from public.blocks b
+                              where b.blocker_id = v_me and b.blocked_id = o.id)
+  ) into v_other
+  from public.conversation_participants p
+  join public.profiles o on o.id = p.user_id
+  where p.conversation_id = p_conversation and p.user_id <> v_me
+  limit 1;
+
+  select coalesce(jsonb_agg(x order by x->>'created_at'), '[]'::jsonb) into v
+  from (
+    select jsonb_build_object(
+      'id', m.id,
+      'body', m.body,
+      'created_at', m.created_at,
+      'mine', m.sender_id = v_me
+    ) x
+    from public.messages m
+    where m.conversation_id = p_conversation and m.status = 'visible'
+    order by m.created_at desc
+    limit 200
+  ) q;
+
+  return jsonb_build_object('other', coalesce(v_other, '{}'::jsonb), 'messages', v);
+end $$;
+
+
+-- Mark everything up to now as read. Writes only the caller's own row, which
+-- is why it can exist at all: there is no update policy on participants.
+create or replace function public.mark_conversation_read(p_conversation uuid)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  update public.conversation_participants
+     set last_read_at = now()
+   where conversation_id = p_conversation and user_id = auth.uid();
+end $$;
+
+
+-- How many threads have something new in them. For the badge on the rail.
+create or replace function public.unread_count()
+returns int language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select count(distinct m.conversation_id)::int
+    from public.messages m
+    join public.conversation_participants me
+      on me.conversation_id = m.conversation_id and me.user_id = auth.uid()
+   where m.status = 'visible'
+     and m.sender_id <> auth.uid()
+     and (me.last_read_at is null or m.created_at > me.last_read_at);
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- Blocking, from the chat screen.
+--
+-- The blocks table already has a policy that lets somebody write their own
+-- rows, so this could have been a direct insert. It is a function because a
+-- block is taken by USERNAME here, and resolving a username to an id client
+-- side would mean the app could look up any profile's uuid on request.
+-- ---------------------------------------------------------------------------
+create or replace function public.block_player(p_username text, p_blocked boolean)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_me uuid := auth.uid(); v_them uuid;
+begin
+  if v_me is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+
+  select id into v_them from public.profiles
+   where lower(username) = lower(btrim(p_username));
+  if v_them is null then
+    raise exception 'No player called %.', p_username using errcode = 'P0001';
+  end if;
+  if v_them = v_me then
+    raise exception 'You cannot block yourself.' using errcode = 'P0001';
+  end if;
+
+  if p_blocked then
+    insert into public.blocks (blocker_id, blocked_id) values (v_me, v_them)
+    on conflict do nothing;
+  else
+    delete from public.blocks where blocker_id = v_me and blocked_id = v_them;
+  end if;
+end $$;
+
+revoke all on function public.my_conversations()               from public, anon;
+revoke all on function public.conversation_thread(uuid)        from public, anon;
+revoke all on function public.mark_conversation_read(uuid)     from public, anon;
+revoke all on function public.unread_count()                   from public, anon;
+revoke all on function public.block_player(text, boolean)      from public, anon;
+grant execute on function public.my_conversations()            to authenticated;
+grant execute on function public.conversation_thread(uuid)     to authenticated;
+grant execute on function public.mark_conversation_read(uuid)  to authenticated;
+grant execute on function public.unread_count()                to authenticated;
+grant execute on function public.block_player(text, boolean)   to authenticated;

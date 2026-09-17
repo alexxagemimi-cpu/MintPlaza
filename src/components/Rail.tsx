@@ -12,6 +12,25 @@ type Item = {
   module?: ModuleId;
 };
 
+/**
+ * The unread badge.
+ *
+ * A count, not a dot, because "you have messages" and "you have eleven
+ * messages" are different decisions about whether to look now. Capped at 9+ so
+ * the rail's geometry cannot be pushed around by somebody popular.
+ */
+function Badge({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute -right-0.5 -top-0.5 grid h-[15px] min-w-[15px] place-items-center rounded-full border-2 border-bg bg-mint-vivid px-[3px] font-mono text-[0.5rem] font-bold leading-none text-white"
+    >
+      {n > 9 ? "9+" : n}
+    </span>
+  );
+}
+
 const icon = (d: string) => (
   <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
     <path d={d} />
@@ -25,7 +44,7 @@ const icon = (d: string) => (
  * is decided by the current game's enabled modules, so a game that does not run
  * services never shows a services tab.
  */
-export function Rail() {
+export function Rail({ unread = 0 }: { unread?: number }) {
   const pathname = usePathname();
   const slug = pathname.split("/")[2] ?? DEFAULT_GAME_SLUG;
   const game = getGame(slug) ?? getGame(DEFAULT_GAME_SLUG)!;
@@ -43,10 +62,15 @@ export function Rail() {
     // stroke, so the rail reads as one set.
     { href: `${base}/profile`, label: "Profile", icon: icon("M10 10.4a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4ZM4.2 17v-1a3.6 3.6 0 0 1 3.6-3.6h4.4a3.6 3.6 0 0 1 3.6 3.6v1") },
     { href: `${base}/my-lists`, label: "My lists", icon: icon("M4 5h12M4 10h12M4 15h7") },
-    // Contacts absorbs what a separate Messages tab would have been: the people
-    // and the conversation with them are the same thing, and two tabs that both
-    // open a list of names is one tab too many on a 390px bar.
-    { href: `${base}/contacts`, label: "Contacts", icon: icon("M13 16.5v-1.2a3 3 0 0 0-3-3H5.5a3 3 0 0 0-3 3v1.2M7.75 9.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM17.5 16.5v-1.2a3 3 0 0 0-2.25-2.9M12.75 3.7a3 3 0 0 1 0 5.8") },
+    // This tab used to be Contacts, and Contacts was demo data — a list of
+    // invented people with invented threads that rendered empty the moment
+    // demo mode was off, which is to say: always, in production. Messaging is
+    // real now, so the tab points at the real thing.
+    //
+    // Not scoped to a game, unlike every other tab here. A conversation is with
+    // a PERSON and the same person turns up in two games; splitting the inbox
+    // six ways would mean hunting for a reply you know arrived.
+    { href: "/messages", label: "Messages", icon: icon("M3.5 5.5A1.5 1.5 0 0 1 5 4h10a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 15 13H7.5L4 16.5V13A1.5 1.5 0 0 1 3.5 11.5Z") },
   ];
 
   const items = allItems.filter((i) => !i.module || hasModule(game, i.module));
@@ -67,16 +91,19 @@ export function Rail() {
             <Link
               key={item.label}
               href={item.href}
-              aria-label={item.label}
+              aria-label={unread > 0 && item.href === "/messages"
+                ? `${item.label}, ${unread} unread`
+                : item.label}
               aria-current={active ? "page" : undefined}
               title={item.label}
-              className={`grid h-11 w-11 place-items-center rounded-[15px] transition-colors duration-200 ${
+              className={`relative grid h-11 w-11 place-items-center rounded-[15px] transition-colors duration-200 ${
                 active
                   ? "bg-mint-wash text-mint"
                   : "text-ink-mute hover:bg-line hover:text-ink"
               }`}
             >
               {item.icon}
+              {item.href === "/messages" && <Badge n={unread} />}
             </Link>
           );
         })}
@@ -105,12 +132,18 @@ export function Rail() {
             <Link
               key={item.label}
               href={item.href}
+              aria-label={unread > 0 && item.href === "/messages"
+                ? `${item.label}, ${unread} unread`
+                : undefined}
               aria-current={active ? "page" : undefined}
               className={`flex min-w-[3.5rem] flex-col items-center gap-1 whitespace-nowrap rounded-[15px] px-2.5 py-2 transition-colors duration-200 ${
                 active ? "bg-mint-wash text-mint" : "text-ink-mute"
               }`}
             >
-              {item.icon}
+              <span className="relative">
+                {item.icon}
+                {item.href === "/messages" && <Badge n={unread} />}
+              </span>
               <span className="text-[0.625rem] font-semibold tracking-[0.01em]">{item.label}</span>
             </Link>
           );

@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useFindTemplate } from "@/components/TemplateProvider";
 import { ReportButton } from "@/components/ReportButton";
+import { MessageButton } from "@/components/MessageButton";
 import { saveProfile, uploadProof, deleteProof } from "@/lib/actions/profile";
 import {
   BIO_MAX, CAPTION_MAX, GAME_TAGS_MAX, PROOFS_MAX_PER_GAME, PROOFS_WANTED,
@@ -588,7 +589,14 @@ export function Profile({
               </button>
             )
           ) : (
-            <ReportButton what="player" subject={profile.username} subjectId={profile.id} />
+            // Message first, report second. The overwhelmingly common reason to
+            // be on somebody else's profile is wanting to trade with them, and
+            // the button for that should not be the second-quietest thing in
+            // the corner.
+            <div className="flex items-start gap-2">
+              <MessageButton username={profile.username} />
+              <ReportButton what="player" subject={profile.username} subjectId={profile.id} />
+            </div>
           )}
         </div>
       </div>

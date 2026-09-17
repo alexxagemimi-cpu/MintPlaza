@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ItemTile } from "./ItemTile";
+import { MessageButton } from "./MessageButton";
 import { ValuesCard } from "./ValuesCard";
 import { REASON_LABEL, type CardListing } from "@/lib/match";
 import type { ListingItem } from "@/lib/trade";
@@ -300,12 +301,23 @@ export function TradeListingCard({
               completed deals, and their Roblox name — which is how a trade
               actually gets arranged on every site like this one. So the card
               sends them there instead of nowhere. */}
-          <Link
-            href={`/app/${listing.gameSlug}/profile/${encodeURIComponent(listing.username)}`}
-            className="pill pill-mint shrink-0 py-1.5 text-[0.8125rem]"
-          >
-            See {listing.username}&rsquo;s profile
-          </Link>
+          <div className="flex shrink-0 items-start gap-2">
+            <Link
+              href={`/app/${listing.gameSlug}/profile/${encodeURIComponent(listing.username)}`}
+              className="pill pill-ghost py-1.5 text-[0.8125rem]"
+            >
+              Profile
+            </Link>
+            {/* Not shown on a demo listing: there is nobody behind it to
+                message, and a button that opens a conversation with a name the
+                generator invented would fail in a way that looks like the site
+                is broken rather than like the row is an example. Also not shown
+                on your own listing — messaging yourself is refused by the
+                database, so offering it would only be a button that errors. */}
+            {!listing.isDemo && !isOwner && (
+              <MessageButton username={listing.username} listingId={listing.id} />
+            )}
+          </div>
         </div>
       </div>
     </details>

@@ -460,3 +460,276 @@ begin
   end;
   perform pg_temp.ok('granting Level Up needs the owner''s allowlist', v_refused);
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Messaging
+--
+-- The tables and policies for this existed from the first version of the
+-- schema and were unusable: there is no INSERT policy on conversations or
+-- conversation_participants, so every player could read a thread they were in
+-- and none of them could ever be in one. start_conversation() is the only way
+-- a row appears, and these are the checks that say so.
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'MESSAGING'
+
+set "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare v_id uuid; v_again uuid; t jsonb;
+begin
+  v_id := public.start_conversation('bob');
+  perform pg_temp.ok('alice can open a conversation with bob', v_id is not null);
+
+  -- The single most important property of this function. Tapping Message
+  -- twice, or from two different listings, must land in the SAME thread — or
+  -- the inbox fills with duplicates each holding half the history.
+  v_again := public.start_conversation('bob');
+  perform pg_temp.ok('opening it again returns the same thread, not a second one',
+    v_again = v_id);
+
+  -- And from a listing, which passes an id but must still reuse the thread.
+  v_again := public.start_conversation('bob',
+    (select id from public.trade_listings limit 1));
+  perform pg_temp.ok('and so does opening it from a listing', v_again = v_id);
+
+  perform pg_temp.ok('both people are in it',
+    (select count(*) from public.conversation_participants
+      where conversation_id = v_id) = 2);
+end $$;
+
+do $$
+declare v_refused boolean := false;
+begin
+  begin perform public.start_conversation('alice');
+  exception when sqlstate 'P0001' then v_refused := true; end;
+  perform pg_temp.ok('you cannot message yourself', v_refused);
+end $$;
+
+do $$
+declare v_refused boolean := false;
+begin
+  begin perform public.start_conversation('nobody-by-that-name');
+  exception when sqlstate 'P0001' then v_refused := true; end;
+  perform pg_temp.ok('nor somebody who does not exist', v_refused);
+end $$;
+
+-- ---- sending, reading, and the unread count -------------------------------
+do $$
+declare v_id uuid; t jsonb; n int;
+begin
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '11111111-1111-1111-1111-111111111111' limit 1;
+
+  insert into public.messages (conversation_id, sender_id, body)
+  values (v_id, '11111111-1111-1111-1111-111111111111', 'wtt kitsune for magnet');
+
+  t := public.conversation_thread(v_id);
+  perform pg_temp.ok('the message is in the thread',
+    jsonb_array_length(t->'messages') = 1);
+  perform pg_temp.ok('and it knows the message is mine',
+    (t->'messages'->0->>'mine')::boolean = true);
+  perform pg_temp.ok('and the thread names the other person',
+    t->'other'->>'username' = 'bob');
+
+  -- Sending must move the inbox, or every new message sorts to the bottom.
+  perform pg_temp.ok('sending moved the conversation to the top of the inbox',
+    (select last_message_at from public.conversations where id = v_id)
+      > now() - interval '5 seconds');
+end $$;
+
+-- Bob's side: the unread count, then reading it.
+set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
+do $$
+declare v_id uuid; c jsonb;
+begin
+  perform pg_temp.ok('bob has one unread conversation', public.unread_count() = 1);
+
+  c := public.my_conversations();
+  perform pg_temp.ok('and it is in his inbox', jsonb_array_length(c) = 1);
+  perform pg_temp.ok('with alice named on it', c->0->>'other_username' = 'alice');
+  perform pg_temp.ok('and the last thing said', c->0->>'last_body' = 'wtt kitsune for magnet');
+  perform pg_temp.ok('and it is marked as not from him',
+    (c->0->>'last_sender_is_me')::boolean = false);
+  perform pg_temp.ok('and counted unread', (c->0->>'unread')::int = 1);
+
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '22222222-2222-2222-2222-222222222222' limit 1;
+  perform public.mark_conversation_read(v_id);
+  perform pg_temp.ok('reading it clears the count', public.unread_count() = 0);
+end $$;
+
+-- ---- THE ATTACK THIS DESIGN EXISTS TO STOP --------------------------------
+--
+-- An insert policy saying "user_id = auth.uid()" on conversation_participants
+-- would have been the obvious way to let somebody join a thread. It also lets
+-- any signed-in player insert THEMSELVES into any existing conversation by id
+-- and read two strangers' entire history, because the read policy would then
+-- honestly report them as a participant.
+--
+-- There is no insert policy, so this must fail. Run as `authenticated`,
+-- because a superuser bypasses RLS and would pass for the wrong reason.
+--
+-- The attacker must insert THEMSELVES, and must be signed in AS themselves.
+-- An earlier version of this test had bob inserting carol's id, which the
+-- obvious bad policy ("user_id = auth.uid()") refuses anyway — so the test
+-- passed even with that policy installed and proved nothing. Found by adding
+-- the policy on purpose and watching the test not notice.
+set "request.jwt.claim.sub" = '33333333-3333-3333-3333-333333333333';
+do $$
+declare v_id uuid; v_got_in boolean := false; n int;
+begin
+  -- Alice and bob's thread. Carol is in no thread with anybody.
+  select p.conversation_id into v_id
+    from public.conversation_participants p
+   where p.user_id = '11111111-1111-1111-1111-111111111111'
+     and exists (select 1 from public.conversation_participants q
+                  where q.conversation_id = p.conversation_id
+                    and q.user_id = '22222222-2222-2222-2222-222222222222')
+   limit 1;
+
+  begin
+    set local role authenticated;
+    insert into public.conversation_participants (conversation_id, user_id)
+    values (v_id, '33333333-3333-3333-3333-333333333333');
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  reset role;
+
+  select count(*) into n from public.conversation_participants
+   where conversation_id = v_id
+     and user_id = '33333333-3333-3333-3333-333333333333';
+  perform pg_temp.ok('a stranger cannot join themselves to somebody else''s thread',
+    not v_got_in and n = 0);
+end $$;
+
+-- Nor conjure a conversation to attach themselves to.
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  select count(*) into n from public.conversations;
+  begin
+    set local role authenticated;
+    insert into public.conversations (id) values (gen_random_uuid());
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  reset role;
+  perform pg_temp.ok('nor create a conversation row directly',
+    not v_got_in and (select count(*) from public.conversations) = n);
+end $$;
+
+-- And conversation_thread() is SECURITY DEFINER, so its own participant check
+-- IS the access control. Carol is in no thread with anybody.
+do $$
+declare v_id uuid; v_refused boolean := false;
+begin
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '11111111-1111-1111-1111-111111111111' limit 1;
+  begin perform public.conversation_thread(v_id);
+  exception when sqlstate 'P0001' then v_refused := true; end;
+  perform pg_temp.ok('a stranger cannot read a thread by its id', v_refused);
+
+  perform pg_temp.ok('and sees nothing in their own inbox',
+    jsonb_array_length(public.my_conversations()) = 0);
+end $$;
+
+-- ---- blocking -------------------------------------------------------------
+set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
+do $$
+declare v_refused boolean := false; v_sent boolean := false; v_id uuid;
+begin
+  perform public.block_player('alice', true);
+  perform pg_temp.ok('bob can block alice',
+    exists (select 1 from public.blocks
+             where blocker_id = '22222222-2222-2222-2222-222222222222'
+               and blocked_id = '11111111-1111-1111-1111-111111111111'));
+
+  perform pg_temp.ok('and she vanishes from his inbox',
+    jsonb_array_length(public.my_conversations()) = 0);
+
+  -- The block has to bite in BOTH directions, and the important one is the
+  -- direction the blocker did not choose: alice must not be able to keep
+  -- messaging bob just because she was the one blocked.
+  set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
+  begin perform public.start_conversation('bob');
+  exception when sqlstate 'P0001' then v_refused := true; end;
+  perform pg_temp.ok('and the person blocked cannot open a new thread', v_refused);
+
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '11111111-1111-1111-1111-111111111111' limit 1;
+  begin
+    set local role authenticated;
+    insert into public.messages (conversation_id, sender_id, body)
+    values (v_id, '11111111-1111-1111-1111-111111111111', 'let me back in');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  reset role;
+  perform pg_temp.ok('nor send into the thread they already had', not v_sent);
+end $$;
+
+-- ---- rate limits ----------------------------------------------------------
+set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
+do $$
+declare v_id uuid; i int; v_stopped boolean := false;
+begin
+  perform public.block_player('alice', false);   -- unblock, so sending is allowed
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '22222222-2222-2222-2222-222222222222' limit 1;
+
+  begin
+    for i in 1..(mintplaza.messages_per_minute() + 2) loop
+      insert into public.messages (conversation_id, sender_id, body)
+      values (v_id, '22222222-2222-2222-2222-222222222222', 'spam ' || i);
+    end loop;
+  exception when sqlstate 'P0001' then v_stopped := true;
+  end;
+  perform pg_temp.ok('a burst of messages is stopped', v_stopped);
+end $$;
+
+-- The client does not get to set the clock. A message that arrived with its
+-- own created_at could sit outside its rate window forever.
+do $$
+declare v_id uuid; v_when timestamptz;
+begin
+  select conversation_id into v_id from public.conversation_participants
+   where user_id = '22222222-2222-2222-2222-222222222222' limit 1;
+  delete from public.messages
+   where sender_id = '22222222-2222-2222-2222-222222222222';
+
+  insert into public.messages (conversation_id, sender_id, body, created_at, status)
+  values (v_id, '22222222-2222-2222-2222-222222222222', 'from the future',
+          now() + interval '100 years', 'hidden')
+  returning created_at into v_when;
+
+  perform pg_temp.ok('the server owns the message clock',
+    v_when < now() + interval '1 minute');
+  perform pg_temp.ok('and the message status',
+    (select status from public.messages
+      where sender_id = '22222222-2222-2222-2222-222222222222'
+      order by created_at desc limit 1) = 'visible');
+end $$;
+
+-- ---- the new-thread limit -------------------------------------------------
+do $$
+declare i int; v_stopped boolean := false; v_name text;
+begin
+  -- Enough strangers to walk past the daily cap.
+  for i in 1..(mintplaza.new_threads_per_day() + 2) loop
+    v_name := 'spamtarget' || i;
+    insert into auth.users (id, email)
+    values (gen_random_uuid(), v_name || '@x.test');
+    update public.profiles set username = v_name, last_seen_at = now()
+     where id = (select id from auth.users where email = v_name || '@x.test');
+  end loop;
+
+  begin
+    for i in 1..(mintplaza.new_threads_per_day() + 2) loop
+      perform public.start_conversation('spamtarget' || i);
+    end loop;
+  exception when sqlstate 'P0001' then v_stopped := true;
+  end;
+  perform pg_temp.ok('opening threads with a whole game at once is stopped', v_stopped);
+end $$;
