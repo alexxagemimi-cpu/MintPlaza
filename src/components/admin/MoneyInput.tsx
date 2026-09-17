@@ -5,17 +5,22 @@ import { useState } from "react";
 /**
  * A money box that speaks the way trading communities do.
  *
- * Trade values run to ten digits. Asking someone to type 622500000 and count
- * the zeros is how wrong numbers get saved — and a wrong value silently changes
- * every win/loss verdict on the site. So this accepts what people actually say:
+ * The prices these games charge run to ten digits — a fruit costs 8,000,000
+ * Beli — and asking someone to type that and count the zeros is how wrong
+ * numbers get saved. So this accepts what people actually say:
  *
  *     622.5m   1.9B   10 M   1,900,000   45k   3400000
  *
  * and shows underneath exactly what it understood, in full, before you save.
  * If it cannot read what you typed it says so rather than guessing.
  *
- * Empty stays empty. Blank means "we do not know this number", which keeps the
- * trade calculator honest; a zero would tell it the item is worth nothing.
+ * It used to take trade values too. It no longer does — MintPlaza keeps none,
+ * see src/lib/referrals.ts — so the only money left is the game's OWN shop
+ * price in Beli or Robux, which the developer publishes and which does not
+ * move.
+ *
+ * Empty stays empty, and that distinction still matters: blank means "nobody
+ * has confirmed this price", a zero would mean the game gives it away free.
  */
 
 export function parseMoney(input: string): number | null | "bad" {

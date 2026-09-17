@@ -8,6 +8,7 @@ import type { SettingsProfile } from "@/components/SettingsSheet";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { SuggestionCard } from "@/components/SuggestionCard";
+import { ValuesCard } from "@/components/ValuesCard";
 import { currentProfile } from "@/lib/supabase/server";
 import { readProfile } from "@/lib/data/profile";
 import { readAllowance, readSuggestions } from "@/lib/data/trades";
@@ -331,6 +332,11 @@ export default async function GameDashboard({
             <ProofPrompt game={game} count={proofCount} />
           )}
           <InventoryPrompt game={game} />
+          {/* Values live off-site, so the way to them has to be somewhere a
+              player can find without being mid-trade first. The listing cards
+              and the catalogue footer both carry the compact version; this is
+              the one that explains why. */}
+          <ValuesCard gameSlug={game.slug} />
         </div>
 
         {/* ---- main column ---- */}

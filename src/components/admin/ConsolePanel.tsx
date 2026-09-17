@@ -11,7 +11,6 @@ import { Studio } from "./Studio";
 import type { StudioTemplate, MediaRow } from "@/lib/data/templates";
 import { lockConsole } from "@/lib/admin/gate";
 import { MoneyInput } from "./MoneyInput";
-import { DEMAND_LABEL, DEMAND_LEVELS, formatValue, type Demand } from "@/lib/values";
 import type { Rarity } from "@/lib/items";
 
 /**
@@ -24,15 +23,17 @@ import type { Rarity } from "@/lib/items";
  *
  * The parts that matter:
  *
- *   - Values are the thing that changes most, so they are editable inline from
- *     the list without opening anything. Editing 57 items one dialog at a time
- *     is the reason people stop keeping data current.
  *   - Nothing is deleted. Retiring an item hides it everywhere but keeps every
  *     listing and inventory row that points at it intact.
- *   - Every money field distinguishes blank from zero. Blank means not known
- *     and leaves the trade calculator honest; zero means worthless.
- *   - Every change is recorded server-side by a trigger, and value changes keep
- *     a dated history you can roll back.
+ *   - Every money field distinguishes blank from zero. Blank means nobody has
+ *     confirmed the price; zero would mean the game gives it away.
+ *
+ * What is NOT here any more: trade values, demand, and the dated history that
+ * let an admin roll a mistyped value back. MintPlaza keeps no values — see
+ * src/lib/referrals.ts — so the only money on an item is the game's own shop
+ * price, which the developer publishes and which does not move. A panel that
+ * still offered a value field would be asking somebody to maintain a number
+ * nothing reads.
  */
 
 const RARITIES: Rarity[] = [
@@ -81,9 +82,6 @@ function draftFrom(item: ConsoleItem): ItemDraft {
     art: str(a.art),
     beli: num(a.beli),
     robux: num(a.robux),
-    valuePhysical: num(a.valuePhysical),
-    valuePermanent: num(a.valuePermanent),
-    demand: num(a.demand),
   };
 }
 
@@ -92,7 +90,7 @@ function blankDraft(gameSlug: string, category: string): ItemDraft {
     gameSlug, name: "", category, rarity: "", type: "",
     aliases: "", formerly: "", chromatic: false, tradeable: true,
     parentSlug: "", note: "", art: "",
-    beli: null, robux: null, valuePhysical: null, valuePermanent: null, demand: null,
+    beli: null, robux: null,
   };
 }
 
@@ -246,22 +244,14 @@ function ItemEditor({
             <MoneyInput value={draft.robux ?? null} onChange={(v) => set("robux", v)}
               placeholder="e.g. 2000" />
           </Field>
-          <Field label="Trades for (normal)">
-            <MoneyInput value={draft.valuePhysical ?? null} onChange={(v) => set("valuePhysical", v)}
-              placeholder="e.g. 10M" />
-          </Field>
-          <Field label="Trades for (permanent)">
-            <MoneyInput value={draft.valuePermanent ?? null} onChange={(v) => set("valuePermanent", v)}
-              placeholder="e.g. 2.5B" />
-          </Field>
-          <Field label="How much people want it">
-            <select className={inputClass} value={draft.demand ?? ""}
-              onChange={(e) => set("demand", e.target.value === "" ? null : Number(e.target.value))}>
-              <option value="">Not set</option>
-              {DEMAND_LEVELS.map((d) =>
-                <option key={d} value={d}>{DEMAND_LABEL[d]}</option>)}
-            </select>
-          </Field>
+          {/* "Trades for", "Trades for (permanent)" and "How much people want
+              it" used to sit here. They are gone on purpose: MintPlaza keeps no
+              values, and a field that saves a number nothing reads back is
+              worse than no field — somebody fills in forty of them and wonders
+              why the site never changes. Values live on the partner sites now;
+              see referrals.ts. The two boxes above are the game's OWN shop
+              prices, which are facts published by the developer and do not
+              move. */}
         </div>
       </div>
 
@@ -387,8 +377,6 @@ export function ConsolePanel({
     [inGame],
   );
 
-  const valued = inGame.filter((r) => num(r.attributes?.valuePhysical) !== null).length;
-
   function commit(d: ItemDraft) {
     setError(null);
     startSaving(async () => {
@@ -404,9 +392,11 @@ export function ConsolePanel({
         parentSlug: d.parentSlug || undefined, note: d.note || undefined,
         art: d.art || undefined,
         beli: d.beli ?? undefined, robux: d.robux ?? undefined,
-        valuePhysical: d.valuePhysical ?? undefined,
-        valuePermanent: d.valuePermanent ?? undefined,
-        demand: d.demand ?? undefined,
+        // valuePhysical / valuePermanent / demand are deliberately absent.
+        // This object only mirrors what the server just wrote so the row
+        // updates without a refetch, and the server drops those keys on every
+        // save — see attributesFrom in lib/admin/actions.ts. Rows nobody edits
+        // are cleared by the schema on the next apply.
       };
       const next: ConsoleItem = {
         id: result.id!, game_slug: d.gameSlug, name: d.name.trim(),
@@ -481,7 +471,7 @@ export function ConsolePanel({
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">Everything in this game</h2>
           <p className="font-mono text-[0.625rem] tracking-[0.07em] text-ink-faint">
-            {inGame.length} THINGS · {valued} PRICED
+            {inGame.length} THINGS
           </p>
         </div>
 
@@ -551,11 +541,8 @@ export function ConsolePanel({
                     <span className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[0.5625rem] tracking-[0.07em] text-ink-faint">
                       {r.category && <span>{r.category.toUpperCase()}</span>}
                       {str(a.rarity) && <span>· {str(a.rarity).toUpperCase()}</span>}
-                      {num(a.valuePhysical) !== null
-                        ? <span className="text-mint">· VAL {formatValue(num(a.valuePhysical)!)}</span>
-                        : <span className="text-warn">· NO VALUE</span>}
-                      {num(a.demand) !== null &&
-                        <span>· {DEMAND_LABEL[num(a.demand) as Demand].toUpperCase()} DEMAND</span>}
+                      {str(a.type) && <span>· {str(a.type).toUpperCase()}</span>}
+                      {a.tradeable === false && <span className="text-warn">· NOT TRADEABLE</span>}
                     </span>
                   </span>
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"

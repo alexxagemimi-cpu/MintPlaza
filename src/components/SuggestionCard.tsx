@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ItemTile } from "./ItemTile";
 import { REASON_BLURB, REASON_LABEL, type TradeSuggestion } from "@/lib/match";
-import { VERDICT_COPY, VERDICT_STYLE, type ListingItem } from "@/lib/trade";
-import { formatValue, valueSourceFor } from "@/lib/values";
+import type { ListingItem } from "@/lib/trade";
 
 /**
  * One suggested trade.
@@ -18,6 +17,12 @@ import { formatValue, valueSourceFor } from "@/lib/values";
  * it today or are short an item. The ranking's reasoning is one tap away rather
  * than hidden — a score nobody can interrogate is a score they stop trusting
  * the first time it puts something strange at the top.
+ *
+ * The badge in the corner used to be a W/F/L. It is now whether you can close
+ * the deal today, which is the honest upgrade: the verdict was a claim about
+ * value that MintPlaza no longer makes (see referrals.ts), while "you have
+ * everything they asked for" is a fact about your own have list, it is always
+ * right, and it is the thing that actually decides whether you tap through.
  */
 export function SuggestionCard({
   suggestion,
@@ -26,10 +31,7 @@ export function SuggestionCard({
   suggestion: TradeSuggestion;
   gameSlug: string;
 }) {
-  const { listing, reason, youGive, youGet, missing, canClose, verdict, calculation } =
-    suggestion;
-  const style = VERDICT_STYLE[verdict];
-  const source = valueSourceFor(gameSlug);
+  const { listing, reason, youGive, youGet, missing, canClose } = suggestion;
 
   return (
     <article className="glass overflow-hidden rounded-[var(--radius-panel)]">
@@ -61,11 +63,18 @@ export function SuggestionCard({
         </div>
 
         <span
-          className="shrink-0 rounded-lg px-2 py-1 font-mono text-[0.625rem] font-bold tracking-[0.07em]"
-          style={{ color: style.fg, background: style.bg, boxShadow: `inset 0 0 0 1px ${style.ring}` }}
-          title={VERDICT_COPY[verdict].long}
+          className={`shrink-0 rounded-lg px-2 py-1 font-mono text-[0.625rem] font-bold tracking-[0.07em] ${
+            canClose
+              ? "bg-mint-wash text-mint"
+              : "bg-fill text-ink-mute"
+          }`}
+          title={
+            canClose
+              ? "You already hold everything they asked for"
+              : `You are short ${missing.length} of the items they asked for`
+          }
         >
-          {VERDICT_COPY[verdict].short}
+          {canClose ? "CAN CLOSE" : `SHORT ${missing.length}`}
         </span>
       </header>
 
@@ -114,13 +123,10 @@ export function SuggestionCard({
         </summary>
 
         <div className="px-4 pb-4">
-          {/* The arithmetic, where there is any. An unpriced side is said so
-              rather than summed around — see trade.ts. */}
-          <dl className="mb-3 grid grid-cols-2 gap-2 text-[0.75rem]">
-            <Total label="You give" total={calculation.outgoing.total} unpriced={calculation.outgoing.unpriced} unit={source?.unit} />
-            <Total label="You get" total={calculation.incoming.total} unpriced={calculation.incoming.unpriced} unit={source?.unit} />
-          </dl>
-
+          {/* Every line here is something the site can check for itself: your
+              lists, their lists, the game's own rarity tier, who is online.
+              Nothing in this ranking depends on a value, which is why none of
+              it goes stale. */}
           <ul className="space-y-1">
             {suggestion.factors.map((f, i) => (
               <li key={i} className="flex items-baseline justify-between gap-3 text-[0.75rem]">
@@ -184,41 +190,6 @@ function Side({
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-function Total({
-  label, total, unpriced, unit,
-}: {
-  label: string;
-  total: number;
-  unpriced: readonly string[];
-  unit?: string;
-}) {
-  return (
-    <div className="rounded-[var(--radius-inner)] border border-line-soft px-2.5 py-2">
-      <dt className="font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
-        {label.toUpperCase()}
-      </dt>
-      <dd className="mt-0.5 text-[0.875rem] font-bold text-ink">
-        {unpriced.length > 0 ? (
-          <span className="text-[0.75rem] font-semibold text-ink-mute">
-            {/* Never a partial sum presented as a total. One unpriced item and
-                the number would read as the value of the whole side. */}
-            {unpriced.length} without a published value
-          </span>
-        ) : (
-          <>
-            {formatValue(total)}
-            {unit && (
-              <span className="ml-1 font-mono text-[0.5625rem] font-medium tracking-[0.06em] text-ink-faint">
-                {unit.toUpperCase()}
-              </span>
-            )}
-          </>
-        )}
-      </dd>
     </div>
   );
 }

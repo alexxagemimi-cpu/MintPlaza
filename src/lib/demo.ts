@@ -22,7 +22,6 @@
 import { tradableFor, ITEM_VARIANTS, type CatalogItem } from "./items";
 import type { ListingItem } from "./trade";
 import type { ReasonCode } from "./match";
-import { VALUES, valueOf } from "./values";
 import type { Contact, ContactSuggestion, DirectMessage } from "./contacts";
 
 export const DEMO_ENABLED =
@@ -112,45 +111,6 @@ function buildSide(
   }));
 }
 
-const sideValue = (side: readonly ListingItem[]): number =>
-  side.reduce((sum, e) => sum + (valueOf(e.item, e.variant) ?? 0) * e.quantity, 0);
-
-/**
- * Build a want side worth roughly what the offer side is worth.
- *
- * Pairing items at random produces trades that are eighty times lopsided, which
- * is not what a listing looks like and makes the calculator read as broken when
- * every row shouts 55×. Real traders ask for something near what they are
- * giving, so the example content does too: several candidate sides are drawn
- * and the one closest to the target is kept, with a deliberate skew so the
- * screen shows genuine wins, losses and fair trades rather than all one.
- */
-function buildMatchedSide(
-  rand: () => number,
-  pool: readonly CatalogItem[],
-  variants: readonly string[],
-  count: number,
-  target: number,
-): ListingItem[] {
-  const first = buildSide(rand, pool, variants, count);
-  if (target <= 0) return first;
-
-  // Aim a little above or below parity so the verdicts are not all FAIR.
-  const skew = 0.75 + rand() * 0.6;
-  const goal = target * skew;
-
-  let best = first;
-  let bestGap = Math.abs(Math.log((sideValue(first) || 1) / goal));
-  for (let i = 0; i < 12; i++) {
-    const candidate = buildSide(rand, pool, variants, count);
-    const value = sideValue(candidate);
-    if (value <= 0) continue;
-    const gap = Math.abs(Math.log(value / goal));
-    if (gap < bestGap) { best = candidate; bestGap = gap; }
-  }
-  return best;
-}
-
 /** Example listings for a game, or nothing at all when demo mode is off. */
 export function demoListings(gameSlug: string, count = 8): readonly DemoListing[] {
   if (!DEMO_ENABLED) return [];
@@ -165,12 +125,12 @@ export function demoListings(gameSlug: string, count = 8): readonly DemoListing[
   );
   const wide = desirable.length >= 6 ? desirable : catalog;
 
-  // Prefer items that have a published value. A demo listing exists to exercise
-  // the real path, and a screen of "NO CALL" would exercise only the fallback —
-  // but the fallback is real too, so unpriced items stay in the pool where the
-  // priced ones are too few to fill a screen.
-  const priced = wide.filter((i) => VALUES[i.id] !== undefined);
-  const pool = priced.length >= 8 ? priced : wide;
+  // The pool used to be narrowed to items with a published value, so the demo
+  // screen would show real verdicts rather than a column of "NO CALL". There
+  // are no verdicts and no values any more, so the narrowing is gone and the
+  // whole desirable end of the catalogue is fair game — which is closer to
+  // what a real board looks like anyway.
+  const pool = wide;
   const variants = ITEM_VARIANTS[gameSlug] ?? [];
 
   return Array.from({ length: count }, (_, n) => {
@@ -194,9 +154,11 @@ export function demoListings(gameSlug: string, count = 8): readonly DemoListing[
       username,
       trades: Math.floor(rand() * 60),
       offering,
-      wanting: openToOffers
-        ? []
-        : buildMatchedSide(rand, wantPool, variants, rand() > 0.7 ? 2 : 1, sideValue(offering)),
+      // Want sides used to be value-matched against the offer side so the
+      // demo verdicts were not all wildly lopsided. With no verdict to be
+      // lopsided, a straight draw from what is left is both simpler and more
+      // honest about what a listing is: somebody's ask, not an arbitrated one.
+      wanting: openToOffers ? [] : buildSide(rand, wantPool, variants, rand() > 0.7 ? 2 : 1),
       note: pick(rand, NOTES) || undefined,
       postedHoursAgo: 1 + Math.floor(rand() * 20),
       reason: pick(rand, REASONS),

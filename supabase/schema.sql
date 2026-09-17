@@ -2361,7 +2361,7 @@ declare
     'admin_save_template', 'admin_set_template_active',
     'admin_add_media', 'admin_delete_media',
     'enforce_service_listing_limit', 'block_self_vote', 'stamp_pick_reply',
-    'cleanup_service_listings', 'record_item_value',
+    'cleanup_service_listings',
     'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate'
   ];
   r record;
@@ -2467,9 +2467,9 @@ $$;
 
 revoke all on function public.is_admin() from public;
 -- anon as well as authenticated, and deliberately. is_admin() is read inside
--- the item_value_history policy, and a policy is evaluated as whoever is
--- querying — so a role without EXECUTE turns a read that should return nothing
--- into "permission denied for function is_admin". It answers from auth.uid(),
+-- RLS policies, and a policy is evaluated as whoever is querying — so a role
+-- without EXECUTE turns a read that should return nothing into "permission
+-- denied for function is_admin". It answers from auth.uid(),
 -- which is null for a signed-out visitor, so to anon it is a function that
 -- returns false and discloses nothing.
 grant execute on function public.is_admin() to authenticated, anon;
@@ -2830,76 +2830,69 @@ grant execute on function public.board_listings(text) to authenticated, anon;
 
 
 -- ---------------------------------------------------------------------------
--- Value history
+-- Value history: removed
 --
--- The panel can put an item's money fields back to an earlier version, which
--- needs somewhere to have recorded them. Written by a trigger rather than by
--- the panel, so a value changed by any route is still recoverable.
+-- MintPlaza used to keep its own value table and its own W/F/L calculator, and
+-- this is what let an admin undo a mistyped value. Both are gone — the
+-- reasoning is in src/lib/referrals.ts, and the short version is that a value
+-- list is a full-time job in six games at once and a stale number loses a
+-- player a trade. Every value question now goes to the site that community
+-- already quotes.
+--
+-- So there is nothing left to record a history OF. Three things happen here,
+-- in this order, and all three are safe to run on a database that never had
+-- any of it:
+--
+--   1. The trigger goes first. While it exists, step 3 would fire it on every
+--      single row and write a history entry for a value being cleared, which
+--      is both pointless and slow on a large catalogue.
+--   2. The table goes, after saying how many versions it is taking with it.
+--      Nothing reads it — the one function that did, revertValue(), was
+--      removed with the calculator.
+--   3. The stale keys come out of every item. This is the part that matters:
+--      the app stopped READING valuePhysical, valuePermanent and demand, but a
+--      database that has been live still has them sitting in attributes, and
+--      leaving them there means a future reader could resurrect months-old
+--      numbers by accident. Clearing them makes that impossible rather than
+--      merely unlikely.
+--
+-- beli and robux are deliberately left alone. They are the game's own shop
+-- prices, published by the developer, and they do not move.
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.item_value_history (
-  id              bigserial primary key,
-  item_id         uuid not null references public.game_items(id) on delete cascade,
-  value_physical  numeric,
-  value_permanent numeric,
-  demand          numeric,
-  beli            numeric,
-  robux           numeric,
-  changed_by      uuid references public.profiles(id) on delete set null,
-  changed_at      timestamptz not null default now()
-);
+drop trigger if exists game_items_value_history on public.game_items;
+drop function if exists public.record_item_value() cascade;
 
-create index if not exists item_value_history_item_idx
-  on public.item_value_history (item_id, changed_at desc);
-
-alter table public.item_value_history enable row level security;
-drop policy if exists item_value_history_read on public.item_value_history;
-create policy item_value_history_read on public.item_value_history for select
-  using (public.is_admin());
--- No write policy: the trigger below is the only writer.
-
-create or replace function public.record_item_value()
-returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
-declare v_num text[] := array['valuePhysical','valuePermanent','demand','beli','robux'];
-        k text;
-        changed boolean := false;
+do $$
+declare v_rows bigint;
 begin
-  -- Only money moved matters. A rename or a category edit is not a value
-  -- change and should not fill the history with rows nobody can revert to.
-  foreach k in array v_num loop
-    if (old.attributes->>k) is distinct from (new.attributes->>k) then
-      changed := true;
-    end if;
-  end loop;
-  if not changed then return new; end if;
-
-  insert into public.item_value_history
-    (item_id, value_physical, value_permanent, demand, beli, robux, changed_by)
-  values (
-    old.id,
-    nullif(old.attributes->>'valuePhysical','')::numeric,
-    nullif(old.attributes->>'valuePermanent','')::numeric,
-    nullif(old.attributes->>'demand','')::numeric,
-    nullif(old.attributes->>'beli','')::numeric,
-    nullif(old.attributes->>'robux','')::numeric,
-    auth.uid()
-  );
-  return new;
-exception
-  -- History is a convenience. A row that cannot be recorded — a value that was
-  -- written as text by some earlier route, say — must not block the edit
-  -- itself, or one malformed attribute would make an item uneditable forever.
-  when others then
-    raise notice 'value history skipped for %: %', old.id, sqlerrm;
-    return new;
+  if to_regclass('public.item_value_history') is not null then
+    execute 'select count(*) from public.item_value_history' into v_rows;
+    raise notice 'Dropping item_value_history and its % recorded version(s). MintPlaza no longer keeps values.', v_rows;
+    drop table public.item_value_history;
+  end if;
 end $$;
 
-drop trigger if exists game_items_value_history on public.game_items;
-create trigger game_items_value_history
-  before update on public.game_items
-  for each row execute function public.record_item_value();
+do $$
+declare v_touched bigint;
+begin
+  with cleared as (
+    update public.game_items
+       set attributes = attributes - 'valuePhysical' - 'valuePermanent' - 'demand'
+     where attributes ?| array['valuePhysical', 'valuePermanent', 'demand']
+    returning 1
+  )
+  select count(*) into v_touched from cleared;
 
-revoke all on function public.record_item_value() from public, anon, authenticated;
+  if v_touched > 0 then
+    raise notice 'Cleared stale value/demand fields from % catalogue row(s).', v_touched;
+  end if;
+exception
+  -- Clearing old numbers is housekeeping, not a precondition. If this cannot
+  -- run the app is still correct, because nothing reads those keys any more.
+  when others then
+    raise notice 'Could not clear stale value fields: %', sqlerrm;
+end $$;
 
 
 -- ---------------------------------------------------------------------------

@@ -1,15 +1,7 @@
 import { ItemTile } from "./ItemTile";
-import { ValueLookup } from "./ValueLookup";
+import { ValuesCard } from "./ValuesCard";
 import { REASON_LABEL, type CardListing } from "@/lib/match";
 import type { ListingItem } from "@/lib/trade";
-import {
-  DEMAND_LABEL, DEMAND_STYLE, checkedLabel, demandOf, formatValue, valueSourceFor,
-  isStale, type Demand,
-} from "@/lib/values";
-import {
-  VERDICT_COPY, VERDICT_STYLE, calculate,
-  type Calculation, type Perspective, type SideTotal,
-} from "@/lib/trade";
 
 /**
  * A trade listing.
@@ -19,22 +11,38 @@ import {
  * The first is density. A player scanning listings on a phone decides in about
  * a second each, and a card tall enough to show everything fits two per screen
  * — which means they never scan, they scroll, and they leave. So the resting
- * state is one compact row: who, what for what, and the verdict. Seven or eight
- * fit on a phone, and the two-column grid on a tablet doubles that again.
+ * state is one compact row: who, and what for what. Seven or eight fit on a
+ * phone, and the two-column grid on a tablet doubles that again.
  *
- * The second is that the numbers behind the verdict have to be inspectable.
- * A calculator that shows only "LOSS" is a black box, and players do not trust
- * black boxes with items worth months of grinding. So every row opens into the
- * full arithmetic — every item, its price, its value, its demand and the
- * subtotals. Not a margin: the verdict is W, F or L and nothing finer.
+ * The second is that what is actually on the table has to be readable in full.
+ * Three tiles and a "+2" is enough to skip a listing, not enough to act on one,
+ * so every row opens into both sides written out — every item, its form, and
+ * how many.
  *
  * A <details> element does both without a byte of JavaScript, which keeps this
  * a server component and makes it behave identically on every device.
  *
- * The verdict itself depends on who is looking. The trader who posted the
- * listing hands over what they offer; everyone else hands over what is wanted.
- * Same listing, opposite sides, opposite verdict — so the card is always told
- * whose eyes it is drawn through.
+ * ---------------------------------------------------------------------------
+ * Why there is no W/F/L on this card
+ * ---------------------------------------------------------------------------
+ *
+ * There used to be. It sat on the resting row as a three-letter chip, and it
+ * was the first thing anybody looked at — which is exactly why it had to go.
+ * That chip was only ever as good as the value table behind it, MintPlaza no
+ * longer keeps one, and it never covered enough of the catalogue to deserve the
+ * confidence players read into it. A chip that says LOSS is a strong claim, and
+ * this site is not in a position to make it.
+ *
+ * So the card states what changes hands and gets out of the way, with the
+ * calculator that community actually uses one tap below. The reasoning in full
+ * is in referrals.ts. What the card still does say, loudly, is when the two
+ * sides name different games — that is not a value judgement, it is against the
+ * rules of every game on the roster, and it is worth a warning.
+ *
+ * Which side is "yours" still depends on who is looking: the trader who posted
+ * the listing hands over what they offer, everyone else hands over what is
+ * wanted. Same listing, opposite sides — so the card is always told whose eyes
+ * it is drawn through.
  */
 
 function Avatar({ name, size = 34 }: { name: string; size?: number }) {
@@ -57,49 +65,6 @@ function Avatar({ name, size = 34 }: { name: string; size?: number }) {
   );
 }
 
-/**
- * The verdict, and only the verdict.
- *
- * No percentage and no margin. The values underneath are one site's estimate of
- * a market that moves daily, and dressing that up as "+35%" invites a trader to
- * argue about a decimal point that was never real. Three words, and both totals
- * shown in full below for anyone who wants to check the working.
- */
-function VerdictChip({ calc }: { calc: Calculation }) {
-  const s = VERDICT_STYLE[calc.verdict];
-  const copy = VERDICT_COPY[calc.verdict];
-  return (
-    <span
-      title={copy.long}
-      className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[0.5625rem] font-bold tracking-[0.08em]"
-      style={{ color: s.fg, background: s.bg, boxShadow: `inset 0 0 0 1px ${s.ring}` }}
-    >
-      {copy.short}
-    </span>
-  );
-}
-
-/**
- * Demand, as a word.
- *
- * Extreme gets solid red and a slow pulse. That is the one step where the
- * information is "drop what you are doing", and a trader scanning nine rows on
- * a phone should catch it without reading a single label.
- */
-function DemandChip({ demand }: { demand: Demand }) {
-  const s = DEMAND_STYLE[demand];
-  return (
-    <span
-      className={`rounded-[5px] px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em] ${
-        s.glow ? "demand-extreme font-bold" : ""
-      }`}
-      style={{ color: s.fg, background: s.bg }}
-    >
-      {DEMAND_LABEL[demand].toUpperCase()} DEMAND
-    </span>
-  );
-}
-
 /** The item tiles on the resting row. Small, and capped so the row cannot grow. */
 function MiniSide({ entries }: { entries: readonly ListingItem[] }) {
   if (entries.length === 0) {
@@ -115,16 +80,6 @@ function MiniSide({ entries }: { entries: readonly ListingItem[] }) {
       {shown.map((e) => (
         <span key={`${e.item.id}-${e.variant ?? ""}`} className="relative">
           <ItemTile item={e.item} size={22} />
-          {/* Extreme demand, on the closed row. Someone thumbing past nine
-              listings should catch the red without opening anything — the full
-              chip is still inside, this is only the flag that says look. */}
-          {demandOf(e.item) === 6 && (
-            <span
-              aria-label={`${e.item.name} is in extreme demand`}
-              title={`${e.item.name} — extreme demand`}
-              className="demand-extreme absolute -right-0.5 -top-0.5 h-[7px] w-[7px] rounded-full border border-surface bg-[#D93025]"
-            />
-          )}
           {e.quantity > 1 && (
             <span className="absolute -bottom-1 -right-1 grid h-[13px] min-w-[13px] place-items-center rounded-full border border-line bg-surface px-[2px] font-mono text-[0.4375rem] font-bold text-ink">
               {e.quantity}
@@ -141,12 +96,12 @@ function MiniSide({ entries }: { entries: readonly ListingItem[] }) {
   );
 }
 
-/** One side of the breakdown table. */
-function SideBreakdown({
-  label, side, tone,
+/** One side of the trade, written out. */
+function SideList({
+  label, entries, tone,
 }: {
   label: string;
-  side: SideTotal;
+  entries: readonly ListingItem[];
   tone: "in" | "out";
 }) {
   return (
@@ -159,62 +114,39 @@ function SideBreakdown({
         {label}
       </p>
 
-      {side.lines.length === 0 ? (
+      {entries.length === 0 ? (
         <p className="text-[0.8125rem] text-ink-mute">Nothing specific — open to offers.</p>
       ) : (
         <ul className="grid gap-1.5">
-          {side.lines.map((l, n) => (
-            <li key={`${l.name}-${l.variant ?? ""}-${n}`} className="flex items-baseline gap-2">
+          {entries.map((e, n) => (
+            <li key={`${e.item.id}-${e.variant ?? ""}-${n}`} className="flex items-center gap-2">
+              <ItemTile item={e.item} size={26} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[0.8125rem] font-semibold text-ink">
-                  {l.quantity > 1 && <span className="text-ink-mute">{l.quantity}× </span>}
-                  {l.name}
+                  {e.quantity > 1 && <span className="text-ink-mute">{e.quantity}× </span>}
+                  {e.item.name}
                 </span>
                 <span className="mt-0.5 flex flex-wrap items-center gap-1">
-                  {l.variant && (
+                  {e.variant && (
                     <span className="rounded-[5px] border border-line bg-fill px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.06em] text-ink-soft">
-                      {l.variant.toUpperCase()}
+                      {e.variant.toUpperCase()}
                     </span>
                   )}
-                  {l.demand !== undefined && <DemandChip demand={l.demand} />}
-                  {l.price && (
-                    <span
-                      title={`What the game charges. Value is what players trade it for.`}
-                      className="font-mono text-[0.5rem] tracking-[0.07em] text-ink-faint"
-                    >
-                      PRICE {l.price.unit === "Robux" ? "R$" : ""}
-                      {formatValue(l.price.amount)}
-                      {l.price.unit === "Beli" ? " BELI" : ""}
+                  {/* Rarity is the game's own tier, printed in the game and on
+                      the wiki. Unlike a value it does not move, so it is the
+                      one piece of "how good is this" the card can state
+                      without keeping anything up to date. */}
+                  {e.item.rarity && (
+                    <span className="font-mono text-[0.5rem] tracking-[0.07em] text-ink-faint">
+                      {e.item.rarity.toUpperCase()}
                     </span>
                   )}
                 </span>
-              </span>
-              <span className="shrink-0 text-right font-mono text-[0.75rem] tabular-nums">
-                {l.subtotal === undefined ? (
-                  <span className="text-warn">no value</span>
-                ) : (
-                  <>
-                    <span className="font-bold text-ink">{formatValue(l.subtotal)}</span>
-                    {l.quantity > 1 && (
-                      <span className="block text-[0.625rem] text-ink-faint">
-                        {formatValue(l.unit!)} each
-                      </span>
-                    )}
-                  </>
-                )}
               </span>
             </li>
           ))}
         </ul>
       )}
-
-      <p className="mt-2 flex items-baseline justify-between gap-2 border-t border-line-soft pt-1.5 font-mono text-[0.75rem] tabular-nums">
-        <span className="tracking-[0.07em] text-ink-faint">TOTAL</span>
-        <span className="font-bold text-ink">
-          {formatValue(side.total)}
-          {side.unpriced.length > 0 && <span className="text-warn"> +?</span>}
-        </span>
-      </p>
     </div>
   );
 }
@@ -225,27 +157,29 @@ export function TradeListingCard({
 }: {
   listing: CardListing;
   /**
-   * The signed-in player's name. When it matches the poster the listing is
-   * calculated from their side instead, which flips the verdict.
+   * The signed-in player's name. When it matches the poster, the sides are
+   * drawn from their side instead — they give what they offered.
    */
   viewerUsername?: string;
 }) {
-  const perspective: Perspective =
-    viewerUsername && viewerUsername === listing.username ? "owner" : "viewer";
-  const source = valueSourceFor(listing.gameSlug);
-  const calc = calculate(listing.offering, listing.wanting, perspective);
+  const isOwner = Boolean(viewerUsername && viewerUsername === listing.username);
 
   // What the viewer receives and gives, in their own terms.
-  const youGet = perspective === "owner" ? listing.wanting : listing.offering;
-  const youGive = perspective === "owner" ? listing.offering : listing.wanting;
+  const youGet = isOwner ? listing.wanting : listing.offering;
+  const youGive = isOwner ? listing.offering : listing.wanting;
 
-  // The oldest reading on the card, because a trade is only as fresh as its
-  // stalest side: one item checked this morning does not make a three-week-old
-  // number on the other side any more current.
-  const oldest = [...listing.offering, ...listing.wanting]
-    .map((e) => e.item.checkedAt)
-    .filter((d): d is string => Boolean(d))
-    .sort()[0];
+  const openToOffers = listing.wanting.length === 0;
+
+  // Cross-game is a rules problem, not a pricing one, so it survived the
+  // calculator: trading items between two Roblox games is bannable in every
+  // game on this roster, and a listing that names two is either a mistake or
+  // somebody about to lose an account.
+  const crossGame =
+    new Set(
+      [...listing.offering, ...listing.wanting]
+        .map((e) => e.item.gameSlug)
+        .filter(Boolean),
+    ).size > 1;
 
   return (
     <details className="glass group overflow-hidden rounded-[var(--radius-panel)] [&[open]]:bg-surface">
@@ -258,7 +192,7 @@ export function TradeListingCard({
             <span className="min-w-0 truncate text-[0.8125rem] font-bold tracking-[-0.015em] text-ink">
               {listing.username}
             </span>
-            {perspective === "owner" && (
+            {isOwner && (
               <span className="shrink-0 rounded-[5px] bg-fill px-1.5 py-0.5 font-mono text-[0.5rem] font-medium tracking-[0.07em] text-ink-mute">
                 YOURS
               </span>
@@ -285,7 +219,14 @@ export function TradeListingCard({
             </svg>
             <MiniSide entries={youGive} />
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
-              <VerdictChip calc={calc} />
+              {crossGame && (
+                <span
+                  title="This names items from two different games"
+                  className="shrink-0 rounded-full bg-warn-wash px-2 py-0.5 font-mono text-[0.5625rem] font-bold tracking-[0.08em] text-warn"
+                >
+                  CROSS-GAME
+                </span>
+              )}
               <svg
                 width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -299,98 +240,45 @@ export function TradeListingCard({
         </span>
       </summary>
 
-      {/* ---- the arithmetic, on demand and identical on every device ---- */}
+      {/* ---- both sides in full, identical on every device ---- */}
       <div className="border-t border-line-soft px-3 pb-3 pt-3">
         <p className="mb-3 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
-          SHOW CALCULATIONS
-          {perspective === "owner"
-            ? " — FROM YOUR SIDE, AS THE POSTER"
-            : " — FROM YOUR SIDE, NOT THEIRS"}
-        </p>
-
-        <p className="mb-3 text-[0.6875rem] leading-relaxed text-ink-faint">
-          <b className="font-semibold text-ink-mute">Price</b> is what the game
-          charges. <b className="font-semibold text-ink-mute">Value</b> is what
-          players actually trade it for. Portal costs 1.9M Beli and trades near
-          10M — every total below is value, never price.
+          WHAT CHANGES HANDS
+          {isOwner ? " — FROM YOUR SIDE, AS THE POSTER" : " — FROM YOUR SIDE, NOT THEIRS"}
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <SideBreakdown label="YOU RECEIVE" side={calc.incoming} tone="in" />
-          <SideBreakdown label="YOU GIVE" side={calc.outgoing} tone="out" />
+          <SideList label="YOU RECEIVE" entries={youGet} tone="in" />
+          <SideList label="YOU GIVE" entries={youGive} tone="out" />
         </div>
 
-        {/* ---- the verdict, spelled out ---- */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[12px] bg-fill px-3 py-2.5">
-          <VerdictChip calc={calc} />
-          <span className="text-[0.8125rem] font-semibold text-ink">
-            {calc.crossGame
-              ? "This names items from two different games. Those values are measured in different currencies and cannot be compared — and cross-trading is against the rules of the games themselves."
-              : calc.openToOffers
-                ? "They have not said what they want, so there is nothing to weigh this against."
-                : calc.verdict === "?"
-                  ? "Some items here have no published value, so this is not a call anyone should trade on."
-                  : `${formatValue(calc.incoming.total)} in, ${formatValue(calc.outgoing.total)} out` +
-                    `${source ? ` (${source.unit})` : ""} — ${VERDICT_COPY[calc.verdict].long}.`}
-          </span>
-        </div>
+        {crossGame && (
+          <p className="mt-3 rounded-[12px] border border-warn/30 bg-warn-wash px-3 py-2.5 text-[0.8125rem] font-semibold leading-relaxed text-warn">
+            This listing names items from two different games. Trading across
+            games is against the rules of every game MintPlaza covers and is a
+            common way accounts get banned — and the items are not comparable in
+            any case.
+          </p>
+        )}
 
-        {/* ---- the way out of a "?" ----
-             A "?" caused by a missing value is the commonest verdict on this
-             site and will stay that way: 10,117 of 10,191 catalogue rows have
-             no published value, because nobody publishes values at that scale.
-             Left as a bare "?" it is a dead end, and a dead end is where a
-             trader closes the tab.
+        {openToOffers && !crossGame && (
+          <p className="mt-3 text-[0.8125rem] leading-relaxed text-ink-mute">
+            They have not said what they want. Send an offer and see.
+          </p>
+        )}
 
-             Only the missing-value case gets this. Cross-game and
-             open-to-offers are also "?" but neither is a question another site
-             can answer — one is a rule violation and the other is a listing
-             that has not said what it wants — so offering a lookup there would
-             be noise dressed up as help. ---- */}
-        {calc.verdict === "?" &&
-          !calc.crossGame &&
-          !calc.openToOffers &&
-          (calc.incoming.unpriced.length > 0 || calc.outgoing.unpriced.length > 0) && (
-            <div className="mt-3">
-              <ValueLookup
-                gameSlug={listing.gameSlug}
-                unpriced={[...calc.incoming.unpriced, ...calc.outgoing.unpriced]}
-              />
-            </div>
-          )}
+        {/* ---- where the W/F/L lives now ----
+             Every game on the roster has a partner and the proof script keeps
+             it that way, so this is never a dead end. See referrals.ts. ---- */}
+        {!crossGame && (
+          <div className="mt-3">
+            <ValuesCard gameSlug={listing.gameSlug} compact />
+          </div>
+        )}
 
         {listing.note && (
           <p className="mt-3 text-[0.8125rem] leading-relaxed text-ink-mute">
             &ldquo;{listing.note}&rdquo;
-          </p>
-        )}
-
-        {/* ---- provenance ----
-             A value nobody can source is a rumour, and one with no date on it
-             is indistinguishable from a fact. It reads the source for THIS
-             game: no two of these games price in the same unit, and a Fisch
-             listing showing "7.2K" without saying Shady Scrips reads as Beli
-             to anybody who arrived from Blox Fruits. A game with no value list
-             says so, which is a real state and not an error. ---- */}
-        {source ? (
-          <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
-            Value and demand are community estimates from{" "}
-            <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline">
-              {source.name}
-            </a>
-            , in {source.unit}. They are not official, they move daily, and they
-            are a starting point for a conversation rather than a price.{" "}
-            <span className={oldest && isStale(oldest) ? "font-semibold text-warn" : ""}>
-              {checkedLabel(oldest)}
-              {oldest && isStale(oldest) && " — treat these as rough"}
-            </span>
-            .{source.caveat && ` ${source.caveat}`}
-          </p>
-        ) : (
-          <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-faint">
-            There is no value list for this game on MintPlaza yet, so nothing
-            here is priced and no verdict is given. Work it out between
-            yourselves — an invented number would be worse than none.
           </p>
         )}
 

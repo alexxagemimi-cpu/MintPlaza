@@ -34,9 +34,6 @@ export interface ItemDraft {
   art?: string;
   beli?: number | null;
   robux?: number | null;
-  valuePhysical?: number | null;
-  valuePermanent?: number | null;
-  demand?: number | null;
 }
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -63,9 +60,17 @@ function attributesFrom(d: ItemDraft, existingSlug?: string) {
   if (d.parentSlug) attrs.parentSlug = d.parentSlug;
   if (d.note) attrs.note = d.note;
   if (d.art) attrs.art = d.art;
-  // A blank number means "not known", which is not the same as zero — a zero
-  // would make the trade calculator price the item at nothing.
-  for (const k of ["beli", "robux", "valuePhysical", "valuePermanent", "demand"] as const) {
+  // Beli and Robux are the game's OWN shop prices — published by the
+  // developer, and they do not move. They are the only money left on an item.
+  //
+  // valuePhysical, valuePermanent and demand are gone: MintPlaza keeps no
+  // values (see referrals.ts). They are not listed here, and because an update
+  // REPLACES the attributes object rather than merging into it, saving any item
+  // in the panel also strips whatever stale numbers that row was still
+  // carrying. The schema clears the rest in one pass on the next apply.
+  //
+  // A blank number still means "not known", which is not the same as zero.
+  for (const k of ["beli", "robux"] as const) {
     const v = d[k];
     if (typeof v === "number" && Number.isFinite(v)) attrs[k] = v;
   }
@@ -77,11 +82,8 @@ function validate(d: ItemDraft): string | null {
   if (d.name.length > 80) return "That name is too long to fit a tile.";
   if (!d.gameSlug) return "The item needs a game.";
   if (!d.category?.trim()) return "The item needs a category, such as Fruit or Gamepass.";
-  if (d.demand != null && (d.demand < 1 || d.demand > 6))
-    return "Demand runs from Very low up to Extreme.";
   for (const [k, label] of [
     ["beli", "Beli price"], ["robux", "Robux price"],
-    ["valuePhysical", "Physical value"], ["valuePermanent", "Permanent value"],
   ] as const) {
     const v = d[k];
     if (v != null && (v < 0 || !Number.isFinite(v))) return `${label} cannot be negative.`;
@@ -156,42 +158,6 @@ export async function setItemActive(id: string, active: boolean): Promise<Action
   if (error) return { ok: false, error: error.message };
   revalidatePath("/app", "layout");
   return { ok: true, id };
-}
-
-/**
- * Put an item's money fields back to an earlier recorded version.
- *
- * The point of keeping history is being able to undo, and a mistyped value that
- * quietly changes every W/L verdict on the site is exactly the mistake worth
- * being able to take back in one tap.
- */
-export async function revertValue(itemId: string, historyId: number): Promise<ActionResult> {
-  if (!(await isAdmin())) return { ok: false, error: "Not found." };
-  const supabase = await serverSupabase();
-  if (!supabase) return { ok: false, error: "No database configured." };
-
-  const { data: past, error: readError } = await supabase
-    .from("item_value_history")
-    .select("value_physical, value_permanent, demand, beli, robux")
-    .eq("id", historyId).eq("item_id", itemId).maybeSingle();
-  if (readError || !past) return { ok: false, error: "That version is no longer on record." };
-
-  const { data: row } = await supabase
-    .from("game_items").select("attributes").eq("id", itemId).maybeSingle();
-  const attrs = { ...((row?.attributes ?? {}) as Record<string, unknown>) };
-
-  for (const [key, value] of [
-    ["valuePhysical", past.value_physical], ["valuePermanent", past.value_permanent],
-    ["demand", past.demand], ["beli", past.beli], ["robux", past.robux],
-  ] as const) {
-    if (value == null) delete attrs[key];
-    else attrs[key] = Number(value);
-  }
-
-  const { error } = await supabase.from("game_items").update({ attributes: attrs }).eq("id", itemId);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/app", "layout");
-  return { ok: true, id: itemId };
 }
 
 /** Whatever the game itself says about the site's presentation. */

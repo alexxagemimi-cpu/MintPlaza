@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { findItem } from "@/lib/items";
-import { outboundUrl } from "@/lib/referrals";
+import { isValuesIntent, outboundUrl } from "@/lib/referrals";
 import { getGame } from "@/lib/games";
 
 /**
@@ -19,14 +18,11 @@ import { getGame } from "@/lib/games";
  * finding — it is a ready-made phishing page with our name on it.
  *
  * So nothing about the destination comes from the request. The route is handed
- * a game slug and, optionally, an item id; both are looked up in registries
- * compiled into the build; the URL is reconstructed from the partner entry. An
- * attacker who controls the entire query string can, at most, choose which of
- * the three partner sites they get sent to.
- *
- * The item id is validated by lookup rather than by pattern, and a mismatched
- * one degrades to the game's list page rather than 404ing: a player who
- * followed a link from a stale listing still gets somewhere useful.
+ * a game slug and, at most, one of two fixed words; the slug is looked up in a
+ * registry compiled into the build, the word is checked against a two-element
+ * list, and the URL is rebuilt from the partner entry. An attacker who controls
+ * the entire query string can choose, at most, which of a partner's own two
+ * pages they are sent to.
  */
 export async function GET(
   request: NextRequest,
@@ -39,13 +35,13 @@ export async function GET(
     return NextResponse.redirect(new URL("/app", request.url), 302);
   }
 
-  const itemId = new URL(request.url).searchParams.get("item");
-  const item = itemId ? findItem(itemId) : undefined;
-  // An item id that belongs to a different game is ignored rather than
-  // honoured — it would deep-link into the wrong game's value list.
-  const scoped = item && item.gameSlug === game ? item : undefined;
+  // Anything other than the one word we accept degrades to the value list
+  // rather than 404ing. A player who followed a link from a stale page still
+  // lands somewhere that answers their question.
+  const raw = new URL(request.url).searchParams.get("for");
+  const intent = isValuesIntent(raw) ? raw : "values";
 
-  const out = outboundUrl(game, scoped);
+  const out = outboundUrl(game, intent);
   if (!out) {
     return NextResponse.redirect(new URL(`/app/${game}`, request.url), 302);
   }

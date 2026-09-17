@@ -3,69 +3,70 @@
  *
  *   npm run proof
  *
- * Six checks that the rules this codebase talks about are actually enforced by
- * code rather than by comments. Every one of them is a rule a player could be
- * hurt by if it were only a comment:
+ * Checks that the rules this codebase talks about are actually enforced by code
+ * rather than by comments. Every one of them is a rule a player could be hurt
+ * by if it were only a comment:
  *
- *   1. A cross-game trade produces no verdict — the maths refuses, because
- *      Beli and Shooms are different units and cross-trading is banned anyway.
- *   2. One unpriced item kills the verdict for the whole trade.
- *   3. A normal same-game trade still works, in the right unit.
- *   4. Every game's values carry their own source, date and unit, and a game
- *      with no list says so instead of inventing one.
+ *   1. Every game has somewhere to send a value question. No dead ends.
+ *   2. Every partner link is a real URL on that partner's own origin.
+ *   3. Nothing claims a commission before an agreement exists.
+ *   4. The value system is GONE, not merely switched off.
  *   5. A template that may not be posted is in the catalogue and off the board.
- *   6. What a player can actually list, per game, including how much of it is
- *      priced and how much is flagged unverified.
+ *   6. What a player can actually list, per game, and how much is unverified.
  *
- * Check 4 earned its place immediately: it caught three games whose value
- * source was keyed by the research's slug rather than the registry's, so they
- * silently reported having no value list at all.
+ * Checks 1-4 replaced four calculator checks. MintPlaza used to keep its own
+ * value table and W/F/L verdict and both were removed — the reasoning is in
+ * src/lib/referrals.ts. Check 4 is the one that earns its keep over time: a
+ * value system that is half-removed, with a table still in the tree or a
+ * multiplier still resolving, is worse than either keeping it or dropping it,
+ * because the next person to touch the code cannot tell which it is meant to
+ * be.
  */
 import {
-  findItem, catalogFor, CATALOG, catalogProvenance, pricedCoverage,
-  thumbnailFor, variantAxesFor, multiplierFor, isUnpricedVariant,
+  findItem, catalogFor, CATALOG, catalogProvenance,
+  thumbnailFor, variantAxesFor,
 } from "../src/lib/items.ts";
-import { calculate } from "../src/lib/trade.ts";
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
-import { valueSourceFor, valueOf, formatValue } from "../src/lib/values.ts";
 import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
-import { PARTNERS, referralFor } from "../src/lib/referrals.ts";
+import {
+  PARTNERS, partnerFor, valuesLink, outboundUrl, isValuesIntent,
+} from "../src/lib/referrals.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
 const line = (n: string) => console.log("\n" + "─".repeat(72) + "\n" + n + "\n");
 
-line("1. CROSS-GAME TRADE — a Blox Fruits fruit offered for a Sonaria creature");
-{
-  const c = calculate([it("bf-magnet")], [it("cs-keruku")], "viewer");
-  console.log("  crossGame flag :", c.crossGame);
-  console.log("  verdict        :", c.verdict, "(W/F/L withheld)");
-  console.log("  -> the maths refused. Not a warning banner: no verdict exists.");
+line("1. EVERY GAME HAS SOMEWHERE TO SEND A VALUE QUESTION");
+for (const g of GAMES) {
+  const p = partnerFor(g.slug);
+  console.log(
+    "  " + g.slug.padEnd(22),
+    p ? `${p.name.padEnd(20)} ${p.home}` : "*** NOWHERE — this is a dead end ***",
+  );
 }
 
-line("2. UNPRICED ITEM — Sonaria's most valuable item, which nobody has a number for");
-{
-  const c = calculate([it("cs-explosive-stars-material")], [it("cs-lunar-qilin")], "viewer");
-  console.log("  unpriced on the incoming side :", c.incoming.unpriced);
-  console.log("  verdict                       :", c.verdict);
-  console.log("  -> one missing value kills the verdict for the whole trade.");
+line("2. AND THE LINKS ARE REAL URLS, BUILT SERVER-SIDE");
+for (const g of GAMES) {
+  const v = outboundUrl(g.slug, "values");
+  const c = outboundUrl(g.slug, "calculator");
+  console.log("  " + g.slug.padEnd(22), "values:", v?.url ?? "—");
+  if (c && c.url !== v?.url) console.log("  " + " ".repeat(22), "  calc:", c.url);
 }
 
-line("3. A REAL, PRICEABLE TRADE — same game, both sides known");
-{
-  const c = calculate([it("cs-keruku")], [it("cs-mijusuima")], "viewer");
-  const s = valueSourceFor("creatures-of-sonaria")!;
-  console.log("  in  :", formatValue(c.incoming.total), s.unit);
-  console.log("  out :", formatValue(c.outgoing.total), s.unit);
-  console.log("  verdict :", c.verdict, " (550K vs 325K — a 69% gap, well outside the 15% fair band)");
+line("3. WHAT A PLAYER IS TOLD ABOUT THE LINK");
+for (const g of GAMES) {
+  const l = valuesLink(g.slug);
+  console.log(
+    "  " + g.slug.padEnd(22),
+    l ? `${l.href.padEnd(26)} ${l.paid ? "[paid — disclosure shown]" : "[unpaid — no commission claimed]"}` : "—",
+  );
 }
 
-line("4. UNITS ARE NEVER SHARED");
-for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "gag2", "pet-simulator-99", "adopt-me"]) {
-  const s = valueSourceFor(g);
-  console.log("  " + g.padEnd(22), s ? `${s.unit}  · checked ${s.checked}` : "no value list — nothing is priced, and the card says so");
-}
+line("4. THE VALUE SYSTEM IS GONE, NOT SWITCHED OFF");
+console.log("  values.ts on disk          :", existsSync("src/lib/values.ts") ? "STILL THERE" : "removed");
+console.log("  ValueLookup.tsx on disk    :", existsSync("src/components/ValueLookup.tsx") ? "STILL THERE" : "removed");
+console.log("  -> the assertions below are what actually hold this in place.");
 
 line("5. A TEMPLATE THAT MAY NOT BE POSTED");
 {
@@ -82,12 +83,10 @@ line("6. WHAT A PLAYER CAN ACTUALLY LIST, PER GAME");
 for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria"]) {
   const all = catalogFor(g);
   const tradeable = all.filter((i) => i.tradeable !== false);
-  const priced = tradeable.filter((i) => valueOf(i) !== undefined || valueOf(i, "Permanent") !== undefined);
   const unsure = all.filter((i) => i.verified === false);
   console.log("  " + g.padEnd(22),
     String(all.length).padStart(4) + " rows",
     "| " + String(tradeable.length).padStart(4) + " listable",
-    "| " + String(priced.length).padStart(3) + " priced",
     "| " + String(unsure.length).padStart(2) + " flagged unverified");
 }
 
@@ -145,22 +144,21 @@ line("7. CATALOGUE INTEGRITY — the five defects the raw pull shipped with");
   );
 }
 
-line("8. THE MERGE DID NOT EAT A PRICED ROW");
+line("8. THE MERGE DID NOT EAT A CURATED ROW");
 {
-  // The specific regression this guards: the pull carries its own Keruku under
-  // its own id. If a merge ever lets the pulled row win, `cs-keruku` stops
-  // existing, values.ts no longer resolves, and Sonaria silently loses every
-  // price it had.
+  // The specific regression this guards: the machine pull carries its own
+  // Keruku under its own id. If a merge ever lets the pulled row win, the
+  // curated `cs-keruku` stops existing — and every listing, inventory row and
+  // skin parent that points at that id detaches silently. The site keeps
+  // working and quietly stops describing the game.
+  //
+  // This used to also assert the row still had a VALUE. It cannot any more,
+  // and the check is no weaker for it: an id that resolves is the whole point,
+  // because the id is what two players' lists agree on.
   const anchors = ["cs-keruku", "cs-somnia-elus", "cs-mijusuima", "bf-magnet", "bf-kitsune"];
   for (const id of anchors) {
-    const row = findItem(id);
-    const priced = row ? valueOf(row) !== undefined : false;
-    assert(`${id} still resolves and is priced`, Boolean(row) && priced);
+    assert(`${id} still resolves`, Boolean(findItem(id)));
   }
-
-  const sonariaPriced = catalogFor("creatures-of-sonaria")
-    .filter((i) => valueOf(i) !== undefined).length;
-  assert("Sonaria keeps all 14 priced rows", sonariaPriced === 14, `${sonariaPriced} priced`);
 
   // The pull has 2 gliders; the curated list has 19. A merge that preferred the
   // pull would have quietly deleted 17 of them.
@@ -168,17 +166,57 @@ line("8. THE MERGE DID NOT EAT A PRICED ROW");
   assert("Fisch keeps the 19 curated gliders", gliders.length >= 19, `${gliders.length} gliders`);
 }
 
-line("9. THE REFERRAL PATH — where an unpriced item sends a player");
+line("9. THE VALUES HAND-OFF — the four ways it could quietly fail");
 {
-  for (const g of ["blox-fruits", "fisch", "creatures-of-sonaria", "adopt-me", "gag2", "pet-simulator-99"]) {
-    const r = referralFor(g);
-    console.log(
-      "  " + g.padEnd(22),
-      r.unavailable ? "no partner — says why, links nowhere" : `${r.provider} via ${r.href}${r.paid ? "  [paid, disclosed]" : "  [unpaid, no commission claimed]"}`,
-    );
-  }
+  // ---- 1. no dead ends ---------------------------------------------------
+  //
+  // The single most important invariant in this file now. MintPlaza keeps no
+  // values, so a game with no partner is a game where "what is this worth?"
+  // has no answer anywhere on the site — and that player leaves. Adding a game
+  // to the registry without adding it to a partner's `games` fails the build
+  // here rather than being discovered by a fourteen-year-old mid-trade.
+  const stranded = GAMES.filter((g) => partnerFor(g.slug) === undefined);
+  assert(
+    "every game on the roster has a values partner",
+    stranded.length === 0,
+    stranded.length ? `no partner for ${stranded.map((g) => g.slug).join(", ")}` : `${GAMES.length} games covered`,
+  );
 
-  // Nothing may claim commission before an agreement exists.
+  // ---- 2. the URLs are real ----------------------------------------------
+  //
+  // A value link that 404s is worse than no link: the player has already left
+  // the site to find out. Every path must parse against its partner's origin,
+  // and must land ON that origin rather than somewhere a malformed path could
+  // take it.
+  const badUrls: string[] = [];
+  for (const g of GAMES) {
+    for (const intent of ["values", "calculator"] as const) {
+      const out = outboundUrl(g.slug, intent);
+      if (!out) { badUrls.push(`${g.slug}/${intent}: nothing built`); continue; }
+      const u = new URL(out.url);
+      if (u.origin !== new URL(out.partner.home).origin) {
+        badUrls.push(`${g.slug}/${intent}: ${u.origin} is not ${out.partner.home}`);
+      }
+      if (u.protocol !== "https:") badUrls.push(`${g.slug}/${intent}: not https`);
+    }
+  }
+  assert("every outbound URL is https and stays on its partner's own origin",
+    badUrls.length === 0, badUrls[0] ?? `${GAMES.length * 2} URLs built`);
+
+  // A partner covering more than one game maps its slugs by hand, and a typo in
+  // that map does not throw — it falls through to the same path for both, so
+  // Fisch players land on the Sonaria list and nobody notices. Distinct games,
+  // distinct paths.
+  const collided = PARTNERS.filter((p) => p.games.length > 1).flatMap((p) => {
+    const paths = p.games.map((g) => p.valuesPath(g));
+    return new Set(paths).size === paths.length
+      ? []
+      : [`${p.name} sends ${p.games.join(" and ")} to the same page`];
+  });
+  assert("a multi-game partner sends each game somewhere different",
+    collided.length === 0, collided[0] ?? "every mapped game has its own path");
+
+  // ---- 3. nothing claims commission before an agreement exists ------------
   const claiming = PARTNERS.filter((p) => p.active);
   assert(
     "no partner claims commission without an agreement",
@@ -186,25 +224,89 @@ line("9. THE REFERRAL PATH — where an unpriced item sends a player");
     claiming.length ? `${claiming.map((p) => p.name).join(", ")} marked active` : "all inactive",
   );
 
-  // The destination must never come from the request. If referralFor ever
-  // returned an absolute URL, /go would be forwarding somewhere it did not
-  // derive — which is the open-redirect shape.
-  const offsite = ["blox-fruits", "fisch", "adopt-me", "gag2"]
-    .map((g) => referralFor(g).href)
+  // ---- 4. the destination never comes from the request --------------------
+  //
+  // The open-redirect shape. If valuesLink ever returned an absolute URL, /go
+  // would be forwarding somewhere it did not derive, and a link carrying
+  // MintPlaza's domain could point anywhere — which on a site full of children
+  // holding valuable inventories is a ready-made phishing page.
+  const offsite = GAMES
+    .map((g) => valuesLink(g.slug)?.href ?? "")
     .filter((h) => h && !h.startsWith("/go/"));
-  assert("every referral href is same-origin", offsite.length === 0,
-    offsite.length ? offsite[0] : "outbound URL is built server-side only");
+  assert("every values href is same-origin", offsite.length === 0,
+    offsite[0] ?? "outbound URL is built server-side only");
+
+  // And the one word the route does take from the query string is a closed
+  // set, so the worst an attacker who controls it can do is pick which of the
+  // partner's own two pages they land on.
+  const escapes = ["values", "calculator", "../../evil", "https://evil.example", "", null]
+    .filter((v) => isValuesIntent(v as string | null))
+    .filter((v) => v !== "values" && v !== "calculator");
+  assert("the intent parameter is a closed set of two words", escapes.length === 0,
+    escapes.length ? String(escapes[0]) : "only values | calculator pass");
+}
+
+line("9b. THE VALUE SYSTEM IS GONE, NOT SWITCHED OFF");
+{
+  // Half-removing a value system is worse than either keeping it or dropping
+  // it: the numbers stay reachable, nothing maintains them, and the next person
+  // to read the code cannot tell which state it is meant to be in. These are
+  // the checks that stop it drifting back.
+  for (const dead of [
+    "src/lib/values.ts",
+    "src/components/ValueLookup.tsx",
+  ]) {
+    assert(`${dead} is gone`, !existsSync(dead));
+  }
+
+  // Nothing may import it back. A grep, because a type error only catches the
+  // file existing — this catches somebody recreating it.
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(e.name)) sources.push(full);
+    }
+  })("src");
+
+  // Comments are stripped first, and that is not a detail. These files are
+  // heavily commented, and several of them explain AT LENGTH that values were
+  // removed — naming the very identifiers being searched for. A raw grep fails
+  // on its own documentation, which teaches whoever hits it that the check is
+  // noise and the right move is to delete the check. So it reads code only.
+  const codeOf = (f: string) =>
+    readFileSync(f, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*\/\/.*$/gm, "");
+  const code = new Map(sources.map((f) => [f, codeOf(f)]));
+  const where = (re: RegExp) => sources.filter((f) => re.test(code.get(f)!));
+
+  const importers = where(/from\s+["'][^"']*\/values["']/);
+  assert("nothing imports a values module", importers.length === 0, importers[0]);
+
+  // The keys a live database may still be carrying. The schema clears them;
+  // this proves the app would not read them even if it had not.
+  const readers = where(/\b(valuePhysical|valuePermanent)\b/);
+  assert("no component reads a stored value field", readers.length === 0, readers[0]);
+
+  // And no verdict. The W/F/L is the partner's to give now.
+  const verdicts = where(/\bVERDICT_(COPY|STYLE|POINTS)\b/);
+  assert("no W/F/L verdict is computed anywhere in the app", verdicts.length === 0, verdicts[0]);
+
+  // The seeded value table itself, by the two names it went by.
+  const tables = where(/\b(VALUE_SOURCES|CATALOG_GAPS)\b/);
+  assert("no seeded value table survives", tables.length === 0, tables[0]);
 }
 
 line("10. WHERE THE CATALOGUE CAME FROM");
 for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me", "creatures-of-sonaria"]) {
   const p = catalogProvenance(g);
-  const c = pricedCoverage(g);
   console.log(
     "  " + g.padEnd(22),
     `curated ${String(p.curated).padStart(3)}`,
     `| pulled ${String(p.pulled).padStart(4)}`,
-    `| priced ${String(c.priced).padStart(3)} of ${c.listable} listable`,
+    `| ${String(p.curated + p.pulled).padStart(4)} rows total`,
   );
 }
 
@@ -232,18 +334,16 @@ line("11. FISCH — text-only, and every variant a player can actually own");
   assert("attributes stack, mutation does not",
     attrs?.stacks === true && muts?.stacks === false);
 
-  // The point of listing unpriced mutations is that they stay honest about
-  // being unpriced. If one ever acquired a silent multiplier, a trade would be
-  // priced on a number nobody confirmed.
+  // Every mutation the game has is selectable, including the ones no value
+  // list has settled on. A picker that only offers what somebody has priced
+  // leaves a player unable to say what they are actually holding — and since
+  // MintPlaza prices nothing at all now, that would be an empty picker.
   const mutOptions = muts?.options ?? [];
-  const priced = mutOptions.filter((o) => multiplierFor("fisch", o) !== undefined);
-  const flagged = mutOptions.filter((o) => isUnpricedVariant("fisch", o));
-  assert(
-    "every mutation is either priced or flagged unpriced",
-    priced.length + flagged.length === mutOptions.length,
-    `${mutOptions.length} mutations: ${priced.length} priced (${priced.join(", ")}), ${flagged.length} flagged`,
-  );
-  assert("Aether is 15x, not the outdated 12x", multiplierFor("fisch", "Aether") === 15);
+  assert("every mutation the game has is selectable", mutOptions.length >= 19,
+    `${mutOptions.length} mutations offered`);
+  for (const must of ["Aether", "Prism", "Tryhard", "Galaxy"]) {
+    assert(`${must} is in the picker`, mutOptions.includes(must));
+  }
 
   // Five things called Nessie, across two categories. The research calls
   // confusing a rod SKIN with a ROD the most expensive mistake in this game.
@@ -291,14 +391,12 @@ line("12. GAG2 — the cosmetics the catalogue used to be missing");
     fences.map((i) => i.aliases?.[0]).join(", "),
   );
 
-  // Four rows, because four is all gag2.gg publishes a number for. The unit is
-  // an index the site keeps, not Sheckles, and nothing is scaled up to look
-  // more like the Blox Fruits column.
-  const priced = cosmetics.filter((i) => valueOf(i) !== undefined);
-  assert("the four published cosmetic values resolve", priced.length === 4,
-    priced.map((i) => `${i.name} ${valueOf(i)}`).join(", "));
-  assert("and they are quoted in GAG2's own unit",
-    valueSourceFor("gag2")?.unit === "Sheckle-points");
+  // This block used to assert that four cosmetics carried a published value.
+  // They no longer carry one, and neither does anything else — GAG2's numbers
+  // are GAG2.GG's to publish, and its calculator runs the game's own sell
+  // formula, which is a better answer than any snapshot here ever was.
+  assert("GAG2 hands its values to GAG2.GG", partnerFor("gag2")?.key === "gag2gg",
+    partnerFor("gag2")?.home);
 
   // A curated row wins its name outright, so adding a cosmetic that shares a
   // name with an existing row would silently re-file that row. These two were
@@ -488,28 +586,31 @@ line("15. MATCHING — the ranking, and the four ways it could quietly lie");
       held.canClose === true);
   }
 
-  // ---- the verdict is the calculator's, never the ranker's ----------------
+  // ---- the ranking never depends on a value -------------------------------
+  //
+  // This replaced two checks that tied the suggestion's verdict to calculate().
+  // There is no verdict and no calculate(). What matters now is the property
+  // those checks were protecting in the first place: the ranker must not
+  // quietly bury a game. It used to be possible for Fisch — sparse on values —
+  // to sink because "?" scored nothing. Nothing scores on value at all now, so
+  // the guarantee is stronger and this proves it holds by inspection of the
+  // factors themselves.
   {
-    const board = [row("unpriced", [
+    const board = [row("r", [
       { side: "offer", itemId: "bf-magnet" },
       { side: "want", itemId: "bf-kitsune" },
     ])].map(toBoardListing);
-    const [s] = suggestTrades(board, [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
-    const direct = calculate(s.youGet, s.youGive, "viewer");
-    assert("the suggestion's verdict is exactly what calculate() returns",
-      s.verdict === direct.verdict, s.verdict);
-  }
+    const [s2] = suggestTrades(board, [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
 
-  // ---- an unpriced trade is never punished for being unpriced -------------
-  //
-  // Fisch is deliberately sparse on values. A ranker that marked "?" down would
-  // bury most of one game for a reason that has nothing to do with that game.
-  {
-    const priced = [row("p", [{ side: "offer", itemId: "bf-magnet" }, { side: "want", itemId: "bf-kitsune" }])];
-    const [s] = suggestTrades(priced.map(toBoardListing), [hold("bf-kitsune")], [hold("bf-magnet")], { now: NOW });
-    const unknownFactor = s.factors.find((f) => /no published value/i.test(f.label));
-    assert("no factor penalises a trade for having no published value",
-      unknownFactor === undefined);
+    const valueWords = /value|worth|w\/f\/l|verdict|priced|demand|costs you|worth more/i;
+    const priced = s2.factors.filter((f) => valueWords.test(f.label));
+    assert("no ranking factor is about what anything is worth",
+      priced.length === 0, priced.map((f) => f.label).join(", "));
+
+    // And every factor that IS there is something the site can check for
+    // itself, so none of them can go stale.
+    assert("the suggestion still has real reasons behind it",
+      s2.factors.length >= 2, s2.factors.map((f) => f.label).join(" | "));
   }
 
   // ---- ordering is total, so the list cannot move under a thumb -----------

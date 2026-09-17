@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChromaticChip, ClassChip, ItemTile, RarityChip, RobuxChip, TypeChip } from "./ItemTile";
 import { searchShortcuts, type Shortcut } from "@/lib/admin/search";
-import { ValueLookup } from "./ValueLookup";
+import { ValuesCard } from "./ValuesCard";
 import { PULL_SOURCES } from "@/lib/data/catalog";
 import {
-  CATALOG_CHECKED, CATALOG_NOTES, catalogProvenance, pricedCoverage, searchTerms,
+  CATALOG_CHECKED, CATALOG_NOTES, catalogProvenance, searchTerms,
   type CatalogItem, type Rarity,
 } from "@/lib/items";
 
@@ -250,34 +250,37 @@ export function ExploreCatalog({
         </div>
       )}
 
-      {/* ---- what this catalogue can and cannot tell you ----
+      {/* ---- what this catalogue is, and where values come from ----
            Stated once, at the foot of the list, rather than repeated on ten
-           thousand tiles. A player who learns the coverage ratio by clicking
-           forty unpriced items in a row concludes the site is broken; a player
-           told "501 rows, 14 of them priced here" knows exactly what they have
-           and where to go for the rest. ---- */}
-      <CatalogueCoverage gameSlug={gameSlug} />
+           thousand tiles. A player who works out on their own that MintPlaza
+           has no values concludes the site is broken; a player told so here,
+           with the link to the list their community uses, has what they came
+           for. ---- */}
+      <CatalogueFooter gameSlug={gameSlug} />
     </div>
   );
 }
 
 /**
- * The coverage footer: how many rows this game has, how many MintPlaza can
- * price, where the rest came from, and where to go for a value it does not
- * have.
+ * The catalogue footer: how many rows this game has, where they came from, and
+ * where to go for what any of them is worth.
+ *
+ * This used to lead with a coverage ratio — "501 rows, 14 priced on MintPlaza"
+ * — which was honest while the site kept values and became meaningless the
+ * moment it stopped. Every row is now unpriced here, so a ratio would say the
+ * same thing on every game and tell nobody anything. What is worth stating is
+ * what a row in this catalogue actually promises: the item is real and spelled
+ * right, which is the part that makes matching work.
  */
-function CatalogueCoverage({ gameSlug }: { gameSlug: string }) {
-  const { priced, listable } = pricedCoverage(gameSlug);
+function CatalogueFooter({ gameSlug }: { gameSlug: string }) {
   const { curated, pulled } = catalogProvenance(gameSlug);
   const pull = PULL_SOURCES[gameSlug];
+  const total = curated + pulled;
 
   return (
     <div className="mt-4 rounded-[var(--radius-inner)] border border-line bg-fill px-3.5 py-3">
       <p className="text-[0.8125rem] font-semibold text-ink">
-        {listable.toLocaleString()} tradeable {listable === 1 ? "row" : "rows"}
-        {priced > 0
-          ? `, ${priced.toLocaleString()} priced on MintPlaza.`
-          : ", none priced on MintPlaza."}
+        {total.toLocaleString()} {total === 1 ? "row" : "rows"} in this catalogue.
       </p>
 
       <p className="mt-1 text-[0.6875rem] leading-relaxed text-ink-faint">
@@ -289,9 +292,9 @@ function CatalogueCoverage({ gameSlug }: { gameSlug: string }) {
             {pull ? `, pulled ${pull.pulled}` : ""}.{" "}
           </>
         )}
-        A row existing here means the item is real and spelled right. It does not
-        mean MintPlaza knows what it is worth — nobody publishes values at this
-        scale, and an invented number would be worse than none.
+        A row existing here means the item is real and spelled right, so both
+        sides of a trade mean the same thing by it. What it is worth is a
+        different question, and a different site answers it.
       </p>
 
       {pull?.caveat && (
@@ -300,11 +303,9 @@ function CatalogueCoverage({ gameSlug }: { gameSlug: string }) {
         </p>
       )}
 
-      {priced < listable && (
-        <div className="mt-2.5">
-          <ValueLookup gameSlug={gameSlug} unpriced={[]} compact />
-        </div>
-      )}
+      <div className="mt-2.5">
+        <ValuesCard gameSlug={gameSlug} compact />
+      </div>
     </div>
   );
 }

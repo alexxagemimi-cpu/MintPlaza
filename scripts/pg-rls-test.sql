@@ -132,9 +132,6 @@ begin
   select count(*) into n from public.conversation_participants;
   perform pg_temp.ok('participants read as empty rather than erroring', n = 0);
 
-  select count(*) into n from public.item_value_history;
-  perform pg_temp.ok('value history reads as empty rather than erroring', n = 0);
-
   -- A support message can name a bug, a username, or anything else the sender
   -- was in the middle of. It is theirs and the owner's, nobody else's.
   select count(*) into n from public.support_messages;
@@ -310,9 +307,6 @@ begin
 
   select count(*) into n from public.conversations;
   perform pg_temp.ok('a signed-out visitor sees no conversations', n = 0);
-
-  select count(*) into n from public.item_value_history;
-  perform pg_temp.ok('a signed-out visitor sees no value history', n = 0);
 
   select count(*) into n from public.support_messages;
   perform pg_temp.ok('a signed-out visitor sees no support messages', n = 0);

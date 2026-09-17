@@ -25,7 +25,7 @@ import type { ConsoleGame } from "./ConsolePanel";
  * an update, and none of it should need a developer.
  *
  * What is *not* here: new behaviour. There are three engines behind the three
- * boards — a trade board with a calculator, a services board, a crew board —
+ * boards — a trade board, a services board, a crew board —
  * and this can point a tab at one of them, rename it, and fill it with
  * templates. It cannot invent a fourth. That is a real ceiling, and pretending
  * otherwise would mean building every feature twice, once as code and once as
@@ -59,7 +59,7 @@ const KINDS = [
 const MODULES = ["trades", "inventory", "activities", "help", "services"] as const;
 
 const TAB_KINDS = [
-  { kind: "trades", what: "Trading board, with the W/F/L calculator" },
+  { kind: "trades", what: "Trading board — offers, wants, and the catalogue" },
   { kind: "services", what: "One or two people helping somebody who is stuck" },
   { kind: "community", what: "Crews of three or more forming" },
 ] as const;

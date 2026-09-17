@@ -58,8 +58,7 @@ declare t text; missing text[] := '{}';
 begin
   foreach t in array array['games','game_items','inventory_entries','profiles',
                            'reports','media','service_templates','service_listings',
-                           'service_votes','service_picks','service_comments',
-                           'item_value_history'] loop
+                           'service_votes','service_picks','service_comments'] loop
     if to_regclass('public.' || t) is null then missing := array_append(missing, t); end if;
   end loop;
   perform pg_temp.ok('every table the app selects from exists', missing = '{}');
@@ -437,24 +436,48 @@ end $$;
 -- Value history, which is what makes an edit reversible.
 -- ---------------------------------------------------------------------------
 \echo ''
-\echo 'VALUE HISTORY'
+\echo 'VALUES ARE GONE, AND STAY GONE'
+-- MintPlaza kept its own value table, a W/F/L calculator and a history table so
+-- a mistyped value could be undone. All three were removed — see
+-- src/lib/referrals.ts. These checks are the inverse of the ones that used to
+-- live here: they prove the teardown actually ran, because a half-removed value
+-- system is the worst of both, with numbers still in the database and nothing
+-- left to correct them with.
 do $$
-declare v_item uuid; n int;
+declare v_item uuid; n int; a jsonb;
 begin
+  perform pg_temp.ok('the value history table is gone',
+    to_regclass('public.item_value_history') is null);
+
+  perform pg_temp.ok('and so is the trigger that fed it',
+    not exists (select 1 from pg_trigger
+                 where tgname = 'game_items_value_history' and not tgisinternal));
+
+  perform pg_temp.ok('and the function behind it',
+    to_regproc('public.record_item_value') is null);
+
+  -- The important one. A live database still holds valuePhysical and friends in
+  -- attributes long after the app stops reading them, and a stale number that
+  -- can be resurrected by a future reader is exactly what this change exists to
+  -- prevent. The schema strips them; this proves it.
+  select count(*) into n from public.game_items
+   where attributes ?| array['valuePhysical', 'valuePermanent', 'demand'];
+  perform pg_temp.ok('no catalogue row still carries a value or a demand', n = 0);
+
+  -- Beli and Robux survive on purpose: they are the game's own shop prices,
+  -- published by the developer, and they do not move.
   insert into public.game_items (game_slug, name, category, attributes)
-  values ('test-game','Thing','Thing','{"slug":"tg-thing","valuePhysical":100}')
+  values ('test-game','Thing','Thing','{"slug":"tg-thing","beli":1900000,"robux":2000}')
   returning id into v_item;
+  select attributes into a from public.game_items where id = v_item;
+  perform pg_temp.ok('the game''s own shop prices are still storable',
+    (a->>'beli') = '1900000' and (a->>'robux') = '2000');
 
-  update public.game_items set attributes = attributes || '{"valuePhysical":250}'::jsonb
+  -- And a write of them does not resurrect a history table by any other name.
+  update public.game_items set attributes = attributes || '{"beli":2100000}'::jsonb
    where id = v_item;
-  select count(*) into n from public.item_value_history where item_id = v_item;
-  perform pg_temp.ok('changing a value records the one before it', n = 1);
-  perform pg_temp.ok('and records the OLD number, which is what revert needs',
-    (select value_physical from public.item_value_history where item_id = v_item) = 100);
-
-  update public.game_items set name = 'Thing Renamed' where id = v_item;
-  select count(*) into n from public.item_value_history where item_id = v_item;
-  perform pg_temp.ok('a rename is not a value change and records nothing', n = 1);
+  perform pg_temp.ok('editing a price writes nothing anywhere else',
+    to_regclass('public.item_value_history') is null);
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -464,11 +487,11 @@ end $$;
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo 'ANON'
--- is_admin() is deliberately NOT in this list. It is read inside the
--- item_value_history policy, and a policy is evaluated as whoever is querying,
--- so revoking it from anon turns a read that should return nothing into
--- "permission denied for function". It answers from auth.uid(), which is null
--- when signed out, so to anon it is a function that returns false.
+-- is_admin() is deliberately NOT in this list. It is read inside RLS policies,
+-- and a policy is evaluated as whoever is querying, so revoking it from anon
+-- turns a read that should return nothing into "permission denied for
+-- function". It answers from auth.uid(), which is null when signed out, so to
+-- anon it is a function that returns false.
 do $$ begin
   perform pg_temp.ok('is_admin stays callable by anon, because a policy reads it',
     has_function_privilege('anon', 'public.is_admin()', 'EXECUTE'));

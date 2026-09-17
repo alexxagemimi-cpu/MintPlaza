@@ -23,8 +23,6 @@
  * instead of one — "Common / CHROMATIC", "Rare / CHROMATIC" — so it is a
  * separate flag on the item and the tile prints both.
  */
-import type { Demand, ItemValue } from "./values";
-import { valueOf } from "./values";
 import { ART_MANIFEST, PULLED_CATALOG } from "./data/catalog";
 
 export type Rarity =
@@ -91,13 +89,6 @@ export interface CatalogItem {
    * absent rather than estimated.
    */
   beli?: number;
-  /**
-   * Community trade value, when it came from the database rather than the
-   * seeded table in values.ts. Present only on rows loaded from Supabase, which
-   * is what makes an admin edit take effect on the site.
-   */
-  value?: ItemValue;
-  demand?: Demand;
   /** Shown on the tile where the item carries a condition worth stating. */
   note?: string;
   /**
@@ -148,15 +139,12 @@ export interface CatalogItem {
    */
   assetId?: string;
   /**
-   * When this row's numbers were last touched, ISO.
+   * When this row was last edited in the control panel, ISO. Present only on
+   * rows loaded from Supabase.
    *
-   * Values are a snapshot of a market that moves daily, and a snapshot with no
-   * date on it is indistinguishable from a fact. Shown beside the value as
-   * "checked 3 days ago" so a trader can weigh it — and it moves every time the
-   * control panel saves, so it stays true without anybody maintaining it.
-   *
-   * Only rows from the database carry one. The seeded catalogue falls back to
-   * the date stamped on VALUE_SOURCE.
+   * It no longer dates a value — MintPlaza keeps none. It dates the row: a
+   * name, a rarity or a picture that an admin corrected, so the panel can show
+   * what has been touched recently.
    */
   checkedAt?: string;
 }
@@ -768,8 +756,7 @@ const FISCH_SECRET: CatalogItem[] = [
 /**
  * 54 of 67. Category:Fish_by_Rarity counts 67 Exotic fish; the dedicated
  * Category:Exotic_Fish page has not been edited since December 2024 and lists
- * 59. The thirteen missing names are missing on purpose rather than padded out
- * — see CATALOG_GAPS.
+ * 59. The thirteen missing names are missing on purpose rather than padded out.
  */
 const FISCH_EXOTIC: CatalogItem[] = [
   "Abaia", "Blobfish", "Blue Whale", "Boots", "Brine Sovereign", "Carrot Shark",
@@ -1623,22 +1610,6 @@ export function catalogProvenance(gameSlug: string): {
   return { curated: rows.length - pulled, pulled, total: rows.length };
 }
 
-/**
- * How much of a game's catalogue MintPlaza can actually price.
- *
- * Shown to players rather than kept for the admin, because the honest headline
- * of this site is "4,959 Pet Simulator 99 rows, 0 of them priced here" and a
- * player who discovers that one item at a time will conclude the calculator is
- * broken. Stated up front, it is a limit they can work with.
- */
-export function pricedCoverage(gameSlug: string): { priced: number; listable: number } {
-  const listable = tradableFor(gameSlug);
-  const priced = listable.filter(
-    (i) => valueOf(i) !== undefined || valueOf(i, "Permanent") !== undefined,
-  );
-  return { priced: priced.length, listable: listable.length };
-}
-
 /** Pulled rows a curated row already covered. For the proof script. */
 export function suppressedByCuration(): readonly {
   gameSlug: string;
@@ -1873,14 +1844,19 @@ export function unverifiedCount(gameSlug: string): number {
  * is not a catalogue, it is a denial-of-service attack on your own search box.
  *
  * ---------------------------------------------------------------------------
- * Missing numbers stay missing
+ * What is NOT here any more
  * ---------------------------------------------------------------------------
  *
- * `multipliers` holds only figures confirmed on a game's own wiki, each with
- * the date it was read. `unconfirmed` names the variants that exist but whose
- * multiplier nobody has pinned down — Fisch has around two hundred of those and
- * the third-party lists circulating for them contradict each other and the
- * wiki. Naming them is useful; guessing what they are worth is not.
+ * This model used to carry `multipliers` — confirmed figures like Fisch's
+ * Aether at 15x — and `unconfirmed`, the ones nobody had pinned down. Both
+ * existed to multiply a value, and MintPlaza no longer keeps values (see
+ * src/lib/referrals.ts). A multiplier with nothing to multiply is not harmless
+ * dead weight: it is half a calculator, sitting there inviting the other half
+ * back.
+ *
+ * `note` stays, because those notes are game mechanics off the game's own wiki
+ * — how the variant systems work, which ones stack, which two share a word —
+ * and none of that moves with the market.
  */
 export interface VariantAxis {
   key: string;
@@ -1892,10 +1868,6 @@ export interface VariantAxis {
 
 export interface VariantModel {
   axes: readonly VariantAxis[];
-  /** Confirmed value multipliers, keyed by option name. */
-  multipliers?: Readonly<Record<string, number>>;
-  /** Named, real, and of unknown value. Shown as such, never estimated. */
-  unconfirmed?: readonly string[];
   note?: string;
 }
 
@@ -1912,45 +1884,22 @@ export const VARIANTS: Record<string, VariantModel> = {
         options: ["Shiny", "Sparkling", "Big", "Giant", "Tiny"] },
       // Exactly one, ever.
       //
-      // Every mutation the game has is listed here, including the fifteen
-      // whose multiplier nobody has read off the official wiki yet. That is
-      // deliberate and it is the opposite of the usual instinct, which would be
-      // to hide what we cannot price.
-      //
-      // A player who caught a Tryhard fish owns a Tryhard fish. Leaving it out
-      // of the picker does not make the uncertainty go away — it makes the
-      // player unable to say what they are holding, so they type it in the
-      // note field where nothing can match on it, and the catalogue quietly
-      // stops describing the game. Offering it costs nothing, because an
-      // unpriced mutation flows into `multiplierFor` as undefined and the
-      // trade lands on "?" — which is the honest answer, arrived at by the
-      // same route as every other missing value on this site.
+      // Every mutation the game has is listed, in the order fischipedia ranks
+      // them. A player who caught a Tryhard fish owns a Tryhard fish, and
+      // leaving it out of the picker would not make it less real — it would
+      // make the player unable to say what they are holding, so they would
+      // type it in the note field where nothing can match on it, and the
+      // catalogue would quietly stop describing the game.
       { key: "mutation", label: "Mutation", stacks: false,
         options: [
-          // Confirmed multipliers, off fischipedia's own pages.
+          // The four fischipedia documents in detail, biggest first.
           "Aether", "Prism", "Prismize", "Prismatic",
-          // Real, named, multiplier not yet read. Selectable; unpriceable.
           "Tryhard", "Galaxy", "Glowy", "Chaotic", "Plagued", "Darkness",
           "Melody", "Scavenged", "Singularity", "Synth",
           "Bathyal", "Darkheart", "Hadal", "Light", "Thalassic",
         ] },
     ],
-    multipliers: {
-      // Every figure below is off fischipedia's own page for that mutation,
-      // with the date it was last edited. Third-party lists still print Aether
-      // at 12x — that is the pre-balance number and it is wrong.
-      Aether: 15,      // fischipedia/Aether, 29 Aug 2026
-      Prism: 8,        // fischipedia/Prism, 1 Sep 2026
-      Prismize: 6.5,   // fischipedia/Prismize, 30 Aug 2026 (was 8x before the Rift update)
-      Prismatic: 6.5,  // fischipedia/Prismatic, 20 Aug 2026
-      Shiny: 1.85,     // an attribute, not a mutation, and it stacks on top
-    },
-    unconfirmed: [
-      "Tryhard", "Galaxy", "Glowy", "Chaotic", "Plagued", "Darkness",
-      "Melody", "Scavenged", "Singularity", "Synth",
-      "Bathyal", "Darkheart", "Hadal", "Light", "Thalassic",
-    ],
-    note: "A fish carries at most one mutation and any number of attributes. Size tags (Big, Giant, Tiny) describe weight and do not change what it is worth. The unconfirmed list is real mutations whose multiplier the official wiki has not been read for — the numbers circulating for them on other sites disagree with each other.",
+    note: "A fish carries at most one mutation and any number of attributes. Size tags (Big, Giant, Tiny) describe weight. Mutations are what move a fish's worth — Aether most of all — but by how much is a question for the value list, not for MintPlaza.",
   },
 
   "adopt-me": {
@@ -1958,7 +1907,7 @@ export const VARIANTS: Record<string, VariantModel> = {
       { key: "neon", label: "Neon", options: ["Normal", "Neon", "Mega Neon"] },
       { key: "potion", label: "Ability", options: ["No Potion", "Fly", "Ride", "Fly-Ride"] },
     ],
-    note: "These combine into a grid, not a ladder: a Mega Neon Fly-Ride (players write it MFR) is one pet with two tags. Neon takes four Full Grown of the same pet and Mega takes four Neons, which is why the gap in value is so large. Every combination is priced separately by the community.",
+    note: "These combine into a grid, not a ladder: a Mega Neon Fly-Ride (players write it MFR) is one pet with two tags. Neon takes four Full Grown of the same pet and Mega takes four Neons, which is why the gap between them is so large. Every combination is priced separately by the community, so state both tags when you list one.",
   },
 
   "pet-simulator-99": {
@@ -1970,8 +1919,8 @@ export const VARIANTS: Record<string, VariantModel> = {
 
   "creatures-of-sonaria": {
     // Deliberately empty. Growth stages are not tradeable variants, and
-    // palettes and materials are standalone items with their own rows and
-    // their own values — some worth more than the creatures they go on.
+    // palettes and materials are standalone items with their own rows — some
+    // of them trade higher than the creatures they go on.
     axes: [],
     note: "Sonaria has no tint system. A creature is a creature; Colour Palettes and Material Palettes are separate tradeable items, not tags, and the top ones trade for more than most creatures do.",
   },
@@ -1982,16 +1931,7 @@ export const VARIANTS: Record<string, VariantModel> = {
       { key: "mutation", label: "Crop mutation", stacks: false,
         options: ["Gold", "Rainbow", "Glow", "Aurora", "Ignited", "Frozen", "Electric", "Starstruck", "Bloodlit"] },
     ],
-    multipliers: {
-      // Pet variants, following Fandom where Miraheze dissents. The community
-      // and every downstream calculator agree with Fandom; Miraheze's 1.25x /
-      // 1.75x is the minority reading and looks like a stale patch.
-      Big: 2, Mega: 3,
-      // Crop mutations. Community-tested, not published by the developer.
-      Gold: 10, Glow: 100, Aurora: 90, Ignited: 60,
-    },
-    unconfirmed: ["Frozen", "Electric", "Starstruck", "Bloodlit"],
-    note: "Two systems that share a word. A PET variant (Big x2, Mega x3, Rainbow x1.25, and they stack — Mega Rainbow is x3.75) is not a CROP mutation (Gold x10, Glow x100), and Rainbow exists in both with different numbers. One mutation per crop, no stacking. Mega used to be called Huge; it is the same tier renamed.",
+    note: "Two systems that share a word. A PET variant (Big, Mega, Rainbow, and they stack) is not a CROP mutation, and Rainbow exists in both meaning different things. One mutation per crop, no stacking. Mega used to be called Huge; it is the same tier renamed. GAG2.GG's calculator runs the game's own sell formula, so it is the place to turn a weight and a mutation into an exact number.",
   },
 
 };
@@ -2012,36 +1952,12 @@ export const ITEM_VARIANTS: Record<string, readonly string[]> = Object.fromEntri
  *
  * `ITEM_VARIANTS` above keeps only the first axis, which is right for the one
  * place that needs a single tag and wrong everywhere else. For Fisch the first
- * axis is attributes, so reading only that one means the mutation — the field
- * that moves value by up to 15x — never reaches the player at all.
+ * axis is attributes, so reading only that one means the mutation — the single
+ * biggest thing a Fisch trader wants stated — never reaches the player at all.
  */
 export function variantAxesFor(gameSlug: string): readonly VariantAxis[] {
   return VARIANTS[gameSlug]?.axes ?? [];
 }
-
-/** What a confirmed multiplier does to a value, or nothing if unknown. */
-export function multiplierFor(gameSlug: string, option: string): number | undefined {
-  return VARIANTS[gameSlug]?.multipliers?.[option];
-}
-
-/**
- * True where the option is a real, named variant whose multiplier nobody has
- * confirmed.
- *
- * The distinction the interface needs is three-way, not two: an option can be
- * priced (Aether, 15x), deliberately value-neutral (the size tags, which
- * describe weight and change nothing), or real-but-unpriced (Tryhard). Only
- * the third should drag a trade to "?", and only the third should be labelled
- * as uncertain — labelling Tiny "unconfirmed" would imply somebody is working
- * on a number for it, and nobody is, because there isn't one.
- */
-export function isUnpricedVariant(gameSlug: string, option: string): boolean {
-  const model = VARIANTS[gameSlug];
-  if (!model) return false;
-  if (model.multipliers?.[option] !== undefined) return false;
-  return (model.unconfirmed ?? []).includes(option);
-}
-
 
 /**
  * Mutations — modified versions of a fruit that change appearance, moveset and

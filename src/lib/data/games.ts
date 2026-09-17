@@ -90,27 +90,16 @@ export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem
       chromatic: attrs.chromatic === true ? true : undefined,
       robux: typeof attrs.robux === "number" ? attrs.robux : undefined,
       beli: typeof attrs.beli === "number" ? attrs.beli : undefined,
-      // Only build a value object when the row actually has one, so an
-      // unpriced item stays unpriced instead of becoming a zero.
-      value:
-        typeof attrs.valuePhysical === "number" || typeof attrs.valuePermanent === "number"
-          ? {
-              physical: typeof attrs.valuePhysical === "number" ? attrs.valuePhysical : undefined,
-              permanent: typeof attrs.valuePermanent === "number" ? attrs.valuePermanent : undefined,
-            }
-          : undefined,
-      // Six, not five. Extreme was added as its own level and this reader was
-      // still capping at the old top, which silently dropped it on the way back
-      // out — an admin could set Extreme, see it save, and never see it again.
-      demand:
-        typeof attrs.demand === "number" && attrs.demand >= 1 && attrs.demand <= 6
-          ? (attrs.demand as CatalogItem["demand"])
-          : undefined,
+      // No value or demand is read back, and none is written. MintPlaza does
+      // not keep values — see referrals.ts. A database that predates that
+      // decision may still carry valuePhysical/valuePermanent/demand keys in
+      // attributes; they are ignored here rather than mapped, so a stale number
+      // from months ago cannot reappear on a tile.
       note: attrs.note as string | undefined,
       verified: attrs.verified === false ? false : undefined,
       art: attrs.art as string | undefined,
-      // Stamped by every save in the panel, which is what keeps "checked 3 days
-      // ago" honest without anybody having to maintain it.
+      // Stamped by every save in the panel, so the panel can show what was
+      // touched recently.
       checkedAt: (row as { verified_at?: string | null }).verified_at ?? undefined,
     };
   });

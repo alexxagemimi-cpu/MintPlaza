@@ -34,9 +34,9 @@
  * What a suggestion is
  * ---------------------------------------------------------------------------
  * Not "here is a listing that is 72% relevant". A suggestion names the actual
- * deal: everything you would hand over, everything you would receive, the
- * verdict on that exchange, and whether you can close it today or are short an
- * item. A trader can act on that without opening anything.
+ * deal: everything you would hand over, everything you would receive, and
+ * whether you can close it today or are short an item. A trader can act on
+ * that without opening anything.
  *
  * Two details in here are easy to get wrong and matter a great deal:
  *
@@ -44,19 +44,19 @@
  *      The intersection with your lists is why the listing surfaced; it is not
  *      what changes hands. If they offer a Dragon and a Leopard for a Kitsune
  *      and you only asked for the Dragon, you still get the Leopard, and the
- *      verdict has to be priced on both or it is wrong in your favour — which
- *      is the worst direction for a calculator to be wrong in.
+ *      suggestion has to say so or it is flattering the deal.
  *
- *   2. The verdict is never invented. It comes from calculate(), which returns
- *      "?" the moment anything on either side has no published value. Fisch is
- *      deliberately sparse on values, so "?" is common there, and an unpriced
- *      trade is therefore never pushed down the list for being unpriced. It is
- *      ranked on everything else and labelled honestly.
+ *   2. Nothing here ranks on value, because MintPlaza does not keep values —
+ *      see referrals.ts. It ranks on the things a trading board actually
+ *      knows and that never go stale: whether they hold what you asked for,
+ *      whether you hold what they asked for, how scarce the item on the table
+ *      is, whether they are online, and how fresh the listing is. Whether the
+ *      trade is a win is the player's call, with their game's own calculator
+ *      one tap away on the listing.
  */
 
 import { findItem, type CatalogItem, type Rarity } from "./items";
-import { demandOf, type Demand } from "./values";
-import { calculate, type Calculation, type ListingItem, type Verdict } from "./trade";
+import type { ListingItem } from "./trade";
 
 /* ------------------------------------------------------------------ */
 /* Shapes                                                              */
@@ -142,8 +142,6 @@ export interface TradeSuggestion {
   missing: ListingItem[];
   /** True when nothing is missing and there is something to hand over. */
   canClose: boolean;
-  verdict: Verdict;
-  calculation: Calculation;
   /** 0–100. Only meaningful as an ordering, never shown as a percentage. */
   score: number;
   factors: MatchFactor[];
@@ -263,18 +261,6 @@ const BASE: Record<ReasonCode, number> = {
   WANTS_WHAT_YOU_HAVE: 14,
 };
 
-/**
- * What the verdict is worth.
- *
- * A loss is marked down but never hidden: sometimes you genuinely will overpay
- * for the last item in a set, and a site that silently withheld those trades
- * would be making that call on the player's behalf. "?" is worth nothing in
- * either direction — it means the values are missing, not that the trade is
- * bad, and penalising it would bury most of Fisch for a reason that has
- * nothing to do with Fisch.
- */
-const VERDICT_POINTS: Record<Verdict, number> = { W: 14, F: 8, L: -10, "?": 0 };
-
 const RARITY_POINTS: Record<Rarity, number> = {
   Common: 0,
   Uncommon: 1,
@@ -284,8 +270,6 @@ const RARITY_POINTS: Record<Rarity, number> = {
   Mythical: 10,
   Premium: 7,
 };
-
-const DEMAND_POINTS: Record<Demand, number> = { 1: 0, 2: 0, 3: 1, 4: 2, 5: 3, 6: 4 };
 
 const DAY = 86_400_000;
 
@@ -300,15 +284,6 @@ function topRarity(entries: readonly ListingItem[]): { points: number; item?: Ca
     }
   }
   return { points: best, item: which };
-}
-
-function topDemand(entries: readonly ListingItem[]): number {
-  let best = 0;
-  for (const e of entries) {
-    const d = demandOf(e.item);
-    if (d && DEMAND_POINTS[d] > best) best = DEMAND_POINTS[d];
-  }
-  return best;
 }
 
 /* ------------------------------------------------------------------ */
@@ -376,26 +351,9 @@ export function suggestTrades(
             ? "HAS_WHAT_YOU_WANT"
             : "WANTS_WHAT_YOU_HAVE";
 
-    // Priced as posted, through your eyes: you receive the offer side and hand
-    // over the want side.
-    const calculation = calculate(youGet, youGive, "viewer");
-    const verdict = calculation.verdict;
-
     const factors: MatchFactor[] = [
       { label: REASON_LABEL[reason], points: BASE[reason] },
     ];
-
-    if (VERDICT_POINTS[verdict] !== 0) {
-      factors.push({
-        label:
-          verdict === "W"
-            ? "Worth more to you than it costs"
-            : verdict === "F"
-              ? "Both sides come out about the same"
-              : "Costs you more than it returns",
-        points: VERDICT_POINTS[verdict],
-      });
-    }
 
     if (wantedHits.length > 0) {
       const points = Math.min(wantedHits.length * 4, 12);
@@ -418,9 +376,6 @@ export function suggestTrades(
         points: rarity.points,
       });
     }
-    const demand = topDemand(wantedHits.length > 0 ? wantedHits : youGet);
-    if (demand > 0) factors.push({ label: "In demand right now", points: demand });
-
     if (missing.length > 0) {
       factors.push({
         label:
@@ -459,8 +414,6 @@ export function suggestTrades(
       haveHits,
       missing,
       canClose,
-      verdict,
-      calculation,
       score,
       factors,
     });
