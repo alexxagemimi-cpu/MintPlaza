@@ -104,6 +104,32 @@ for (const g of ["blox-fruits", "fisch", "gag2", "pet-simulator-99", "adopt-me",
  * answering "?" to a question it used to answer correctly.
  * ======================================================================== */
 
+/**
+ * Source with its comments removed.
+ *
+ * Three separate checks in this file have now reported a false failure against
+ * their own documentation: the values check on a comment explaining that values
+ * were removed, the dead-button check on a comment explaining a button that was
+ * removed, and the XSS check on a comment saying a body is rendered "never with
+ * dangerouslySetInnerHTML". This codebase comments heavily and the components
+ * most worth scanning are exactly the ones whose comments discuss the thing
+ * being scanned for.
+ *
+ * A scanner that trips on its own prose is worse than no scanner: it teaches
+ * whoever hits it that the check is noise and the fix is to delete the check.
+ * So there is one helper, and every source grep below goes through it.
+ *
+ * JSX comments are stripped whole ({​/* ... *​/}) rather than just their inner
+ * block, because leaving the braces behind breaks any brace-counting done
+ * downstream.
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
 let failures = 0;
 function assert(label: string, ok: boolean, detail?: string) {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
@@ -278,11 +304,7 @@ line("9b. THE VALUE SYSTEM IS GONE, NOT SWITCHED OFF");
   // removed — naming the very identifiers being searched for. A raw grep fails
   // on its own documentation, which teaches whoever hits it that the check is
   // noise and the right move is to delete the check. So it reads code only.
-  const codeOf = (f: string) =>
-    readFileSync(f, "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-  const code = new Map(sources.map((f) => [f, codeOf(f)]));
+  const code = new Map(sources.map((f) => [f, stripComments(readFileSync(f, "utf8"))]));
   const where = (re: RegExp) => sources.filter((f) => re.test(code.get(f)!));
 
   const importers = where(/from\s+["'][^"']*\/values["']/);
@@ -825,7 +847,8 @@ line("19. THE SECURITY POSTURE HOLDS");
   }
 
   // React escapes by default; the only way past it is to ask.
-  const raw = app.filter((f) => /dangerouslySetInnerHTML|\.innerHTML\s*=/.test(read(f)));
+  const raw = app.filter((f) =>
+    /dangerouslySetInnerHTML|\.innerHTML\s*=/.test(stripComments(read(f))));
   assert("nothing renders unescaped HTML", raw.length === 0, raw.join(", "));
 
   // A target=_blank without noopener hands the opened page a handle back to
@@ -1053,10 +1076,7 @@ line("22. NO BUTTON ON THIS SITE DOES NOTHING");
     // JSX comments are stripped as a whole ({/* ... */}), not just their inner
     // /* ... */, because leaving the braces behind would unbalance the depth
     // counter below and swallow the rest of the file.
-    const src = readFileSync(f, "utf8")
-      .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
+    const src = stripComments(readFileSync(f, "utf8"));
     // Match a whole <button ...> opening tag. Balanced-brace aware, because an
     // onClick handler contains `=>` and `>` and a naive [^>]* stops inside it —
     // which is exactly the false positive that made the first version of this
