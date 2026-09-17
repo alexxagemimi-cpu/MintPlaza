@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "proof": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs ./scripts/proof.ts",
     "ingest": "node scripts/ingest.mjs",
-    "proof:db": "bash scripts/pg-proof.sh && bash scripts/pg-resilience-test.sh"
+    "proof:db": "bash scripts/pg-proof.sh && bash scripts/pg-resilience-test.sh",
+    "redteam:webhook": "node scripts/webhook-redteam.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

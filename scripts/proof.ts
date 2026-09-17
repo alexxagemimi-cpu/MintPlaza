@@ -1107,3 +1107,90 @@ line("22. NO BUTTON ON THIS SITE DOES NOTHING");
     dead.length === 0,
     dead.length ? dead.join(", ") : `${files.length} components checked`);
 }
+
+line("23. THE PAYMENT WEBHOOK — the guards that are not in the red team");
+{
+  // scripts/webhook-redteam.mjs attacks a running server: unsigned, wrongly
+  // signed, replayed, back-dated, oversized. What it cannot check is the shape
+  // of the code itself, and two mistakes there would be invisible to it.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const route = stripComments(read("../src/app/api/level-up/webhook/route.ts"));
+
+  // A plain === on a hex digest returns as soon as two characters differ, and
+  // how long it took says how many leading characters were right. That is
+  // enough to recover a valid signature one character at a time without ever
+  // knowing the secret. This is the single most important line in that file.
+  //
+  // The check reads the COMPARISON FUNCTION'S BODY, not the file. An earlier
+  // version searched the whole file for "timingSafeEqual" and passed happily
+  // after the comparison was swapped for ===, because the import line at the
+  // top still mentioned it. Found by making exactly that swap.
+  const safeEqualBody = route.match(/function safeEqual\([\s\S]*?\n\}/)?.[0] ?? "";
+  assert("the signature comparison itself is constant time",
+    safeEqualBody.includes("timingSafeEqual"),
+    safeEqualBody ? undefined : "no safeEqual() found at all");
+  assert("and nothing compares a signature with ===",
+    !/\b(sig|signature|expected|given)\w*\s*===/i.test(safeEqualBody));
+
+  // Signing only the body lets anybody take a captured request, put today's
+  // timestamp on it, and replay it forever.
+  assert("the timestamp is inside the signed material",
+    /\$\{timestamp\}\.\$\{raw\}/.test(route) || route.includes("`${timestamp}.${raw}`"));
+
+  // Fail closed. A webhook that accepted unsigned requests "until the secret is
+  // configured" would be a free Level Up for anybody who found the URL, and it
+  // would look like it was working.
+  assert("no secret means every request is refused",
+    /if \(!secret/.test(route) && route.includes("503"));
+
+  // The raw text is signed, never a re-serialised object. JSON.stringify of a
+  // parsed body reorders keys and drops whitespace, so a signature computed
+  // over it would not match the sender's — or worse, would match several
+  // different bodies.
+  assert("the signature covers the raw body, not a re-serialised one",
+    route.includes("await request.text()") && !route.includes("JSON.stringify(payload)"));
+
+  // ---- the two secrets that must never ship to a browser ------------------
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(e.name)) sources.push(full);
+    }
+  })("src");
+
+  for (const secret of ["LEVEL_UP_WEBHOOK_SECRET", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    const public_ = sources.filter((f) =>
+      new RegExp(`NEXT_PUBLIC_${secret}`).test(stripComments(readFileSync(f, "utf8"))));
+    assert(`${secret} is never prefixed NEXT_PUBLIC_`, public_.length === 0, public_[0]);
+
+    // And never read from a file that carries "use client", which would put it
+    // in the bundle whatever it is called.
+    const inClient = sources.filter((f) => {
+      const src = stripComments(readFileSync(f, "utf8"));
+      return /^\s*["']use client["']/m.test(src) && src.includes(secret);
+    });
+    assert(`and never read from a client component`, inClient.length === 0, inClient[0]);
+  }
+
+  // The database side: the grant function the webhook calls must be reachable
+  // by service_role and by nobody else. A grant to `authenticated` here would
+  // hand every signed-in player a free subscription.
+  const schema = read("../supabase/schema.sql");
+  const grants = schema.match(/grant execute on function public\.webhook_grant_level_up[^;]*;/g) ?? [];
+  assert("the webhook's grant function is reachable only by service_role",
+    grants.length === 1 && grants[0].includes("service_role")
+      && !grants[0].includes("authenticated") && !grants[0].includes("anon"),
+    grants[0]?.replace(/\s+/g, " "));
+
+  assert("and is explicitly revoked from everybody else",
+    /revoke all on function public\.webhook_grant_level_up[\s\S]{0,200}?from public, anon, authenticated;/.test(schema));
+
+  // A payment reference is what stops one delivery granting 120 days. Every
+  // processor retries by design, so this is an ordinary Tuesday.
+  assert("a webhook grant without a payment reference is refused",
+    /p_payment_ref is null or btrim\(p_payment_ref\) = ''/.test(schema));
+  assert("and the reference is unique in the table",
+    /payment_ref text unique/.test(schema));
+}

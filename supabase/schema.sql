@@ -2570,7 +2570,7 @@ declare
     'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups',
     'start_conversation', 'my_conversations', 'conversation_thread',
     'mark_conversation_read', 'unread_count', 'block_player',
-    'enforce_message_rate', 'bump_conversation'
+    'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up'
   ];
   r record;
   dropped int := 0;
@@ -4292,3 +4292,100 @@ grant execute on function public.conversation_thread(uuid)     to authenticated;
 grant execute on function public.mark_conversation_read(uuid)  to authenticated;
 grant execute on function public.unread_count()                to authenticated;
 grant execute on function public.block_player(text, boolean)   to authenticated;
+
+
+-- ===========================================================================
+-- Level Up: the webhook's way in
+--
+-- admin_grant_level_up() calls require_admin(), which reads auth.uid() against
+-- the allowlist. A payment webhook has no auth.uid() — it is a machine talking
+-- to a machine — so it cannot use that function, and giving it a session would
+-- mean keeping a signed-in admin credential on a server somewhere forever.
+--
+-- This is the same grant with a different gate: EXECUTE is revoked from anon
+-- and authenticated and given only to service_role, whose key lives in the
+-- deployment's environment and never reaches a browser. Anyone holding that
+-- key can already read and write every table in the database, so this function
+-- hands out nothing they did not already have — it just does the extending,
+-- the country recording and the duplicate-payment refusal in the one place
+-- those rules already live.
+--
+-- The HTTP side of this — the signature, the replay window, the body limit —
+-- is in src/app/api/level-up/webhook/route.ts. None of it is trusted here.
+-- This function assumes its caller is hostile and validates every argument.
+-- ===========================================================================
+
+create or replace function public.webhook_grant_level_up(
+  p_username    text,
+  p_payment_ref text,
+  p_days        int  default 60,
+  p_country     text default null,
+  p_amount      numeric default null,
+  p_currency    text default null
+)
+returns jsonb language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_user uuid; v_until timestamptz; v_existing timestamptz;
+begin
+  -- A payment reference is not optional here, unlike in the admin panel where
+  -- a person is watching. It is the ONLY thing standing between a webhook
+  -- delivered twice — which every payment processor does, by design, on
+  -- retry — and a player receiving 120 days for one payment.
+  if p_payment_ref is null or btrim(p_payment_ref) = '' then
+    raise exception 'A payment reference is required.' using errcode = 'P0001';
+  end if;
+
+  if p_days is null or p_days < 1 or p_days > 3650 then
+    raise exception 'Days must be between 1 and 3650.' using errcode = 'P0001';
+  end if;
+
+  -- Already applied? Say so and change nothing. This is the common case on a
+  -- retry and is not an error: the processor wants a 200 so it stops retrying.
+  select e.expires_at into v_existing from public.entitlements e
+   where e.payment_ref = btrim(p_payment_ref);
+  if v_existing is not null then
+    return jsonb_build_object('applied', false, 'already_applied', true,
+                              'expires_at', v_existing);
+  end if;
+
+  select id into v_user from public.profiles
+   where lower(username) = lower(btrim(p_username));
+  if v_user is null then
+    -- A real situation rather than an attack: somebody paid on a checkout page
+    -- with a username they have not yet signed in with. The payment is real
+    -- and must not be silently swallowed, so this raises and the route turns
+    -- it into a response the processor will retry and a human will see.
+    raise exception 'No player called % has signed in yet.', p_username
+      using errcode = 'P0001';
+  end if;
+
+  insert into public.entitlements as e
+    (user_id, kind, expires_at, source, country, payment_ref)
+  values
+    (v_user, 'level_up', now() + make_interval(days => p_days), 'purchase',
+     nullif(upper(btrim(coalesce(p_country, ''))), ''), btrim(p_payment_ref))
+  on conflict (user_id) do update
+     set expires_at  = greatest(now(), e.expires_at) + make_interval(days => p_days),
+         source      = 'purchase',
+         country     = coalesce(excluded.country, e.country),
+         payment_ref = excluded.payment_ref,
+         updated_at  = now()
+  returning e.expires_at into v_until;
+
+  return jsonb_build_object('applied', true, 'already_applied', false,
+                            'expires_at', v_until, 'username', p_username);
+exception
+  -- Two deliveries racing each other. The unique index on payment_ref decides,
+  -- and the loser reports what the winner wrote rather than failing.
+  when unique_violation then
+    select e.expires_at into v_until from public.entitlements e
+     where e.payment_ref = btrim(p_payment_ref);
+    return jsonb_build_object('applied', false, 'already_applied', true,
+                              'expires_at', v_until);
+end $$;
+
+-- The whole security model of this function, in three lines.
+revoke all on function public.webhook_grant_level_up(text, text, int, text, numeric, text)
+  from public, anon, authenticated;
+grant execute on function public.webhook_grant_level_up(text, text, int, text, numeric, text)
+  to service_role;
