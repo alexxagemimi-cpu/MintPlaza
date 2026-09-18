@@ -116,14 +116,25 @@ create or replace function mintplaza.listing_window() returns interval
 create or replace function mintplaza.listings_per_window() returns int
   language sql immutable as $$ select 3 $$;
 
--- Second cap the written spec omits. Three listings per three hours is 24 a
--- day, and listings live seven days, so without this one account could hold
--- 168 live listings while never breaking the stated rule.
+-- How many listings one account may have LIVE in one game at a time.
+--
+-- This is the number a player actually feels, and the one the upgrade page
+-- means by "10 listings instead of 3". The per-window cap above is a rate
+-- limit — it stops a burst — while this one decides how much of the board any
+-- single person can occupy at once.
 create or replace function mintplaza.max_active_per_game() returns int
-  language sql immutable as $$ select 10 $$;
+  language sql immutable as $$ select 3 $$;
 
+-- A day, and that is deliberately short.
+--
+-- It was seven days, which is how a trading board fills with listings for
+-- items that were traded away last Tuesday. A player scrolling past four dead
+-- posts stops trusting the fifth, and the site's whole job is to be the place
+-- where what you see is still available. A day is long enough that posting in
+-- the evening still works the next morning, and short enough that the board is
+-- never mostly ghosts.
 create or replace function mintplaza.listing_lifetime() returns interval
-  language sql immutable as $$ select interval '7 days' $$;
+  language sql immutable as $$ select interval '24 hours' $$;
 
 
 -- ===========================================================================
@@ -451,31 +462,40 @@ create or replace function mintplaza.listings_per_window_for(p_user uuid)
 returns int language sql stable security definer
 set search_path = public, pg_catalog as $$
   select case when mintplaza.is_level_up(p_user)
-              then 8 else mintplaza.listings_per_window() end;
+              then 10 else mintplaza.listings_per_window() end;
 $$;
 
 create or replace function mintplaza.max_active_per_game_for(p_user uuid)
 returns int language sql stable security definer
 set search_path = public, pg_catalog as $$
   select case when mintplaza.is_level_up(p_user)
-              then 25 else mintplaza.max_active_per_game() end;
+              then 10 else mintplaza.max_active_per_game() end;
 $$;
 
 create or replace function mintplaza.listing_lifetime_for(p_user uuid)
 returns interval language sql stable security definer
 set search_path = public, pg_catalog as $$
   select case when mintplaza.is_level_up(p_user)
-              then interval '21 days' else mintplaza.listing_lifetime() end;
+              then interval '3 days' else mintplaza.listing_lifetime() end;
 $$;
 
--- Bumps are the one perk that costs other players something: the board sorts
--- on bumped_at, so three bumps a day pushes free listings down three times
--- instead of once. Three, not thirty, for exactly that reason — and the
--- upgrade page says out loud that this is what is being bought.
+-- Bumping is NOT a Level Up perk, and that is a decision rather than an
+-- omission.
+--
+-- The board sorts on bumped_at, so a paid bump is the one perk that takes
+-- something from everybody else: it pushes free listings down. Selling that
+-- turns the board into a pay-to-be-seen ladder, which is the failure mode of
+-- every marketplace that has ever done it.
+--
+-- The number also had to change for a different reason. Free listings now live
+-- 24 hours, and the old cooldown was 24 hours — so a free listing expired at
+-- the exact moment it first became bumpable, and the feature did nothing for
+-- anybody who had not paid. Six hours is meaningful against a one-day listing
+-- and the same for everyone.
 create or replace function mintplaza.bumps_per_day_for(p_user uuid)
 returns int language sql stable security definer
 set search_path = public, pg_catalog as $$
-  select case when mintplaza.is_level_up(p_user) then 3 else 1 end;
+  select 4;   -- one every six hours, free and paid alike
 $$;
 
 revoke all on function mintplaza.listings_per_window_for(uuid) from public, anon;
@@ -766,13 +786,38 @@ grant execute on function mintplaza.is_participant(uuid, uuid) to anon, authenti
 -- Safety
 -- ===========================================================================
 
-create table if not exists public.blocks (
-  blocker_id uuid not null references public.profiles(id) on delete cascade,
-  blocked_id uuid not null references public.profiles(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  primary key (blocker_id, blocked_id),
-  constraint no_self_block check (blocker_id <> blocked_id)
-);
+-- ---------------------------------------------------------------------------
+-- There is no blocking on MintPlaza, and that is a deliberate product call.
+--
+-- The obvious argument for blocking is harassment, and it is a real argument.
+-- The argument against it, on THIS site specifically, is stronger: a scammer's
+-- last move is to block the person they just took an item from. That buries
+-- the conversation, ends the confrontation, and leaves the victim with nothing
+-- to point at. Blocking hands the tool to whoever uses it first, and on a
+-- trading board that is nearly always the person in the wrong.
+--
+-- So the lever is reporting, not blocking. A report goes to the owner's queue
+-- with the message attached, and the owner can set a profile's status to
+-- 'restricted' or 'suspended' — which the messages_send policy already checks,
+-- so a suspended account cannot send to ANYBODY rather than just to the one
+-- person who blocked them. That is the correct shape: dealing with someone
+-- behaving badly should protect every future victim, not only the one who
+-- happened to press the button.
+--
+-- The table is dropped rather than left empty. An unused table with a policy
+-- on it is an invitation to wire it back in without re-reading why it went.
+-- ---------------------------------------------------------------------------
+do $$
+declare v_rows bigint;
+begin
+  if to_regclass('public.blocks') is not null then
+    execute 'select count(*) from public.blocks' into v_rows;
+    if v_rows > 0 then
+      raise notice 'Dropping the blocks table and its % row(s). Reporting replaces it.', v_rows;
+    end if;
+    drop table public.blocks cascade;
+  end if;
+end $$;
 
 create table if not exists public.reports (
   id            uuid primary key default gen_random_uuid(),
@@ -868,7 +913,6 @@ alter table public.listing_sides           enable row level security;
 alter table public.conversations           enable row level security;
 alter table public.conversation_participants enable row level security;
 alter table public.messages                enable row level security;
-alter table public.blocks                  enable row level security;
 alter table public.reports                 enable row level security;
 alter table public.moderation_actions      enable row level security;
 alter table public.audit_log               enable row level security;
@@ -957,21 +1001,15 @@ create policy messages_send on public.messages for insert
   with check (
     sender_id = auth.uid()
     and mintplaza.is_participant(conversation_id, auth.uid())
+    -- The account must be in good standing. With no blocking on this site,
+    -- THIS is the lever that stops somebody: the owner sets a profile to
+    -- 'restricted' or 'suspended' from a report, and that silences them
+    -- everywhere at once rather than only towards whoever complained.
     and exists (select 1 from public.profiles p where p.id = auth.uid() and p.status = 'active')
-    -- Cannot message across a block, in either direction.
-    and not exists (
-      select 1 from public.conversation_participants cp
-      join public.blocks b
-        on (b.blocker_id = cp.user_id and b.blocked_id = auth.uid())
-        or (b.blocker_id = auth.uid() and b.blocked_id = cp.user_id)
-      where cp.conversation_id = messages.conversation_id
-    )
   );
 
--- Blocks: yours alone, and never visible to the person blocked.
-drop policy if exists blocks_own on public.blocks;
-create policy blocks_own on public.blocks for all
-  using (blocker_id = auth.uid()) with check (blocker_id = auth.uid());
+-- No blocks policy, because there is no blocks table. See the note above the
+-- teardown near the top of this file.
 
 -- Reports: file your own, read your own. The queue is moderator-only.
 drop policy if exists reports_insert_own on public.reports;
@@ -2338,12 +2376,17 @@ language sql stable set search_path = public, pg_catalog as $$
      and l.expires_at > now();
 $$;
 
+-- Nobody is hidden from anybody any more.
+--
+-- This used to answer "have either of these two blocked the other". Blocking
+-- is gone (see the note by the dropped table), so it is now a constant false.
+-- It is kept rather than deleted because two board functions call it, and a
+-- function that returns false costs nothing while removing it would mean
+-- editing query bodies that are correct as they stand — and would make adding
+-- any future hide-this-person rule a bigger change than it needs to be.
 create or replace function mintplaza.hidden(p_other uuid)
-returns boolean language sql stable set search_path = public, pg_catalog as $$
-  select exists (
-    select 1 from public.blocks b
-     where (b.blocker_id = auth.uid() and b.blocked_id = p_other)
-        or (b.blocker_id = p_other and b.blocked_id = auth.uid()));
+returns boolean language sql immutable set search_path = public, pg_catalog as $$
+  select false;
 $$;
 
 -- The public board. Newest bump first, the one ordering that does not need to
@@ -2569,7 +2612,7 @@ declare
     'admin_support_messages', 'admin_resolve_support', 'enforce_support_rate',
     'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups',
     'start_conversation', 'my_conversations', 'conversation_thread',
-    'mark_conversation_read', 'unread_count', 'block_player',
+    'mark_conversation_read', 'unread_count',
     'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up'
   ];
   r record;
@@ -3024,10 +3067,6 @@ set search_path = public, pg_catalog as $$
        -- The clock, not the sweep. A cleanup job that has not run must never
        -- put a dead post in front of somebody.
        and l.expires_at > now()
-       and not exists (
-         select 1 from public.blocks b
-          where (b.blocker_id = auth.uid() and b.blocked_id = l.author_id)
-             or (b.blocker_id = l.author_id and b.blocked_id = auth.uid()))
      order by l.created_at desc
      limit 100
   ) q;
@@ -3185,6 +3224,31 @@ begin
 end $$;
 
 revoke all on function mintplaza.set_console_passcode(text) from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- The passcode, seeded.
+--
+-- Set to 1927 on a database that does not have one yet, so the panel is
+-- reachable the first time the owner signs in rather than needing a second SQL
+-- trip before anything can be administered.
+--
+-- `where not exists` is doing the important work: this runs on EVERY apply,
+-- and without it every re-run would silently reset the code back to 1927 —
+-- undoing a change the owner made deliberately, and doing it quietly, which is
+-- the worst way for a security control to move.
+--
+-- It is stored bcrypt-hashed like any other, so it cannot be read back out of
+-- the database by anybody, including whoever ran this. Change it any time with:
+--     select mintplaza.set_console_passcode('something-else');
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from mintplaza.console_secret) then
+    perform mintplaza.set_console_passcode('1927');
+    raise notice 'Console passcode seeded as 1927. Change it with mintplaza.set_console_passcode(...).';
+  end if;
+end $$;
 
 create or replace function public.console_unlock(p_passcode text)
 returns text language plpgsql security definer
@@ -3984,17 +4048,9 @@ begin
     raise exception 'You cannot message yourself.' using errcode = 'P0001';
   end if;
 
-  -- Blocks stop a thread being opened at all, in either direction, and the
-  -- message is the same both ways on purpose: telling somebody "they blocked
-  -- you" hands a harasser a confirmation they were blocked, which is exactly
-  -- what tends to start the next account.
-  if exists (
-    select 1 from public.blocks
-     where (blocker_id = v_them and blocked_id = v_me)
-        or (blocker_id = v_me and blocked_id = v_them)
-  ) then
-    raise exception 'You cannot message this player.' using errcode = 'P0001';
-  end if;
+  -- No block check, because there is no blocking on this site. The gate that
+  -- replaces it is the status check above: a restricted or suspended account
+  -- cannot open a thread with anybody.
 
   -- ---- already talking? -------------------------------------------------
   --
@@ -4158,13 +4214,6 @@ begin
     join public.conversation_participants them
       on them.conversation_id = c.id and them.user_id <> v_me
     join public.profiles o on o.id = them.user_id
-    -- A blocked person disappears from the inbox in both directions rather
-    -- than sitting there as a row you cannot open.
-    where not exists (
-      select 1 from public.blocks b
-       where (b.blocker_id = v_me and b.blocked_id = them.user_id)
-          or (b.blocker_id = them.user_id and b.blocked_id = v_me)
-    )
     order by c.last_message_at desc
     limit 200
   ) q;
@@ -4195,9 +4244,7 @@ begin
     'display_name', o.display_name,
     'avatar_url', o.avatar_url,
     'online', (not coalesce(o.hide_presence, false))
-              and o.last_seen_at > now() - interval '5 minutes',
-    'blocked_by_me', exists (select 1 from public.blocks b
-                              where b.blocker_id = v_me and b.blocked_id = o.id)
+              and o.last_seen_at > now() - interval '5 minutes'
   ) into v_other
   from public.conversation_participants p
   join public.profiles o on o.id = p.user_id
@@ -4248,50 +4295,14 @@ set search_path = public, pg_catalog as $$
 $$;
 
 
--- ---------------------------------------------------------------------------
--- Blocking, from the chat screen.
---
--- The blocks table already has a policy that lets somebody write their own
--- rows, so this could have been a direct insert. It is a function because a
--- block is taken by USERNAME here, and resolving a username to an id client
--- side would mean the app could look up any profile's uuid on request.
--- ---------------------------------------------------------------------------
-create or replace function public.block_player(p_username text, p_blocked boolean)
-returns void language plpgsql security definer
-set search_path = public, pg_catalog as $$
-declare v_me uuid := auth.uid(); v_them uuid;
-begin
-  if v_me is null then
-    raise exception 'Sign in first.' using errcode = 'P0001';
-  end if;
-
-  select id into v_them from public.profiles
-   where lower(username) = lower(btrim(p_username));
-  if v_them is null then
-    raise exception 'No player called %.', p_username using errcode = 'P0001';
-  end if;
-  if v_them = v_me then
-    raise exception 'You cannot block yourself.' using errcode = 'P0001';
-  end if;
-
-  if p_blocked then
-    insert into public.blocks (blocker_id, blocked_id) values (v_me, v_them)
-    on conflict do nothing;
-  else
-    delete from public.blocks where blocker_id = v_me and blocked_id = v_them;
-  end if;
-end $$;
-
 revoke all on function public.my_conversations()               from public, anon;
 revoke all on function public.conversation_thread(uuid)        from public, anon;
 revoke all on function public.mark_conversation_read(uuid)     from public, anon;
 revoke all on function public.unread_count()                   from public, anon;
-revoke all on function public.block_player(text, boolean)      from public, anon;
 grant execute on function public.my_conversations()            to authenticated;
 grant execute on function public.conversation_thread(uuid)     to authenticated;
 grant execute on function public.mark_conversation_read(uuid)  to authenticated;
 grant execute on function public.unread_count()                to authenticated;
-grant execute on function public.block_player(text, boolean)   to authenticated;
 
 
 -- ===========================================================================

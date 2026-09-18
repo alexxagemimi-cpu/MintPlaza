@@ -49,11 +49,16 @@ matches nothing, so as far as search is concerned the panel does not exist.
 
 ### The passcode
 
-**I cannot tell you what yours is.** It is stored bcrypt-hashed, which means
-even with full database access nobody can read it back — including me. That is
-the point of hashing it.
+**1927.** The schema seeds it the first time it runs.
 
-If you have forgotten it, set a new one. SQL Editor → run:
+It is stored bcrypt-hashed, so nobody can read it back out of the database —
+including me. 1927 is what it is set TO, not something recovered from anywhere.
+
+Re-running the schema will **not** reset it back to 1927 once you have changed
+it. The seed only fires when no passcode exists at all, so a code you set
+deliberately is never quietly undone by an apply.
+
+To change it, SQL Editor → run:
 
 ```sql
 select mintplaza.set_console_passcode('your-new-code-here');
@@ -187,7 +192,63 @@ npm run build          # production build
 
 ---
 
-## 6. Still to do
+## 6. What Level Up actually is
+
+60 days. One payment, no auto-renew, nothing to cancel — after 60 days it
+simply stops.
+
+| | Free | Level Up |
+| --- | --- | --- |
+| Listings up at once, per game | 3 | **10** |
+| How long a listing lasts | 24 hours | **3 days** |
+
+That is the whole list, and the short list is the point.
+
+**Why listings expire in a day on free.** A trading board dies when it fills
+with posts for items that were traded away last week — a player who scrolls
+past four dead listings stops trusting the fifth. A day is long enough that
+posting in the evening still works next morning.
+
+**What is deliberately not sold:**
+
+- **Bumping.** Everyone gets one bump every 6 hours. The board sorts by most
+  recently bumped, so a paid bump is the one perk that takes something from
+  everybody else — it pushes their listings down. That turns the board into a
+  pay-to-be-seen ladder, which is how every marketplace that tries it ends up.
+- **Live posts.** The 25-minute recruitment posts with the voting are 3 per
+  game for everybody, free and paid alike.
+- **A badge.** There is no Level Up mark on a profile. On a site where
+  strangers hand each other valuable items, a mark you can buy for ₹399 is
+  worth more to a scammer than to anybody honest — they would be first in the
+  queue — and small print underneath does nothing about what it looks like at
+  a glance.
+
+---
+
+## 7. There is no blocking, on purpose
+
+A scammer's last move is to block the person they just took an item from. It
+buries the conversation, ends the confrontation, and leaves the victim with
+nothing to point at. Blocking hands the tool to whoever uses it first, and on a
+trading board that is nearly always the person in the wrong.
+
+**Reporting replaces it.** A report lands in your panel with the message
+attached. From there you set that profile's status to `restricted` or
+`suspended`, and the database stops them messaging **anybody** — not just the
+one person who complained.
+
+That is the better shape: a block protects one person, a suspension protects
+everybody the account has not reached yet.
+
+**The honest trade-off:** somebody being pestered cannot make it stop
+themselves; they have to report and wait for you. That puts real weight on you
+actually reading the report queue. If it ever gets too big to keep up with,
+the thing to add is not blocking — it is a mute that hides a conversation
+without hiding it from you or from moderation.
+
+---
+
+## 8. Still to do
 
 - **Terms of service and Privacy policy.** Both are placeholder pages
   (`src/app/terms/page.tsx`, `src/app/privacy/page.tsx`). For a site used by

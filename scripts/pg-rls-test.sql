@@ -291,6 +291,50 @@ begin
   perform pg_temp.ok('nor mark their thread as read', n = 0);
 end $$;
 
+-- Suspension, which is what replaces blocking on this site.
+--
+-- This is the half that only THIS file can prove: the rule lives in the RLS
+-- policy on messages, and the other test file runs as superuser, which
+-- bypasses RLS entirely. Here mallory holds the real grants Supabase gives
+-- `authenticated`, so the policy is the only thing in the way.
+do $$
+declare v_id uuid; v_sent boolean := false;
+begin
+  -- Her own legitimate thread, opened the normal way.
+  set local role postgres;
+  v_id := gen_random_uuid();
+  insert into public.conversations (id) values (v_id);
+  insert into public.conversation_participants (conversation_id, user_id) values
+    (v_id, '22222222-2222-2222-2222-222222222222'),
+    (v_id, '11111111-1111-1111-1111-111111111111');
+  update public.profiles set status = 'suspended'
+   where id = '22222222-2222-2222-2222-222222222222';
+  set local role authenticated;
+
+  begin
+    insert into public.messages (conversation_id, sender_id, body)
+    values (v_id, '22222222-2222-2222-2222-222222222222', 'still here');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  perform pg_temp.ok('a suspended account cannot send, even in its own thread',
+    not v_sent);
+
+  -- And it comes back, or a mistaken suspension would be permanent.
+  set local role postgres;
+  update public.profiles set status = 'active'
+   where id = '22222222-2222-2222-2222-222222222222';
+  set local role authenticated;
+
+  begin
+    insert into public.messages (conversation_id, sender_id, body)
+    values (v_id, '22222222-2222-2222-2222-222222222222', 'back again');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  perform pg_temp.ok('and lifting the suspension lets them speak again', v_sent);
+end $$;
+
 -- Sending INTO a thread you are not in, which is the attack that would turn
 -- messaging into a spam channel aimed at anybody whose id you can guess.
 do $$
@@ -484,6 +528,93 @@ do $$ begin
   perform pg_temp.ok('a signed-out visitor cannot post', false);
 exception when insufficient_privilege then
   perform pg_temp.ok('a signed-out visitor cannot post', true);
+end $$;
+
+reset role;
+
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'THE CONTROL PANEL IS ONE ACCOUNT ONLY'
+-- ---------------------------------------------------------------------------
+--
+-- Mallory is a perfectly ordinary signed-in player. Everything below is her
+-- trying to reach the owner's panel, and every one of them must fail. Run as
+-- `authenticated` with Supabase's real grants, because a superuser would walk
+-- through all of it regardless of whether any of these checks work.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare n int; v_ok boolean;
+begin
+  perform pg_temp.ok('an ordinary player is not an admin', public.is_admin() = false);
+
+  -- The phrase that opens the panel from the search bar matches nothing for
+  -- her, so as far as search is concerned the panel does not exist.
+  perform pg_temp.ok('and the search phrase finds nothing for her',
+    public.console_phrase_matches('control panel') = false
+    and public.console_phrase_matches('admin') = false);
+
+  -- She cannot put herself on the allowlist. It lives in the mintplaza schema,
+  -- which PostgREST does not serve, and she holds no grant on it.
+  begin
+    insert into mintplaza.admin_allowlist (roblox_username) values ('mallory');
+    v_ok := true;
+  exception when others then v_ok := false;
+  end;
+  perform pg_temp.ok('nor add herself to the allowlist', not v_ok);
+
+  -- Nor read who is on it, which would tell her whose account to go after.
+  begin
+    select count(*) into n from mintplaza.admin_allowlist;
+    v_ok := true;
+  exception when others then v_ok := false;
+  end;
+  perform pg_temp.ok('nor read who is on it', not v_ok);
+
+  -- Nor read the passcode hash, to take offline and crack at leisure.
+  begin
+    select count(*) into n from mintplaza.console_secret;
+    v_ok := true;
+  exception when others then v_ok := false;
+  end;
+  perform pg_temp.ok('nor read the passcode hash', not v_ok);
+end $$;
+
+-- Every admin function, called directly, the way a forged request would. The
+-- 404 on the page is presentation; THIS is the part that actually holds.
+do $$
+declare fn text; reached text[] := '{}';
+begin
+  foreach fn in array array[
+    'select public.admin_reports()',
+    'select public.admin_support_messages()',
+    'select public.admin_level_ups()',
+    'select public.admin_grant_level_up(''mallory'', 3650)',
+    'select public.admin_revoke_level_up(''alice'')'
+  ] loop
+    begin
+      execute fn;
+      -- No exception means it ran for somebody who is not the owner.
+      reached := array_append(reached, fn);
+    exception when others then null;
+    end;
+  end loop;
+
+  perform pg_temp.ok(
+    format('no admin function answers an ordinary player%s',
+      case when reached = '{}' then '' else ' — REACHED: ' || array_to_string(reached, '; ') end),
+    reached = '{}');
+end $$;
+
+-- And the one that would matter most: granting herself a subscription.
+do $$
+declare v_until timestamptz;
+begin
+  select expires_at into v_until from public.entitlements
+   where user_id = '22222222-2222-2222-2222-222222222222';
+  perform pg_temp.ok('and she still has no Level Up after trying', v_until is null);
 end $$;
 
 reset role;

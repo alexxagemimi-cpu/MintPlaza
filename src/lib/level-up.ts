@@ -130,6 +130,26 @@ export function priceNote(countryCode: string): string | undefined {
  * test suite asserts the paid numbers by making a player hit each limit. If
  * somebody changes one here and not there, this page starts lying — which is
  * why the proof script checks the two agree.
+ *
+ * ---------------------------------------------------------------------------
+ * What is deliberately NOT sold
+ * ---------------------------------------------------------------------------
+ *
+ * BUMPING. The board sorts on when a listing was last bumped, so a paid bump
+ * is the one perk that takes something from everybody else — it pushes their
+ * listings down. Selling it turns the board into a pay-to-be-seen ladder,
+ * which is how every marketplace that has tried it ends up. Everyone gets one
+ * bump every six hours.
+ *
+ * LIVE POSTS. The 25-minute recruitment posts with the voting on them are
+ * three per game for everybody. They are the part of the site that only works
+ * when enough people can start one, and rationing them would thin out the
+ * board rather than sell anything.
+ *
+ * A BADGE. There is no "Level Up" mark on a profile any more. On a site where
+ * strangers hand each other valuable items, a mark you can buy is worth more
+ * to a scammer than to anybody honest — they would be first in the queue —
+ * and no amount of small print under it fixes what it looks like at a glance.
  */
 export interface Perk {
   title: string;
@@ -141,57 +161,20 @@ export interface Perk {
 
 export const PERKS: readonly Perk[] = [
   {
-    title: "Post more often",
-    free: "3 every 3 hours",
-    levelUp: "8 every 3 hours",
+    title: "Ten listings instead of three",
+    free: "3 live per game",
+    levelUp: "10 live per game",
     blurb:
-      "The slot limit is what stops the board filling with one person. Level Up raises yours; it does not remove it.",
+      "How many of your listings can be up at once in one game. Three is enough to trade with; ten is enough to clear out an inventory.",
   },
   {
-    title: "Keep more up at once",
-    free: "10 per game",
-    levelUp: "25 per game",
+    title: "Listings last three days instead of one",
+    free: "24 hours",
+    levelUp: "3 days",
     blurb:
-      "If you trade in more than one game, or you hold a lot, ten runs out fast.",
-  },
-  {
-    title: "Listings last three times as long",
-    free: "7 days",
-    levelUp: "21 days",
-    blurb:
-      "Fewer reposts. A listing for something rare can sit until the right person turns up.",
-  },
-  {
-    title: "Bump three times a day",
-    // Both sides in hours rather than "once a day" against "every 8 hours".
-    // The two units made the comparison harder to read than it needed to be,
-    // and the proof script caught it: every other perk states a number on both
-    // sides, and a perk that does not is one somebody cannot check.
-    free: "once every 24 hours",
-    levelUp: "once every 8 hours",
-    blurb:
-      "A bump moves your listing back to the top. This is the one thing here that costs other players something, so it is three a day and not thirty.",
-  },
-  {
-    title: "A Level Up mark on your profile",
-    free: "—",
-    levelUp: "yes",
-    blurb:
-      "It says you pay for the site. It is not a tick, it does not mean you are trustworthy, and it never will — see below.",
+      "Everything on MintPlaza expires after a day, so the board is never full of things that were traded away last week. Level Up gives yours three.",
   },
 ];
-
-/**
- * The line that has to appear wherever the badge does.
- *
- * On a site where teenagers hand strangers items worth months of grinding, a
- * mark that reads as "verified" is worth more to a scammer than to anybody
- * else — they would be the first in the queue to buy one. So this is not fine
- * print, it is the product working as intended: the badge is a receipt, not a
- * reference.
- */
-export const BADGE_IS_NOT_TRUST =
-  "The Level Up mark means somebody paid for the site. It does not mean they are safe to trade with, MintPlaza has not checked them, and it counts for nothing if a trade goes wrong. Check trades the same way whoever you are dealing with.";
 
 /* ------------------------------------------------------------------ */
 /* Countries                                                           */

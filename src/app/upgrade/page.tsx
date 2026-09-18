@@ -1,9 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { readLevelUp } from "@/lib/data/level-up";
-import { LevelUpMark } from "@/components/LevelUpCard";
 import {
-  BADGE_IS_NOT_TRUST,
   CHECKOUT_UNAVAILABLE,
   COUNTRIES,
   LEVEL_UP_DAYS,
@@ -58,8 +56,7 @@ export default async function UpgradePage({
         ← Back
       </Link>
 
-      <header className="mt-5 flex items-center gap-2.5">
-        <LevelUpMark size={26} />
+      <header className="mt-5">
         <h1 className="text-[1.5rem] font-bold tracking-[-0.03em] text-ink">Level Up</h1>
       </header>
 
@@ -104,11 +101,16 @@ export default async function UpgradePage({
           ))}
         </ul>
 
-        {/* Not a footnote. It is the one sentence on this page that could stop
-            somebody being robbed, so it is given the weight of a warning. */}
+        {/* The one sentence on this page that could stop somebody being
+            robbed, so it gets the weight of a warning rather than a footnote.
+            Level Up is the only thing MintPlaza sells, and it deliberately
+            sells nothing that could be mistaken for a safety signal. */}
         <p className="mt-3 rounded-[var(--radius-inner)] border border-warn/30 bg-warn-wash px-4 py-3 text-[0.75rem] leading-relaxed text-ink-soft">
-          <b className="font-bold text-ink">The mark is not a safety check.</b>{" "}
-          {BADGE_IS_NOT_TRUST}
+          <b className="font-bold text-ink">This does not make you look
+          trusted, and it is not meant to.</b>{" "}
+          There is no badge and no mark on your profile. Paying changes how much
+          you can post and nothing else — no standing in a dispute, no say over
+          reports, and nothing a scammer could buy to look safer than they are.
         </p>
       </section>
 

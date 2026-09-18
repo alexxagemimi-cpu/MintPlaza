@@ -900,67 +900,96 @@ console.log("\nAll assertions passed.\n");
 
 line("20. LEVEL UP — the page cannot promise what the database will not give");
 {
-  // The sales page names four numbers. The database enforces four numbers. They
-  // are in different files, in different languages, and nothing but this check
-  // makes them the same — which is the exact shape of a bug that gets somebody
-  // to pay for eight listing slots and receive three.
+  // The sales page names four numbers. The database enforces four numbers.
+  // They are in different files, in different languages, and nothing but this
+  // check makes them the same — which is the exact shape of a bug that gets
+  // somebody to pay for ten listings and receive three.
   //
-  // So the SQL is read as text and the paid figures are pulled straight out of
-  // it. A regex against source is usually a smell; here it is the point, because
+  // So the SQL is read as text and the figures are pulled straight out of it.
+  // A regex against source is usually a smell; here it is the point, because
   // the alternative is trusting that two hand-maintained lists agree.
-  const sql = readFileSync("supabase/schema.sql", "utf8");
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const sql = read("../supabase/schema.sql");
 
-  const fn = (name: string, re: RegExp): string | undefined => {
+  const paid = (name: string, re: RegExp): string | undefined => {
     const body = sql.match(
       new RegExp(`create or replace function mintplaza\\.${name}\\(p_user uuid\\)[\\s\\S]*?\\$\\$;`),
     )?.[0];
     return body?.match(re)?.[1];
   };
+  const free = (name: string, re: RegExp): string | undefined => {
+    const body = sql.match(
+      new RegExp(`create or replace function mintplaza\\.${name}\\(\\)[\\s\\S]*?\\$\\$;`),
+    )?.[0];
+    return body?.match(re)?.[1];
+  };
 
-  const slots    = fn("listings_per_window_for", /then\s+(\d+)\s+else/);
-  const perGame  = fn("max_active_per_game_for", /then\s+(\d+)\s+else/);
-  const lifetime = fn("listing_lifetime_for",    /then\s+interval\s+'(\d+) days'/);
-  const bumps    = fn("bumps_per_day_for",       /then\s+(\d+)\s+else/);
+  const perk = (needle: string) => PERKS.find((p) => p.title.includes(needle));
 
-  const perk = (title: string) => PERKS.find((p) => p.title === title)?.levelUp ?? "";
+  // ---- 1. ten listings up at once, instead of three ----------------------
+  const paidPerGame = paid("max_active_per_game_for", /then\s+(\d+)\s+else/);
+  const freePerGame = free("max_active_per_game", /select (\d+)/);
+  const p1 = perk("Ten listings");
+  assert("the listing count on the page is the one the trigger enforces",
+    paidPerGame === "10" && freePerGame === "3"
+      && Boolean(p1) && p1!.levelUp.includes("10") && p1!.free.includes("3"),
+    `sql: ${freePerGame} free / ${paidPerGame} paid · page: "${p1?.free}" -> "${p1?.levelUp}"`);
 
-  assert("the slot count on the page is the one the trigger enforces",
-    slots === "8" && perk("Post more often").includes("8"),
-    `sql says ${slots}, page says "${perk("Post more often")}"`);
-
-  assert("and the per-game cap",
-    perGame === "25" && perk("Keep more up at once").includes("25"),
-    `sql says ${perGame}, page says "${perk("Keep more up at once")}"`);
-
+  // ---- 2. three days instead of one --------------------------------------
+  const paidLife = paid("listing_lifetime_for", /then\s+interval\s+'(\d+) days'/);
+  const freeLife = free("listing_lifetime", /interval '(\d+) hours'/);
+  const p2 = perk("three days");
   assert("and how long a listing lives",
-    lifetime === "21" && perk("Listings last three times as long").includes("21"),
-    `sql says ${lifetime} days, page says "${perk("Listings last three times as long")}"`);
+    paidLife === "3" && freeLife === "24"
+      && Boolean(p2) && p2!.levelUp.includes("3 days") && p2!.free.includes("24 hours"),
+    `sql: ${freeLife}h free / ${paidLife} days paid · page: "${p2?.free}" -> "${p2?.levelUp}"`);
 
-  // Bumps are the one perk the page states as a cooldown rather than a count,
-  // because that is how it is enforced — 24 hours divided by the daily figure.
-  // So the check does the same division rather than matching the raw number.
-  const cooldown = bumps ? 24 / Number(bumps) : NaN;
-  assert("and the bump cooldown, which the page states in hours",
-    bumps === "3" && perk("Bump three times a day").includes(String(cooldown)),
-    `sql allows ${bumps}/day = every ${cooldown}h, page says "${perk("Bump three times a day")}"`);
-
-  // ---- the free numbers on the page are the real free numbers -------------
-  const freeSlots = sql.match(/function mintplaza\.listings_per_window\(\)[\s\S]*?select (\d+)/)?.[1];
-  const freeGame  = sql.match(/function mintplaza\.max_active_per_game\(\)[\s\S]*?select (\d+)/)?.[1];
-  assert("the 'before' column is the real free tier too",
-    freeSlots === "3" && freeGame === "10" &&
-    PERKS[0].free.includes("3") && PERKS[1].free.includes("10"),
-    `free is ${freeSlots}/window and ${freeGame}/game`);
-
-  // ---- every perk is a real limit, not a vibe ------------------------------
+  // ---- 3. the per-window rate limit rises too -----------------------------
   //
-  // One perk is a badge and has no number. Every OTHER perk must name a figure
-  // on both sides, because a perk with nothing measurable behind it is a
-  // promise nobody can hold the site to.
-  const vague = PERKS.filter(
-    (p) => !/profile/i.test(p.title) && !(/\d/.test(p.free) && /\d/.test(p.levelUp)),
-  );
-  assert("every perk except the badge names a number on both sides",
+  // Not sold as a perk and not on the page, but it has to move with the
+  // per-game cap or the cap is unreachable: ten listings you may hold and
+  // three you may post per window means seven of them can never exist.
+  const paidWindow = paid("listings_per_window_for", /then\s+(\d+)\s+else/);
+  assert("the posting rate allows the paid listing count to actually be reached",
+    Number(paidWindow) >= Number(paidPerGame),
+    `${paidWindow} per window vs ${paidPerGame} allowed live`);
+
+  // ---- 4. what is NOT sold ------------------------------------------------
+  //
+  // Bumping is the one perk that would take something from everybody else: the
+  // board sorts on bumped_at, so a paid bump pushes free listings down. The
+  // page must not offer it, and the database must not grant it.
+  const bumpBody = sql.match(
+    /create or replace function mintplaza\.bumps_per_day_for\(p_user uuid\)[\s\S]*?\$\$;/,
+  )?.[0] ?? "";
+  assert("bumping is the same whether or not you pay",
+    !bumpBody.includes("is_level_up"),
+    bumpBody.includes("is_level_up")
+      ? "bumps_per_day_for still branches on Level Up"
+      : "one cooldown for everybody");
+
+  assert("and the page does not advertise it",
+    !PERKS.some((p) => /bump/i.test(p.title) || /bump/i.test(p.levelUp)));
+
+  // A bump cooldown longer than a free listing's life is a feature that does
+  // nothing for anybody who has not paid — which is how this was found.
+  const bumpsPerDay = Number(bumpBody.match(/select (\d+)/)?.[1]);
+  const cooldownHours = 24 / bumpsPerDay;
+  assert("and the cooldown is shorter than a free listing's whole life",
+    Number.isFinite(cooldownHours) && cooldownHours < Number(freeLife),
+    `bump every ${cooldownHours}h against a ${freeLife}h listing`);
+
+  // ---- 5. nothing that could be mistaken for a safety signal -------------
+  //
+  // A mark you can buy is worth more to a scammer than to anybody honest. The
+  // page may not sell one, and no component may draw one.
+  assert("no perk is a badge, a mark or a tick",
+    !PERKS.some((p) => /badge|mark|tick|verif/i.test(`${p.title} ${p.levelUp}`)),
+    PERKS.map((p) => p.title).join(" | "));
+
+  // ---- 6. every perk is a real limit, not a vibe -------------------------
+  const vague = PERKS.filter((p) => !(/\d/.test(p.free) && /\d/.test(p.levelUp)));
+  assert("every perk names a number on both sides",
     vague.length === 0, vague.map((p) => p.title).join(", ") || `${PERKS.length} perks`);
 }
 
@@ -1193,4 +1222,99 @@ line("23. THE PAYMENT WEBHOOK — the guards that are not in the red team");
     /p_payment_ref is null or btrim\(p_payment_ref\) = ''/.test(schema));
   assert("and the reference is unique in the table",
     /payment_ref text unique/.test(schema));
+}
+
+line("24. NOTHING ON THIS SITE CAN BLOCK ANYBODY");
+{
+  // Blocking was removed on purpose, and this is the check that keeps it gone.
+  //
+  // The reasoning, because it is not the obvious call: a scammer's last move is
+  // to block the person they just took an item from. That buries the
+  // conversation, ends the confrontation, and leaves the victim with nothing to
+  // point at. Blocking hands the tool to whoever uses it first, and on a
+  // trading board that is nearly always the person in the wrong.
+  //
+  // The replacement is reporting plus suspension, which is the better shape:
+  // a block protects the one person who pressed it, a suspension protects
+  // everybody the account has not reached yet.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const schema = read("../supabase/schema.sql");
+
+  assert("the schema creates no blocks table",
+    !/create table if not exists public\.blocks/.test(schema));
+  assert("and drops one if an older database has it",
+    /drop table public\.blocks cascade/.test(schema));
+  assert("and defines no block_player function",
+    !/create or replace function public\.block_player/.test(schema));
+
+  // The policy on messages must not reference blocks — that clause was what
+  // let a blocked person be silenced, and its absence is what makes suspension
+  // the only lever.
+  const sendPolicy = schema.match(/create policy messages_send[\s\S]*?\);/)?.[0] ?? "";
+  assert("the send policy gates on account standing, not on a block",
+    sendPolicy.includes("status = 'active'") && !sendPolicy.includes("blocks"),
+    sendPolicy ? undefined : "messages_send policy not found");
+
+  // And no app code offers it.
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(e.name)) sources.push(full);
+    }
+  })("src");
+
+  const offering = sources.filter((f) =>
+    /\b(setBlocked|block_player|blocked_by_me)\b/.test(stripComments(readFileSync(f, "utf8"))));
+  assert("no component or action can block somebody", offering.length === 0, offering[0]);
+
+  // Reporting has to still exist, or removing blocking would leave nothing at
+  // all. This is the half that makes the trade-off honest.
+  const reporting = sources.filter((f) =>
+    /reportMessage|ReportButton/.test(stripComments(readFileSync(f, "utf8"))));
+  assert("and reporting is still there instead", reporting.length >= 2,
+    `${reporting.length} files`);
+}
+
+line("25. THE CONTROL PANEL ANSWERS TO ONE ACCOUNT");
+{
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const schema = read("../supabase/schema.sql");
+
+  // is_admin() is the whole gate, and it must join the allowlist. A version
+  // that checked anything else — a column on profiles, a role, an env var —
+  // would be one edit away from letting somebody grant themselves the panel.
+  const isAdmin = schema.match(/create or replace function public\.is_admin\(\)[\s\S]*?\$\$;/)?.[0] ?? "";
+  assert("is_admin() answers from the allowlist and the caller's own session",
+    isAdmin.includes("mintplaza.admin_allowlist") && isAdmin.includes("auth.uid()"),
+    isAdmin ? undefined : "is_admin() not found");
+
+  // It matches on the numeric Roblox id, not the username. A username can be
+  // released and taken by somebody else; the id cannot.
+  assert("and matches on the Roblox id rather than the username",
+    isAdmin.includes("a.roblox_user_id = p.roblox_user_id"));
+
+  // A suspended owner is not an owner.
+  assert("and refuses an account that is not active",
+    isAdmin.includes("p.status = 'active'"));
+
+  // The allowlist itself must not be writable from the client, or the gate is
+  // decoration. It lives in the mintplaza schema, which PostgREST does not
+  // serve at all.
+  assert("the allowlist lives outside the schema PostgREST exposes",
+    /create table if not exists mintplaza\.admin_allowlist/.test(schema));
+
+  // Every admin function re-checks. The 404 on the page is presentation; this
+  // is the part that holds against a forged request.
+  const adminFns = schema.match(/create or replace function public\.admin_\w+/g) ?? [];
+  const guarded = (schema.match(/perform mintplaza\.require_admin\(\)/g) ?? []).length;
+  assert("every admin_ function re-checks the allowlist itself",
+    guarded >= adminFns.length,
+    `${adminFns.length} admin functions, ${guarded} require_admin() calls`);
+
+  // The page is a 404 to everybody else, not a "forbidden" — which would
+  // confirm there is something there to be forbidden from.
+  const page = stripComments(read("../src/app/admin/page.tsx"));
+  assert("and the page 404s rather than announcing itself", page.includes("notFound()"));
 }

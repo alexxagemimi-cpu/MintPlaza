@@ -118,7 +118,6 @@ export interface Thread {
     display_name?: string | null;
     avatar_url?: string | null;
     online?: boolean;
-    blocked_by_me?: boolean;
   };
   messages: ThreadMessage[];
 }
@@ -138,11 +137,11 @@ export async function readThread(conversationId: string): Promise<Thread | null>
  * Send one.
  *
  * A direct insert rather than an RPC, because the insert policy on messages is
- * already the complete rule — sender is you, you are in the thread, your
- * account is active, and neither of you has blocked the other — and a function
- * wrapping it would be a second place for that rule to drift out of. The rate
- * limit and the server-owned timestamp come from a trigger, so they apply here
- * and to every other route into the table equally.
+ * already the complete rule — sender is you, you are in the thread, and your
+ * account is in good standing — and a function wrapping it would be a second
+ * place for that rule to drift out of. The rate limit and the server-owned
+ * timestamp come from a trigger, so they apply here and to every other route
+ * into the table equally.
  */
 export async function sendMessage(
   conversationId: string,
@@ -164,11 +163,12 @@ export async function sendMessage(
   });
 
   if (error) {
-    // A policy refusal here is almost always one of two real situations, and
-    // both deserve the truth rather than "something went wrong": the other
-    // person blocked you, or your own account is restricted.
+    // There is no blocking on this site, so a policy refusal here means one
+    // thing: the sender's own account has been restricted or suspended. Saying
+    // so plainly beats "something went wrong" — they need to know it is about
+    // them and not a glitch to retry.
     if (error.code === "42501" || error.message?.includes("row-level security")) {
-      return fail("You cannot send messages to this person.");
+      return fail("Your account cannot send messages right now.");
     }
     return fail(readable(error));
   }
@@ -191,30 +191,6 @@ export async function unreadCount(): Promise<number> {
   const { data, error } = await a.supabase.rpc("unread_count");
   if (error || typeof data !== "number") return 0;
   return data;
-}
-
-/**
- * Block or unblock somebody.
- *
- * Taken by username for the same reason as starting a thread: the app never
- * needs to hold another player's uuid, so it never asks for one.
- */
-export async function setBlocked(
-  username: string,
-  blocked: boolean,
-): Promise<Result> {
-  const a = await actor();
-  if (!a) return fail("Sign in first.");
-
-  const { error } = await a.supabase.rpc("block_player", {
-    p_username: username,
-    p_blocked: blocked,
-  });
-  if (error) return fail(readable(error));
-
-  revalidatePath("/messages");
-  revalidatePath("/app", "layout");
-  return { ok: true };
 }
 
 /**

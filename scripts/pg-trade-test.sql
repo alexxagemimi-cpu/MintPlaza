@@ -182,20 +182,18 @@ begin
   perform pg_temp.ok('it is on its owner''s profile', n = 1);
 end $$;
 
--- A blocked player disappears from the board in both directions.
+-- There is no blocking on this site, on purpose: a scammer's last move is to
+-- block the person they just took an item from, which buries the conversation
+-- and leaves the victim nothing to point at. So the board hides nobody, and the
+-- lever is suspension instead — checked further down under MESSAGING.
 do $$
 declare n int;
 begin
-  insert into public.blocks (blocker_id, blocked_id)
-  values ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222');
-
-  select count(*) into n from public.trade_match_candidates('blox-fruits', 200);
-  perform pg_temp.ok('a blocked player is not suggested', n = 0);
+  perform pg_temp.ok('there is no blocks table to hide anybody with',
+    to_regclass('public.blocks') is null);
 
   select count(*) into n from public.trade_feed('blox-fruits', 30, null);
-  perform pg_temp.ok('a blocked player is off the board', n = 0);
-
-  delete from public.blocks;
+  perform pg_temp.ok('and every live listing is on the board', n = 1);
 end $$;
 
 -- Status is the intent; the clock is the truth. expire_listings() is a
@@ -240,7 +238,7 @@ begin
 
   select * into r from public.listing_allowance('blox-fruits');
   perform pg_temp.ok('and gets the free three slots', r.remaining = 3);
-  perform pg_temp.ok('and the free ten-per-game cap', r.active_cap = 10);
+  perform pg_temp.ok('and the free three-per-game cap', r.active_cap = 3);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up says not active', (v->>'active')::boolean = false);
@@ -311,8 +309,8 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = true);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('the per-window allowance rises to eight', r.remaining = 8);
-  perform pg_temp.ok('and the per-game cap to twenty-five', r.active_cap = 25);
+  perform pg_temp.ok('the per-window allowance rises to ten', r.remaining = 10);
+  perform pg_temp.ok('and the per-game cap to ten', r.active_cap = 10);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up reports it active', (v->>'active')::boolean = true);
@@ -336,7 +334,7 @@ begin
   exception when sqlstate 'P0001' then
     v_posted := false;
   end;
-  perform pg_temp.ok('a Level Up player can post past the free three-per-window limit', v_posted);
+  perform pg_temp.ok('a Level Up player can post past the free three-listing limit', v_posted);
 end $$;
 
 -- ---- and still stops at the paid limit ------------------------------------
@@ -344,7 +342,7 @@ do $$
 declare i int; v_stopped boolean := false;
 begin
   begin
-    for i in 1..5 loop
+    for i in 1..10 loop
       perform public.post_trade_listing('blox-fruits',
         '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
     end loop;
@@ -362,11 +360,18 @@ begin
     from public.trade_listings
    where user_id = '33333333-3333-3333-3333-333333333333'
    order by created_at desc limit 1;
-  perform pg_temp.ok('a Level Up listing lives 21 days, not 7',
-    v_life between interval '20 days' and interval '22 days');
+  perform pg_temp.ok('a Level Up listing lives 3 days, not 24 hours',
+    v_life between interval '2 days 23 hours' and interval '3 days 1 hour');
 end $$;
 
--- ---- bumps come round three times a day -----------------------------------
+-- ---- bumping, which is NOT a Level Up perk -------------------------------
+--
+-- Deliberately the same for everyone. The board sorts on bumped_at, so a paid
+-- bump is the one perk that takes something from every other player: it pushes
+-- their listings down. Six hours also had to replace the old 24, because a free
+-- listing now expires at 24 hours — under the old cooldown it died at the exact
+-- moment it first became bumpable, so the feature did nothing for anybody who
+-- had not paid.
 do $$
 declare v_listing uuid; v_when timestamptz;
 begin
@@ -374,13 +379,15 @@ begin
    where user_id = '33333333-3333-3333-3333-333333333333'
    order by created_at desc limit 1;
 
-  -- Nine hours ago is past the 8-hour Level Up cooldown and well inside the
-  -- 24-hour free one, so this single call separates the two tiers exactly.
-  update public.trade_listings set bumped_at = now() - interval '9 hours'
+  update public.trade_listings set bumped_at = now() - interval '7 hours'
    where id = v_listing;
 
   v_when := public.bump_listing(v_listing);
-  perform pg_temp.ok('Level Up bumps every 8 hours, not every 24', v_when is not null);
+  perform pg_temp.ok('a listing can be bumped once every six hours', v_when is not null);
+
+  perform pg_temp.ok('and the cooldown is the same whether or not you pay',
+    mintplaza.bumps_per_day_for('33333333-3333-3333-3333-333333333333')
+      = mintplaza.bumps_per_day_for('22222222-2222-2222-2222-222222222222'));
 end $$;
 
 do $$
@@ -413,7 +420,7 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = false);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 10);
+  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 3);
 
   v := public.my_level_up();
   perform pg_temp.ok('and the player is told it lapsed rather than never existed',
@@ -635,47 +642,53 @@ begin
     jsonb_array_length(public.my_conversations()) = 0);
 end $$;
 
--- ---- blocking -------------------------------------------------------------
-set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
+-- ---- suspension, which is what replaces blocking -------------------------
+--
+-- With no blocking, this is the ONLY thing that stops somebody behaving badly
+-- — and it is the better shape. A block protects the one person who pressed
+-- it; a suspension protects everybody the account has not reached yet.
+--
+-- Only the function-level half is checked here. The other half is the RLS
+-- policy on messages, and this file runs as SUPERUSER, which bypasses RLS
+-- entirely — so a send test here would pass whether the policy works or not.
+-- An earlier version of this block tried it anyway with `set local role
+-- authenticated`, and it "passed" because this database never grants that role
+-- table privileges, so the insert failed on permissions rather than on
+-- suspension. It is in pg-rls-test.sql now, where the grants are real.
+set "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
+
 do $$
-declare v_refused boolean := false; v_sent boolean := false; v_id uuid;
+declare v_opened boolean := false;
 begin
-  perform public.block_player('alice', true);
-  perform pg_temp.ok('bob can block alice',
-    exists (select 1 from public.blocks
-             where blocker_id = '22222222-2222-2222-2222-222222222222'
-               and blocked_id = '11111111-1111-1111-1111-111111111111'));
+  update public.profiles set status = 'suspended'
+   where id = '11111111-1111-1111-1111-111111111111';
 
-  perform pg_temp.ok('and she vanishes from his inbox',
-    jsonb_array_length(public.my_conversations()) = 0);
-
-  -- The block has to bite in BOTH directions, and the important one is the
-  -- direction the blocker did not choose: alice must not be able to keep
-  -- messaging bob just because she was the one blocked.
-  set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
-  begin perform public.start_conversation('bob');
-  exception when sqlstate 'P0001' then v_refused := true; end;
-  perform pg_temp.ok('and the person blocked cannot open a new thread', v_refused);
-
-  select conversation_id into v_id from public.conversation_participants
-   where user_id = '11111111-1111-1111-1111-111111111111' limit 1;
   begin
-    set local role authenticated;
-    insert into public.messages (conversation_id, sender_id, body)
-    values (v_id, '11111111-1111-1111-1111-111111111111', 'let me back in');
-    v_sent := true;
-  exception when others then v_sent := false;
+    perform public.start_conversation('bob');
+    v_opened := true;
+  exception when sqlstate 'P0001' then v_opened := false;
   end;
-  reset role;
-  perform pg_temp.ok('nor send into the thread they already had', not v_sent);
+  perform pg_temp.ok('a suspended account cannot open a conversation with anybody',
+    not v_opened);
+
+  -- Lifting it has to work, or a mistaken suspension would be permanent.
+  update public.profiles set status = 'active'
+   where id = '11111111-1111-1111-1111-111111111111';
+
+  begin
+    perform public.start_conversation('bob');
+    v_opened := true;
+  exception when sqlstate 'P0001' then v_opened := false;
+  end;
+  perform pg_temp.ok('and lifting it lets them start one again', v_opened);
 end $$;
+set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
 
 -- ---- rate limits ----------------------------------------------------------
 set "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222';
 do $$
 declare v_id uuid; i int; v_stopped boolean := false;
 begin
-  perform public.block_player('alice', false);   -- unblock, so sending is allowed
   select conversation_id into v_id from public.conversation_participants
    where user_id = '22222222-2222-2222-2222-222222222222' limit 1;
 

@@ -25,10 +25,10 @@ import { startConversation } from "@/lib/actions/messages";
  * Failure is spoken, not swallowed
  * ---------------------------------------------------------------------------
  *
- * Four real things can stop this: not signed in, blocked in either direction,
- * a suspended account, or the daily new-conversation limit. All four come back
- * from the database as a sentence written for a player, and all four are shown.
- * A button that silently does nothing on failure is how this one got here.
+ * Three real things can stop this: not signed in, a restricted or suspended
+ * account, or the daily new-conversation limit. All three come back from the
+ * database as a sentence written for a player, and all three are shown. A
+ * button that silently does nothing on failure is how this one got here.
  */
 export function MessageButton({
   username,
