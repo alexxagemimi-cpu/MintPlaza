@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { serverSupabase } from "@/lib/supabase/server";
+import { TERMS_COOKIE, TERMS_VERSION } from "@/lib/legal";
 
 /**
  * Where Roblox sends the player back.
@@ -45,5 +46,33 @@ export async function GET(request: NextRequest) {
     console.error("ensure_profile failed after sign-in:", profileError.message);
   }
 
-  return NextResponse.redirect(new URL(next, url.origin));
+  // ---- turn the tick on the sign-in screen into a record ------------------
+  //
+  // The box was ticked before leaving for Roblox, which is before there was an
+  // account to attach the agreement to. The cookie carried it across; this is
+  // where it becomes a row.
+  //
+  // The version is compared against the server's own TERMS_VERSION and
+  // anything else is ignored. A hand-set cookie can therefore agree to the
+  // current terms — which is what ticking the box does anyway — and cannot
+  // agree to some older, softer version that is no longer served.
+  const response = NextResponse.redirect(new URL(next, url.origin));
+
+  const ticked = request.cookies.get(TERMS_COOKIE)?.value;
+  if (ticked === TERMS_VERSION) {
+    const { error: acceptError } = await supabase.rpc("accept_terms", {
+      p_version: TERMS_VERSION,
+    });
+    if (acceptError) {
+      // Not fatal. The consent screen inside the app is the backstop, and the
+      // database refuses posting and messaging until a row exists — so the
+      // worst case is being asked once more rather than slipping through.
+      console.error("accept_terms failed after sign-in:", acceptError.message);
+    }
+  }
+
+  // Cleared either way: it has done its job, or it was never valid.
+  response.cookies.set(TERMS_COOKIE, "", { maxAge: 0, path: "/" });
+
+  return response;
 }

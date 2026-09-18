@@ -30,6 +30,18 @@
  */
 export const TERMS_VERSION = "2026-09-18";
 
+/**
+ * The cookie that carries a tick across the trip to Roblox and back.
+ *
+ * Sign-in leaves this site for Roblox and returns to /auth/callback, and
+ * nothing held in React survives that. This is not a security control: a
+ * person could set it by hand, and all they would achieve is agreeing to the
+ * terms the long way round. What it cannot do is name a version other than the
+ * current one — the callback compares it against TERMS_VERSION and drops
+ * anything else.
+ */
+export const TERMS_COOKIE = "mp_terms";
+
 /** Shown at the top of both documents, so nobody has to guess how current they are. */
 export const TERMS_EFFECTIVE = "18 September 2026";
 

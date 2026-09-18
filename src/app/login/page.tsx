@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { RobloxSignIn } from "@/components/RobloxSignIn";
+import { SignInPanel } from "@/components/SignInPanel";
 import { DevSignIn } from "@/components/DevSignIn";
 import { currentProfile } from "@/lib/supabase/server";
 
@@ -42,7 +42,7 @@ export default async function LoginPage({
       )}
 
       <div className="mt-8">
-        <RobloxSignIn next={next ?? "/app"} className="pill pill-mint w-full justify-center py-4 text-[0.9375rem]" />
+        <SignInPanel next={next ?? "/app"} />
       </div>
 
       <DevSignIn next={next ?? "/app"} />

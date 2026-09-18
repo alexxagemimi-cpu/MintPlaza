@@ -1557,3 +1557,72 @@ line("27. NO SURFACE LETS SOMEBODY ACT WITHOUT AGREEING");
 
   void routes;
 }
+
+line("28. THE SIGN-IN BUTTON IS DEAD UNTIL THE BOX IS TICKED");
+{
+  // The agreement moved from "a screen after you are inside" to "before the
+  // only door". That is the right moment — once somebody is signed in, the
+  // question reads as a formality on the way to somewhere — but it puts the
+  // whole consent flow in one client component, so it is worth checking
+  // precisely.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const panel = stripComments(read("../src/components/SignInPanel.tsx"));
+
+  // Genuinely disabled, not styled to look disabled. A grey-looking enabled
+  // button is a lie that works right up until somebody taps it, and it is
+  // announced as available to a screen reader.
+  assert("the button carries a real disabled attribute",
+    /disabled=\{!agreed/.test(panel));
+
+  // And the handler re-checks, because the handler is what actually starts
+  // sign-in. A disabled attribute is a property of one element; this is the
+  // property of the action.
+  assert("and the handler refuses even if the button is reached another way",
+    /if \(!agreed\) return;/.test(panel));
+
+  // Both documents have to be reachable FROM the tick box. Agreeing to
+  // something you cannot open is not agreeing.
+  assert("both documents are linked from beside the box",
+    panel.includes('href="/terms"') && panel.includes('href="/privacy"'));
+
+  // The age statement belongs in the sentence being agreed to, not in a
+  // paragraph elsewhere on the page that nobody read.
+  assert("the age declaration is inside the thing being agreed to",
+    /13 or older/.test(panel));
+
+  // ---- the tick has to survive the trip to Roblox ------------------------
+  //
+  // Sign-in leaves the site entirely. Nothing in React comes back.
+  assert("the tick is carried across sign-in", panel.includes("TERMS_COOKIE"));
+
+  const callback = stripComments(read("../src/app/auth/callback/route.ts"));
+  assert("and the callback turns it into a record",
+    callback.includes("accept_terms") && callback.includes("TERMS_COOKIE"));
+
+  // The version recorded comes from the server. A cookie that could name any
+  // version could record agreement to an older, softer one that is no longer
+  // served.
+  assert("recording the CURRENT version only, never the cookie's own claim",
+    /ticked === TERMS_VERSION/.test(callback)
+      && /p_version: TERMS_VERSION/.test(callback));
+
+  // Cleared afterwards either way, so a shared device does not carry somebody
+  // else's agreement into the next sign-in.
+  assert("and the cookie is cleared afterwards",
+    /TERMS_COOKIE, "", \{ maxAge: 0/.test(callback));
+
+  // ---- and none of it is load-bearing -------------------------------------
+  //
+  // Every check above is about the ordinary path being right. The guarantee is
+  // that the database refuses to let an account act until an acceptance row
+  // exists — so the worst case for any bug in this component is being asked
+  // again, not slipping through.
+  const schema = read("../supabase/schema.sql");
+  assert("and the database still refuses to act without a record",
+    /if not mintplaza\.has_agreed\(new\.user_id\) then/.test(schema));
+
+  // The old bare button must be gone, or a stale import could reintroduce a
+  // sign-in path with no tick box in front of it.
+  assert("the ungated sign-in button no longer exists",
+    !existsSync("src/components/RobloxSignIn.tsx"));
+}
