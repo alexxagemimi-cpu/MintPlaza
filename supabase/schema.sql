@@ -507,6 +507,144 @@ grant execute on function mintplaza.max_active_per_game_for(uuid) to authenticat
 grant execute on function mintplaza.listing_lifetime_for(uuid)    to authenticated;
 grant execute on function mintplaza.bumps_per_day_for(uuid)       to authenticated;
 
+
+-- ===========================================================================
+-- ===========================================================================
+-- Agreeing to the terms
+--
+-- ---------------------------------------------------------------------------
+-- Why a table rather than a link in the footer
+-- ---------------------------------------------------------------------------
+--
+-- "By using this site you agree to our terms" at the bottom of a page is
+-- called browsewrap, and it is close to worthless: nobody has seen it, nobody
+-- has done anything to accept it, and there is no record that they did. If a
+-- dispute ever turns on whether somebody agreed not to scam people, the honest
+-- answer would be "we hoped they read the footer".
+--
+-- A tick box that must be ticked before the site can be used, recorded against
+-- the exact version of the text that was on screen, is a different thing
+-- entirely. It is the difference between claiming somebody agreed and being
+-- able to say when, and to what.
+--
+-- ---------------------------------------------------------------------------
+-- Why the version is stored rather than a boolean
+-- ---------------------------------------------------------------------------
+--
+-- Terms change. A single `accepted_terms` flag means a player who agreed to
+-- the first version is recorded as having agreed to every later one, including
+-- clauses written after they stopped reading. Storing the version means
+-- raising TERMS_VERSION asks everybody again, and the record says precisely
+-- which text each person saw.
+-- ===========================================================================
+-- ===========================================================================
+
+create table if not exists public.terms_acceptance (
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  -- The TERMS_VERSION string from src/lib/legal.ts, e.g. '2026-09-18'.
+  version     text not null check (char_length(version) between 1 and 40),
+  accepted_at timestamptz not null default now(),
+  primary key (user_id, version)
+);
+
+create index if not exists terms_acceptance_user_idx
+  on public.terms_acceptance (user_id, accepted_at desc);
+
+alter table public.terms_acceptance enable row level security;
+
+-- Read your own. Nobody needs to see anybody else's, and a list of who has not
+-- accepted yet is not a fact this site publishes.
+drop policy if exists terms_read_own on public.terms_acceptance;
+create policy terms_read_own on public.terms_acceptance for select
+  using (user_id = auth.uid());
+
+-- No insert policy, deliberately. A client that could write this row directly
+-- could also write one for a version it never displayed — recording consent to
+-- text the person never saw, which is worse than having no record at all. The
+-- function below is the only writer, and it stamps the time itself.
+--
+-- No update or delete policy either: an acceptance is a historical fact, and a
+-- fact somebody can quietly erase afterwards is not evidence of anything.
+
+create or replace function public.accept_terms(p_version text)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+  if p_version is null or btrim(p_version) = '' then
+    raise exception 'No version given.' using errcode = 'P0001';
+  end if;
+
+  -- on conflict do nothing, not do update: the timestamp records when somebody
+  -- FIRST agreed to this version. Refreshing the page should not quietly move
+  -- the date on a record whose whole purpose is to say when.
+  insert into public.terms_acceptance (user_id, version)
+  values (auth.uid(), btrim(p_version))
+  on conflict (user_id, version) do nothing;
+end $$;
+
+-- Has this player accepted the version currently being served?
+--
+-- The version is passed in by the application rather than stored in the
+-- database, so there is one source of truth for what the current terms are —
+-- the file the pages are rendered from. A copy in the database would be a
+-- second one, and the two would disagree the first time somebody edited only
+-- the file.
+create or replace function public.has_accepted_terms(p_version text)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select exists (
+    select 1 from public.terms_acceptance
+     where user_id = auth.uid() and version = btrim(p_version)
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Has this player ever agreed to anything?
+--
+-- Deliberately version-agnostic, and that split is the design:
+--
+--   The DATABASE asks "have you ever agreed?" — it is the floor, and it is
+--   what stops somebody who navigated around the consent screen from posting
+--   or messaging at all. It does not need to know which version is current,
+--   which keeps the one source of truth for that in src/lib/legal.ts rather
+--   than duplicated into a table that would drift from it.
+--
+--   The APPLICATION asks "have you agreed to the CURRENT version?" — it is
+--   the prompt, and it is what re-asks everybody when the terms change.
+--
+-- Someone who agreed to last year's terms and has not seen this year's can
+-- still use the site and will be asked on their next visit. Someone who has
+-- agreed to nothing at all cannot do anything that creates an obligation.
+-- ---------------------------------------------------------------------------
+create or replace function mintplaza.has_agreed(p_user uuid)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select exists (select 1 from public.terms_acceptance where user_id = p_user);
+$$;
+
+-- anon as well as authenticated, for the same reason is_participant() is.
+-- This is read inside the messages_send policy, and a policy expression is
+-- evaluated as whoever is querying — so a role without EXECUTE turns what
+-- should be a clean refusal into "permission denied for function", which is a
+-- hard error on a path that should simply have said no. It answers from a
+-- user id that is null for anon, so to a signed-out visitor it is a function
+-- that returns false and discloses nothing.
+--
+-- The mechanical check in scripts/pg-rls-test.sql found this one, which is
+-- exactly the bug it was written for after the same mistake made the whole
+-- messaging feature unreadable.
+revoke all on function mintplaza.has_agreed(uuid) from public;
+grant execute on function mintplaza.has_agreed(uuid) to anon, authenticated;
+
+revoke all on function public.accept_terms(text)       from public, anon;
+revoke all on function public.has_accepted_terms(text) from public, anon;
+grant execute on function public.accept_terms(text)       to authenticated;
+grant execute on function public.has_accepted_terms(text) to authenticated;
+
+
 -- ===========================================================================
 -- Trade listings
 -- ===========================================================================
@@ -629,6 +767,14 @@ declare
   v_per_game   int := mintplaza.max_active_per_game_for(new.user_id);
 begin
   perform 1 from public.profiles where id = new.user_id for update;
+
+  -- Agreeing to the rules comes before publishing anything under them. See the
+  -- note on mintplaza.has_agreed().
+  if not mintplaza.has_agreed(new.user_id) then
+    raise exception 'Agree to the terms before posting.'
+      using errcode = 'P0001',
+            hint = 'The box appears the next time you open MintPlaza.';
+  end if;
 
   select count(*) into v_recent
   from public.trade_listings
@@ -1006,6 +1152,12 @@ create policy messages_send on public.messages for insert
     -- 'restricted' or 'suspended' from a report, and that silences them
     -- everywhere at once rather than only towards whoever complained.
     and exists (select 1 from public.profiles p where p.id = auth.uid() and p.status = 'active')
+    -- And they must have agreed to the rules at some point. The consent screen
+    -- covers the main surface, but /messages is its own route and a determined
+    -- account could reach it without passing through — which is precisely what
+    -- somebody would do to be able to say later that they never agreed not to
+    -- scam anybody. Enforced here, where navigating around it is not possible.
+    and mintplaza.has_agreed(auth.uid())
   );
 
 -- No blocks policy, because there is no blocks table. See the note above the
@@ -2613,8 +2765,11 @@ declare
     'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups',
     'start_conversation', 'my_conversations', 'conversation_thread',
     'mark_conversation_read', 'unread_count',
-    'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up',
-    'accept_terms', 'has_accepted_terms'
+    'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up'
+    -- accept_terms and has_accepted_terms are deliberately NOT in this list.
+    -- They are defined much earlier in the file now, because the messages and
+    -- listings rules read them, and this block runs AFTER that point — so
+    -- naming them here drops the functions the rest of the schema depends on.
   ];
   r record;
   dropped int := 0;
@@ -4049,6 +4204,12 @@ begin
     raise exception 'You cannot message yourself.' using errcode = 'P0001';
   end if;
 
+  if not mintplaza.has_agreed(v_me) then
+    raise exception 'Agree to the terms before messaging anybody.'
+      using errcode = 'P0001',
+            hint = 'The box appears the next time you open MintPlaza.';
+  end if;
+
   -- No block check, because there is no blocking on this site. The gate that
   -- replaces it is the status check above: a restricted or suspended account
   -- cannot open a thread with anybody.
@@ -4403,100 +4564,4 @@ grant execute on function public.webhook_grant_level_up(text, text, int, text, n
   to service_role;
 
 
--- ===========================================================================
--- ===========================================================================
--- Agreeing to the terms
---
--- ---------------------------------------------------------------------------
--- Why a table rather than a link in the footer
--- ---------------------------------------------------------------------------
---
--- "By using this site you agree to our terms" at the bottom of a page is
--- called browsewrap, and it is close to worthless: nobody has seen it, nobody
--- has done anything to accept it, and there is no record that they did. If a
--- dispute ever turns on whether somebody agreed not to scam people, the honest
--- answer would be "we hoped they read the footer".
---
--- A tick box that must be ticked before the site can be used, recorded against
--- the exact version of the text that was on screen, is a different thing
--- entirely. It is the difference between claiming somebody agreed and being
--- able to say when, and to what.
---
--- ---------------------------------------------------------------------------
--- Why the version is stored rather than a boolean
--- ---------------------------------------------------------------------------
---
--- Terms change. A single `accepted_terms` flag means a player who agreed to
--- the first version is recorded as having agreed to every later one, including
--- clauses written after they stopped reading. Storing the version means
--- raising TERMS_VERSION asks everybody again, and the record says precisely
--- which text each person saw.
--- ===========================================================================
--- ===========================================================================
 
-create table if not exists public.terms_acceptance (
-  user_id     uuid not null references public.profiles(id) on delete cascade,
-  -- The TERMS_VERSION string from src/lib/legal.ts, e.g. '2026-09-18'.
-  version     text not null check (char_length(version) between 1 and 40),
-  accepted_at timestamptz not null default now(),
-  primary key (user_id, version)
-);
-
-create index if not exists terms_acceptance_user_idx
-  on public.terms_acceptance (user_id, accepted_at desc);
-
-alter table public.terms_acceptance enable row level security;
-
--- Read your own. Nobody needs to see anybody else's, and a list of who has not
--- accepted yet is not a fact this site publishes.
-drop policy if exists terms_read_own on public.terms_acceptance;
-create policy terms_read_own on public.terms_acceptance for select
-  using (user_id = auth.uid());
-
--- No insert policy, deliberately. A client that could write this row directly
--- could also write one for a version it never displayed — recording consent to
--- text the person never saw, which is worse than having no record at all. The
--- function below is the only writer, and it stamps the time itself.
---
--- No update or delete policy either: an acceptance is a historical fact, and a
--- fact somebody can quietly erase afterwards is not evidence of anything.
-
-create or replace function public.accept_terms(p_version text)
-returns void language plpgsql security definer
-set search_path = public, pg_catalog as $$
-begin
-  if auth.uid() is null then
-    raise exception 'Sign in first.' using errcode = 'P0001';
-  end if;
-  if p_version is null or btrim(p_version) = '' then
-    raise exception 'No version given.' using errcode = 'P0001';
-  end if;
-
-  -- on conflict do nothing, not do update: the timestamp records when somebody
-  -- FIRST agreed to this version. Refreshing the page should not quietly move
-  -- the date on a record whose whole purpose is to say when.
-  insert into public.terms_acceptance (user_id, version)
-  values (auth.uid(), btrim(p_version))
-  on conflict (user_id, version) do nothing;
-end $$;
-
--- Has this player accepted the version currently being served?
---
--- The version is passed in by the application rather than stored in the
--- database, so there is one source of truth for what the current terms are —
--- the file the pages are rendered from. A copy in the database would be a
--- second one, and the two would disagree the first time somebody edited only
--- the file.
-create or replace function public.has_accepted_terms(p_version text)
-returns boolean language sql stable security definer
-set search_path = public, pg_catalog as $$
-  select exists (
-    select 1 from public.terms_acceptance
-     where user_id = auth.uid() and version = btrim(p_version)
-  );
-$$;
-
-revoke all on function public.accept_terms(text)       from public, anon;
-revoke all on function public.has_accepted_terms(text) from public, anon;
-grant execute on function public.accept_terms(text)       to authenticated;
-grant execute on function public.has_accepted_terms(text) to authenticated;

@@ -1480,3 +1480,80 @@ line("26. THE TERMS DESCRIBE THE SITE THAT ACTUALLY EXISTS");
   assert("and it does not call the AI a founder or an owner",
     !/co-?founder|co-?owner|partner in/i.test(BUILD_CREDIT));
 }
+
+line("27. NO SURFACE LETS SOMEBODY ACT WITHOUT AGREEING");
+{
+  // The consent screen started on /app only, and /app is not the whole site.
+  // A signed-in account could reach /messages or /upgrade directly and never
+  // see it — which means messaging strangers without having agreed not to scam
+  // them, and PAYING without having agreed to the refund terms they would
+  // later rely on. Found by listing the routes rather than assuming.
+  //
+  // Two layers now, and this checks both.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const schema = read("../supabase/schema.sql");
+
+  // ---- layer one: the database refuses the actions -----------------------
+  //
+  // This is the one that cannot be navigated around, because it is not a
+  // screen. Every path that creates an obligation has to consult it.
+  assert("posting a listing requires having agreed",
+    /if not mintplaza\.has_agreed\(new\.user_id\) then/.test(schema));
+  assert("sending a message requires having agreed",
+    /create policy messages_send[\s\S]*?mintplaza\.has_agreed\(auth\.uid\(\)\)/.test(schema));
+  assert("opening a conversation requires having agreed",
+    /create or replace function public\.start_conversation[\s\S]*?if not mintplaza\.has_agreed\(v_me\) then/.test(schema));
+
+  // The database check must be version-agnostic. If it demanded the CURRENT
+  // version, editing the terms would lock every existing player out of the
+  // site until they next happened to load a page that showed the screen.
+  const hasAgreed = schema.match(
+    /create or replace function mintplaza\.has_agreed\(p_user uuid\)[\s\S]*?\$\$;/,
+  )?.[0] ?? "";
+  assert("and the database floor does not demand a specific version",
+    hasAgreed.includes("terms_acceptance") && !hasAgreed.includes("version ="),
+    hasAgreed ? undefined : "has_agreed() not found");
+
+  // ---- layer two: the screen is on every surface that needs it -----------
+  const routes: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (e.name === "page.tsx") routes.push(full);
+    }
+  })("src/app");
+
+  // Routes a signed-in player can act on. Reading is fine without agreeing;
+  // creating something is not.
+  const mustGuard = ["src/app/app", "src/app/messages", "src/app/upgrade"];
+  const unguarded = mustGuard.filter((dir) => {
+    // A layout at the segment root carrying the guard covers everything below.
+    const layout = `${dir}/layout.tsx`;
+    if (!existsSync(layout)) return true;
+    // `<TermsGuard`, not `TermsGuard`. An import line mentions it too, so the
+    // first version of this check passed against a layout that imported the
+    // guard and never rendered it — which is precisely the state a careless
+    // edit leaves behind. Found by deleting the element and watching the
+    // check not notice.
+    return !/<TermsGuard[\s/>]/.test(stripComments(readFileSync(layout, "utf8")));
+  });
+  assert("every surface that creates something shows the consent screen",
+    unguarded.length === 0, unguarded.join(", "));
+
+  // And the places it must NOT appear. Being unable to read what you are
+  // agreeing to, or to leave, would make the consent worthless and the site a
+  // trap — so this is checked as carefully as the other direction.
+  for (const open of ["src/app/terms/page.tsx", "src/app/privacy/page.tsx"]) {
+    assert(`${open.split("/")[2]} is readable without agreeing first`,
+      !stripComments(readFileSync(open, "utf8")).includes("TermsGuard"));
+  }
+  assert("and signing out is always available",
+    stripComments(read("../src/components/TermsGate.tsx")).includes("/auth/signout"));
+
+  // A gate with no refusal is a door with a tick box on it.
+  assert("the screen offers a way to refuse",
+    /No thanks/i.test(read("../src/components/TermsGate.tsx")));
+
+  void routes;
+}

@@ -41,6 +41,13 @@ insert into public.games (slug, name, short_name, is_active)
 values ('blox-fruits', 'Blox Fruits', 'Blox Fruits', true)
 on conflict (slug) do nothing;
 
+-- Both have agreed to the rules, because posting and messaging now require it.
+-- That requirement is tested on its own further down, with an account that has
+-- not.
+insert into public.terms_acceptance (user_id, version) values
+  ('11111111-1111-1111-1111-111111111111', '2026-09-18'),
+  ('22222222-2222-2222-2222-222222222222', '2026-09-18');
+
 \echo ''
 \echo 'KEYING'
 do $$
@@ -226,6 +233,8 @@ insert into auth.users (id, email)
 values ('33333333-3333-3333-3333-333333333333', 'c@x.test');
 update public.profiles set username = 'carol', last_seen_at = now()
  where id = '33333333-3333-3333-3333-333333333333';
+insert into public.terms_acceptance (user_id, version)
+values ('33333333-3333-3333-3333-333333333333', '2026-09-18');
 
 set "request.jwt.claim.sub" = '33333333-3333-3333-3333-333333333333';
 
@@ -745,4 +754,93 @@ begin
   exception when sqlstate 'P0001' then v_stopped := true;
   end;
   perform pg_temp.ok('opening threads with a whole game at once is stopped', v_stopped);
+end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Agreeing to the rules is not optional
+--
+-- The consent screen covers /app. It is a screen, and /messages is its own
+-- route — a determined account could sign in and go straight there without
+-- passing through it, which is exactly what somebody would do in order to say
+-- afterwards that they never agreed not to scam anybody.
+--
+-- So it is enforced in the database as well, where navigating around it is not
+-- a thing that exists. The check is version-agnostic on purpose: the database
+-- asks "have you ever agreed", the application asks "to the current version".
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'AGREEING TO THE RULES'
+
+insert into auth.users (id, email)
+values ('44444444-4444-4444-4444-444444444444', 'dave@x.test');
+update public.profiles set username = 'dave', last_seen_at = now()
+ where id = '44444444-4444-4444-4444-444444444444';
+
+set "request.jwt.claim.sub" = '44444444-4444-4444-4444-444444444444';
+
+do $$
+declare v_did boolean := false;
+begin
+  perform pg_temp.ok('a brand new account has agreed to nothing',
+    mintplaza.has_agreed('44444444-4444-4444-4444-444444444444') = false);
+
+  -- Posting a listing.
+  begin
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    v_did := true;
+  exception when sqlstate 'P0001' then v_did := false;
+  end;
+  perform pg_temp.ok('and cannot post a listing until it does', not v_did);
+
+  -- Opening a conversation, which is the route around the consent screen.
+  begin
+    perform public.start_conversation('alice');
+    v_did := true;
+  exception when sqlstate 'P0001' then v_did := false;
+  end;
+  perform pg_temp.ok('nor open a conversation with anybody', not v_did);
+end $$;
+
+-- And once they agree, everything works.
+do $$
+declare v_did boolean := false;
+begin
+  perform public.accept_terms('2026-09-18');
+  perform pg_temp.ok('agreeing is recorded',
+    mintplaza.has_agreed('44444444-4444-4444-4444-444444444444') = true);
+
+  begin
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    v_did := true;
+  exception when sqlstate 'P0001' then v_did := false;
+  end;
+  perform pg_temp.ok('and then they can post', v_did);
+
+  begin
+    perform public.start_conversation('alice');
+    v_did := true;
+  exception when sqlstate 'P0001' then v_did := false;
+  end;
+  perform pg_temp.ok('and message somebody', v_did);
+end $$;
+
+-- Agreeing to an OLD version still counts for the database floor. Somebody who
+-- agreed last year is asked again by the application, not locked out by the
+-- database — which is the right split, and the wrong one would lock every
+-- existing player out of the site the moment the terms were edited.
+do $$
+declare v_did boolean := false;
+begin
+  delete from public.terms_acceptance
+   where user_id = '44444444-4444-4444-4444-444444444444';
+  insert into public.terms_acceptance (user_id, version, accepted_at)
+  values ('44444444-4444-4444-4444-444444444444', '2020-01-01', now() - interval '3 years');
+
+  perform pg_temp.ok('an old acceptance still lets somebody use the site',
+    mintplaza.has_agreed('44444444-4444-4444-4444-444444444444') = true);
+  perform pg_temp.ok('while the application still knows to re-ask them',
+    public.has_accepted_terms('2026-09-18') = false);
 end $$;

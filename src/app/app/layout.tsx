@@ -2,9 +2,7 @@ import { Rail } from "@/components/Rail";
 import { TemplateProvider } from "@/components/TemplateProvider";
 import { allTemplates } from "@/lib/data/templates";
 import { unreadCount } from "@/lib/actions/messages";
-import { hasAcceptedTerms } from "@/lib/actions/terms";
-import { TermsGate } from "@/components/TermsGate";
-import { currentProfile } from "@/lib/supabase/server";
+import { TermsGuard } from "@/components/TermsGuard";
 
 /**
  * The app shell.
@@ -24,22 +22,17 @@ export default async function AppLayout({
   // Both in one round trip. The unread count is read here rather than inside
   // the Rail because the Rail is a client component and this is the only
   // server boundary every /app screen already passes through.
-  const [templates, unread, accepted, profile] = await Promise.all([
-    allTemplates(),
-    unreadCount(),
-    hasAcceptedTerms(),
-    currentProfile(),
-  ]);
+  const [templates, unread] = await Promise.all([allTemplates(), unreadCount()]);
 
   return (
     <TemplateProvider templates={templates}>
       <div className="min-h-dvh lg:pl-24">
         <Rail unread={unread} />
         {/* Rendered on the server, over everything, for a signed-in player who
-            has not agreed to the current version. It is not dismissible and
-            there is no route that skips it — a gate the client could decide to
-            skip would record consent nobody gave. */}
-        {profile && !accepted && <TermsGate username={profile.username} />}
+            has not agreed to the current version. Not dismissible, and the
+            database refuses the actions behind it regardless — see
+            mintplaza.has_agreed(). */}
+        <TermsGuard />
         {/* Bottom padding clears the touch bar on small screens. */}
         <div className="pb-32 lg:pb-12">{children}</div>
       </div>

@@ -41,6 +41,13 @@ update public.profiles set username = 'alice',   last_seen_at = now()
 update public.profiles set username = 'mallory', last_seen_at = now()
  where id = '22222222-2222-2222-2222-222222222222';
 
+-- Both have agreed to the rules, because posting and messaging require it.
+-- The requirement itself is tested in pg-trade-test.sql with an account that
+-- has not; here it is setup, so the RLS checks below test RLS and not consent.
+insert into public.terms_acceptance (user_id, version) values
+  ('11111111-1111-1111-1111-111111111111', '2026-09-18'),
+  ('22222222-2222-2222-2222-222222222222', '2026-09-18');
+
 -- Alice's things. Mallory will try to touch every one of them.
 insert into public.service_listings (id, game_slug, author_id, side, service_ids, expires_at)
 values ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'blox-fruits',
@@ -634,11 +641,15 @@ set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 do $$
 declare v_ok boolean; n int;
 begin
-  perform pg_temp.ok('nobody has accepted anything to begin with',
-    public.has_accepted_terms('2026-09-18') = false);
+  -- Mallory accepted '2026-09-18' in the setup at the top of this file, because
+  -- posting and messaging require it and the RLS checks above would otherwise
+  -- be testing consent rather than row-level security.
+  perform pg_temp.ok('the acceptance from setup is on record',
+    public.has_accepted_terms('2026-09-18') = true);
 
+  -- Accepting again must be harmless, because a page refresh does it.
   perform public.accept_terms('2026-09-18');
-  perform pg_temp.ok('accepting is recorded',
+  perform pg_temp.ok('accepting again is harmless',
     public.has_accepted_terms('2026-09-18') = true);
 
   -- Accepting one version must NOT count as accepting a later one. A single
