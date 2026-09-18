@@ -34,8 +34,12 @@ import {
   PARTNERS, partnerFor, valuesLink, outboundUrl, isValuesIntent,
 } from "../src/lib/referrals.ts";
 import {
-  COUNTRIES, PERKS, checkoutUrlFor, isCountryCode, isLocalCurrency, priceFor, priceNote,
+  COUNTRIES, LEVEL_UP_DAYS, PERKS, checkoutUrlFor, isCountryCode,
+  isLocalCurrency, priceFor, priceNote,
 } from "../src/lib/level-up.ts";
+import {
+  BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, SUBSCRIPTION,
+} from "../src/lib/legal.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
 const line = (n: string) => console.log("\n" + "─".repeat(72) + "\n" + n + "\n");
@@ -1064,9 +1068,14 @@ line("21. LEVEL UP — the money, and the ways it could go wrong quietly");
       else if (/\.tsx?$/.test(e.name)) pages.push(full);
     }
   })("src");
-  const cardFields = pages.filter((f) =>
-    /\b(cardNumber|card_number|cvv|cvc|expiry|cardholder)\b/i.test(readFileSync(f, "utf8")),
-  );
+  // An assignment or a form field, never a bare word — the legal pages talk
+  // about card details precisely in order to say none are collected, and a
+  // loose match flags them for saying so.
+  const cardFields = pages.filter((f) => {
+    const src = stripComments(readFileSync(f, "utf8"));
+    return /\b(cardNumber|card_number|cvv|cvc|cardHolder)\s*[:=]/i.test(src)
+      || /name=["'](cardNumber|cvv|cvc|card_number)["']/i.test(src);
+  });
   assert("nothing in this codebase asks for a card number", cardFields.length === 0,
     cardFields[0]);
 }
@@ -1317,4 +1326,157 @@ line("25. THE CONTROL PANEL ANSWERS TO ONE ACCOUNT");
   // confirm there is something there to be forbidden from.
   const page = stripComments(read("../src/app/admin/page.tsx"));
   assert("and the page 404s rather than announcing itself", page.includes("notFound()"));
+}
+
+line("26. THE TERMS DESCRIBE THE SITE THAT ACTUALLY EXISTS");
+{
+  // A terms page is a set of promises. Every one of them is a thing somebody
+  // could hold the operator to, and every one of them is in a different file
+  // from the code that would have to keep it. These checks are what stop the
+  // two drifting — which is the ordinary way a legal page becomes a liability
+  // rather than a protection.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const terms = read("../src/app/terms/page.tsx");
+  const privacy = read("../src/app/privacy/page.tsx");
+  const schema = read("../supabase/schema.sql");
+
+  // ---- the subscription, exactly as the database grants it ---------------
+  assert("the terms quote the real subscription length",
+    SUBSCRIPTION.days === LEVEL_UP_DAYS,
+    `terms say ${SUBSCRIPTION.days}, the product says ${LEVEL_UP_DAYS}`);
+
+  const perGame = PERKS.find((p) => p.title.includes("Ten listings"));
+  assert("and the real listing numbers",
+    perGame?.levelUp.includes(String(SUBSCRIPTION.listingsPerGame)) === true
+      && perGame?.free.includes(String(SUBSCRIPTION.freeListingsPerGame)) === true,
+    `terms: ${SUBSCRIPTION.freeListingsPerGame} -> ${SUBSCRIPTION.listingsPerGame}`);
+
+  const life = PERKS.find((p) => p.title.includes("three days"));
+  assert("and the real listing lifetime",
+    life?.levelUp.includes(`${SUBSCRIPTION.listingDays} days`) === true
+      && life?.free.includes(`${SUBSCRIPTION.freeListingHours} hours`) === true);
+
+  // "It does not renew by itself" is the strongest promise on the money
+  // section. Nothing in the codebase may quietly make it recurring.
+  assert("nothing in the product contradicts 'it does not renew by itself'",
+    SUBSCRIPTION.autoRenews === false
+      && !/auto[_-]?renew|recurring|subscription_id|renew_at/i.test(schema),
+    "the schema mentions renewal");
+
+  // ---- the games credited are the games on the roster --------------------
+  //
+  // A credit list that misses a game is an uncredited use of somebody's trade
+  // mark; one that names a game the site dropped is a stale claim about who
+  // owns what. Both are checked against the registry rather than remembered.
+  const registry = new Set(GAMES.map((g) => g.slug));
+  const credited = new Set(GAME_CREDITS.map((g) => g.slug));
+  const uncredited = [...registry].filter((s) => !credited.has(s));
+  const ghosts = [...credited].filter((s) => !registry.has(s));
+  assert("every game on the roster is credited to its owner",
+    uncredited.length === 0, uncredited.join(", "));
+  assert("and nothing is credited that the site no longer covers",
+    ghosts.length === 0, ghosts.join(", "));
+  assert("every credit names an owner",
+    GAME_CREDITS.every((g) => g.owner.trim().length > 3));
+
+  // The disclaimer has to be present and unambiguous, not implied by the
+  // credits. Naming somebody's game is fine; looking endorsed by them is not.
+  assert("the terms disclaim any affiliation with Roblox or the developers",
+    /not affiliated with, endorsed by, sponsored by, or connected to/i.test(terms)
+      && terms.includes("PLATFORM_OWNER"));
+
+  // ---- the rule the whole site's legality rests on -----------------------
+  //
+  // Roblox forbids exchanging in-game items for real money off-platform and
+  // treats third-party services that enable it as a violation. MintPlaza must
+  // prohibit it in terms, and must say so where people actually read.
+  assert("real-money trading is prohibited in the terms",
+    /real money/i.test(terms) && terms.includes("HOUSE_RULES"));
+  assert("and the rule is stated on the screen everybody must pass through",
+    /real money/i.test(read("../src/components/TermsGate.tsx")));
+
+  // ---- the promises the privacy policy makes about collection ------------
+  //
+  // "We never see your card details" and "we do not build advertising
+  // profiles" are checkable, so they are checked.
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(e.name)) sources.push(full);
+    }
+  })("src");
+  const code = sources.map((f) => stripComments(readFileSync(f, "utf8")));
+
+  // Matches a card FIELD, not the word. The first version of this check caught
+  // the privacy policy's own sentence about not collecting card details —
+  // which is the same trap that has bitten three other checks in this file.
+  // Requiring an assignment or a key means prose cannot trip it while an
+  // actual form field still does.
+  const cardFields = sources.filter((f, i) =>
+    /\b(cardNumber|card_number|cvv|cvc|cardHolder)\s*[:=]/i.test(code[i])
+    || /name=["'](cardNumber|cvv|cvc|card_number)["']/i.test(code[i]));
+  assert("'MintPlaza never sees a card number' is true", cardFields.length === 0,
+    cardFields[0]);
+
+  const trackers = sources.filter((f, i) =>
+    /googletagmanager|google-analytics|gtag\(|facebook\.net|fbq\(|mixpanel|segment\.com|hotjar/i.test(code[i]));
+  assert("'no advertising or cross-site tracking' is true", trackers.length === 0,
+    trackers[0]);
+
+  // The policy says the only browser storage is sign-in plus one dismissal
+  // note. More keys than that and the sentence is wrong.
+  const storageKeys = new Set<string>();
+  for (const src of code) {
+    for (const m of src.matchAll(/localStorage\.(?:get|set|remove)Item\(\s*([A-Za-z_]\w*|"[^"]+")/g)) {
+      storageKeys.add(m[1]);
+    }
+  }
+  assert("and so is 'one small note in your browser'", storageKeys.size <= 2,
+    [...storageKeys].join(", "));
+
+  // ---- the promises that need a route to exist ---------------------------
+  //
+  // A contact address in a legal document that nobody monitors is worse than
+  // none: it is a promise of a reply. This at least checks it is the same
+  // address the support screen uses, so there is one inbox rather than two.
+  assert("the legal contact is the address the support screen already uses",
+    read("../src/lib/support.ts").includes(LEGAL_CONTACT),
+    `terms say ${LEGAL_CONTACT}`);
+
+  // Deletion is promised in both documents. It has to be reachable.
+  assert("account deletion is promised and the action exists",
+    /delete/i.test(privacy) && read("../src/lib/actions/account.ts").includes("delete"));
+
+  // ---- consent has to be recorded, not assumed ---------------------------
+  assert("agreeing is recorded against a version, not a boolean",
+    /create table if not exists public\.terms_acceptance/.test(schema)
+      && /version\s+text not null/.test(schema));
+
+  // The client must not get to say which version it accepted, or the record is
+  // evidence of consent to text nobody displayed.
+  const action = stripComments(read("../src/lib/actions/terms.ts"));
+  assert("and the version comes from the server, never the request",
+    action.includes("p_version: TERMS_VERSION")
+      && !/function acceptTerms\([^)]+\)/.test(action),
+    "acceptTerms takes an argument");
+
+  // No insert policy is what makes forging one impossible.
+  assert("and no client can write an acceptance row directly",
+    !/create policy[^;]*on public\.terms_acceptance for (insert|all)/i.test(schema));
+
+  // ---- the credit, in the one place it belongs --------------------------
+  //
+  // An AI cannot be a founder, sign anything, or carry responsibility, and
+  // putting it in the operative terms would muddy the one question the page
+  // exists to answer: who is accountable. So it lives in a credits section
+  // marked as outside the agreement.
+  // lastIndexOf, not indexOf: BUILD_CREDIT appears in the import at the top of
+  // the file, so indexOf finds that and the check fails against a correct page.
+  assert("the build credit is outside the agreement, not a clause in it",
+    terms.includes("NOT PART OF THE AGREEMENT ABOVE")
+      && terms.lastIndexOf("BUILD_CREDIT") > terms.indexOf("NOT PART OF THE AGREEMENT ABOVE"));
+  assert("and it does not call the AI a founder or an owner",
+    !/co-?founder|co-?owner|partner in/i.test(BUILD_CREDIT));
 }

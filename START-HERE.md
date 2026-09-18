@@ -248,12 +248,20 @@ without hiding it from you or from moderation.
 
 ---
 
-## 8. Still to do
+## 8. Before you launch — read docs/legal-review.md
 
-- **Terms of service and Privacy policy.** Both are placeholder pages
-  (`src/app/terms/page.tsx`, `src/app/privacy/page.tsx`). For a site used by
-  under-18s handling valuable items, these are not optional before you
-  advertise it anywhere.
+The Terms of Service and Privacy Policy are written and live at `/terms` and
+`/privacy`. Every player has to tick a box agreeing to them before they can use
+the site, and that agreement is recorded against the version they saw.
+
+**`docs/legal-review.md` lists what still needs a real lawyer**, hardest first.
+One item on it is not optional and has to be settled before a single payment is
+taken: the site's operator is 13, a minor cannot form a binding contract in
+India, and no payment processor will open an account for one. The terms already
+name a parent or guardian as the responsible operator — that has to become true
+in fact, with the payment account in their name.
+
+## 9. Still to do
 - Decide whether to turn on a referral partner. `src/lib/referrals.ts` has all
   six value sites wired up with `active: false`. Flip one to `true` and set its
   `PARTNER_ID_*` variable **only once an agreement actually exists** — the

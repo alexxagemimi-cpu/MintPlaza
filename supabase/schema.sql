@@ -2613,7 +2613,8 @@ declare
     'my_level_up', 'admin_grant_level_up', 'admin_revoke_level_up', 'admin_level_ups',
     'start_conversation', 'my_conversations', 'conversation_thread',
     'mark_conversation_read', 'unread_count',
-    'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up'
+    'enforce_message_rate', 'bump_conversation', 'webhook_grant_level_up',
+    'accept_terms', 'has_accepted_terms'
   ];
   r record;
   dropped int := 0;
@@ -4400,3 +4401,102 @@ revoke all on function public.webhook_grant_level_up(text, text, int, text, nume
   from public, anon, authenticated;
 grant execute on function public.webhook_grant_level_up(text, text, int, text, numeric, text)
   to service_role;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Agreeing to the terms
+--
+-- ---------------------------------------------------------------------------
+-- Why a table rather than a link in the footer
+-- ---------------------------------------------------------------------------
+--
+-- "By using this site you agree to our terms" at the bottom of a page is
+-- called browsewrap, and it is close to worthless: nobody has seen it, nobody
+-- has done anything to accept it, and there is no record that they did. If a
+-- dispute ever turns on whether somebody agreed not to scam people, the honest
+-- answer would be "we hoped they read the footer".
+--
+-- A tick box that must be ticked before the site can be used, recorded against
+-- the exact version of the text that was on screen, is a different thing
+-- entirely. It is the difference between claiming somebody agreed and being
+-- able to say when, and to what.
+--
+-- ---------------------------------------------------------------------------
+-- Why the version is stored rather than a boolean
+-- ---------------------------------------------------------------------------
+--
+-- Terms change. A single `accepted_terms` flag means a player who agreed to
+-- the first version is recorded as having agreed to every later one, including
+-- clauses written after they stopped reading. Storing the version means
+-- raising TERMS_VERSION asks everybody again, and the record says precisely
+-- which text each person saw.
+-- ===========================================================================
+-- ===========================================================================
+
+create table if not exists public.terms_acceptance (
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  -- The TERMS_VERSION string from src/lib/legal.ts, e.g. '2026-09-18'.
+  version     text not null check (char_length(version) between 1 and 40),
+  accepted_at timestamptz not null default now(),
+  primary key (user_id, version)
+);
+
+create index if not exists terms_acceptance_user_idx
+  on public.terms_acceptance (user_id, accepted_at desc);
+
+alter table public.terms_acceptance enable row level security;
+
+-- Read your own. Nobody needs to see anybody else's, and a list of who has not
+-- accepted yet is not a fact this site publishes.
+drop policy if exists terms_read_own on public.terms_acceptance;
+create policy terms_read_own on public.terms_acceptance for select
+  using (user_id = auth.uid());
+
+-- No insert policy, deliberately. A client that could write this row directly
+-- could also write one for a version it never displayed — recording consent to
+-- text the person never saw, which is worse than having no record at all. The
+-- function below is the only writer, and it stamps the time itself.
+--
+-- No update or delete policy either: an acceptance is a historical fact, and a
+-- fact somebody can quietly erase afterwards is not evidence of anything.
+
+create or replace function public.accept_terms(p_version text)
+returns void language plpgsql security definer
+set search_path = public, pg_catalog as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+  if p_version is null or btrim(p_version) = '' then
+    raise exception 'No version given.' using errcode = 'P0001';
+  end if;
+
+  -- on conflict do nothing, not do update: the timestamp records when somebody
+  -- FIRST agreed to this version. Refreshing the page should not quietly move
+  -- the date on a record whose whole purpose is to say when.
+  insert into public.terms_acceptance (user_id, version)
+  values (auth.uid(), btrim(p_version))
+  on conflict (user_id, version) do nothing;
+end $$;
+
+-- Has this player accepted the version currently being served?
+--
+-- The version is passed in by the application rather than stored in the
+-- database, so there is one source of truth for what the current terms are —
+-- the file the pages are rendered from. A copy in the database would be a
+-- second one, and the two would disagree the first time somebody edited only
+-- the file.
+create or replace function public.has_accepted_terms(p_version text)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select exists (
+    select 1 from public.terms_acceptance
+     where user_id = auth.uid() and version = btrim(p_version)
+  );
+$$;
+
+revoke all on function public.accept_terms(text)       from public, anon;
+revoke all on function public.has_accepted_terms(text) from public, anon;
+grant execute on function public.accept_terms(text)       to authenticated;
+grant execute on function public.has_accepted_terms(text) to authenticated;

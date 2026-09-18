@@ -618,3 +618,108 @@ begin
 end $$;
 
 reset role;
+
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'THE RECORD THAT SOMEBODY AGREED'
+-- ---------------------------------------------------------------------------
+--
+-- This table is the difference between claiming a player agreed to the rules
+-- and being able to say when, and to which version. If any of the checks below
+-- fail, that record is worthless in exactly the dispute it exists for.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare v_ok boolean; n int;
+begin
+  perform pg_temp.ok('nobody has accepted anything to begin with',
+    public.has_accepted_terms('2026-09-18') = false);
+
+  perform public.accept_terms('2026-09-18');
+  perform pg_temp.ok('accepting is recorded',
+    public.has_accepted_terms('2026-09-18') = true);
+
+  -- Accepting one version must NOT count as accepting a later one. A single
+  -- boolean flag would get this wrong, and a player who agreed to the first
+  -- terms would be recorded as agreeing to clauses written afterwards.
+  perform pg_temp.ok('and says nothing about a version they have not seen',
+    public.has_accepted_terms('2027-01-01') = false);
+
+  -- The timestamp records when they FIRST agreed. Re-accepting must not move
+  -- it, or the record stops answering the only question it is asked.
+  perform pg_temp.ok('accepting twice does not move the date',
+    (select count(*) from public.terms_acceptance
+      where user_id = '22222222-2222-2222-2222-222222222222'
+        and version = '2026-09-18') = 1);
+end $$;
+
+-- ---- forging one -----------------------------------------------------------
+--
+-- The attack that matters: writing an acceptance row directly, for a version
+-- that was never displayed. There is no insert policy, so this must fail.
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  begin
+    insert into public.terms_acceptance (user_id, version)
+    values ('22222222-2222-2222-2222-222222222222', 'whatever-I-like');
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  select count(*) into n from public.terms_acceptance
+   where version = 'whatever-I-like';
+  perform pg_temp.ok('a player cannot write an acceptance row directly',
+    not v_got_in and n = 0);
+end $$;
+
+-- Nor backdate one, which would be the move if a dispute turned on when.
+do $$
+declare n int;
+begin
+  update public.terms_acceptance set accepted_at = now() - interval '5 years'
+   where user_id = '22222222-2222-2222-2222-222222222222';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor backdate the one they have', n = 0);
+end $$;
+
+-- Nor delete it afterwards. An acceptance somebody can quietly erase is not
+-- evidence of anything.
+do $$
+declare n int;
+begin
+  delete from public.terms_acceptance
+   where user_id = '22222222-2222-2222-2222-222222222222';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('nor delete it once it exists', n = 0);
+end $$;
+
+-- Nor forge one in somebody else's name, which would be the move for anybody
+-- wanting a scam victim on record as having agreed to something.
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  begin
+    insert into public.terms_acceptance (user_id, version)
+    values ('11111111-1111-1111-1111-111111111111', '2026-09-18');
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  select count(*) into n from public.terms_acceptance
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  perform pg_temp.ok('nor record an acceptance in somebody else''s name',
+    not v_got_in and n = 0);
+end $$;
+
+-- And cannot read whether anybody else has accepted. Who has not agreed yet is
+-- not a fact this site publishes.
+do $$
+declare n int;
+begin
+  select count(*) into n from public.terms_acceptance
+   where user_id <> '22222222-2222-2222-2222-222222222222';
+  perform pg_temp.ok('and cannot see anybody else''s acceptance', n = 0);
+end $$;
+
+reset role;
