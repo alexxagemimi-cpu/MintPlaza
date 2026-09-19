@@ -4,6 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { InventoryRow } from "@/lib/inventory";
 import { postTradeListing, type DraftSide } from "@/lib/actions/trades";
+import {
+  BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, LEVEL_UP_LISTING_DAYS,
+} from "@/lib/level-up";
 
 /**
  * Posting a trade listing, built out of the lists you already keep.
@@ -176,8 +179,10 @@ export function PostTradeListing({
         {pending ? "Posting…" : "Post listing"}
       </button>
       <p className="mt-3 text-[0.75rem] leading-relaxed text-ink-faint">
-        Listings expire on their own after seven days. You can lift one back to
-        the top once a day without using a slot.
+        Listings expire on their own after {FREE_LISTING_HOURS} hours, or{" "}
+        {LEVEL_UP_LISTING_DAYS} days with Level Up. You can lift one back to the
+        top every {BUMP_COOLDOWN_HOURS} hours without using a slot — that part
+        is the same whether you pay or not.
       </p>
     </div>
   );

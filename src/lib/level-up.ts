@@ -47,6 +47,46 @@
 export const LEVEL_UP_DAYS = 60;
 
 /**
+ * The posting rules, as numbers, for anything that has to write them in a
+ * sentence.
+ *
+ * ---------------------------------------------------------------------------
+ * Why these are constants and not prose
+ * ---------------------------------------------------------------------------
+ *
+ * PERKS below is the sales pitch, and scripts/proof.ts already checks every
+ * figure in it against the SQL that enforces it. What it could not check was
+ * the ordinary copy scattered through the interface — and two of those had
+ * gone stale without anybody noticing:
+ *
+ *   The post-a-listing screen said listings expire after SEVEN DAYS and can be
+ *   bumped ONCE A DAY. Both were true of an earlier design. Listings live 24
+ *   hours now, three days with Level Up, and everyone gets four bumps a day.
+ *
+ *   The dashboard said the same seven days, and told a Level Up player that
+ *   "all three" of their slots were in use when they have ten.
+ *
+ * Nobody writes those numbers by hand any more. Each one is here, each one is
+ * checked against the database, and a screen that wants to say a number reads
+ * it from this file.
+ */
+export const FREE_LISTING_HOURS = 24;
+export const LEVEL_UP_LISTING_DAYS = 3;
+export const FREE_PER_GAME = 3;
+export const LEVEL_UP_PER_GAME = 10;
+
+/** A slot frees up this long after the listing that used it. Same for everyone. */
+export const LISTING_WINDOW_HOURS = 3;
+
+/**
+ * Bumps a day, and the cooldown that follows from it. Deliberately the same
+ * free and paid: the board sorts on bumped_at, so selling bumps would mean
+ * selling everybody else's position, which is how a board becomes a ladder.
+ */
+export const BUMPS_PER_DAY = 4;
+export const BUMP_COOLDOWN_HOURS = 24 / BUMPS_PER_DAY;
+
+/**
  * What the database says the signed-in player has.
  *
  * Declared here rather than beside the function that reads it because the

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { serverSupabase } from "@/lib/supabase/server";
-import { findItem, variantAxesFor } from "@/lib/items";
+import { findItem, isKnownVariant } from "@/lib/items";
 
 /**
  * Posting, cancelling and bumping trade listings.
@@ -36,7 +36,6 @@ function clean(
   gameSlug: string,
   entries: readonly DraftSide[],
 ): { rows: object[] } | { error: string } {
-  const axes = variantAxesFor(gameSlug);
   const rows: object[] = [];
   const seen = new Set<string>();
 
@@ -50,7 +49,7 @@ function clean(
     }
 
     const variant = e.variant?.trim() || undefined;
-    if (variant && !axes.some((a) => a.options.includes(variant))) {
+    if (variant && !isKnownVariant(item, variant)) {
       return { error: `${item.name} has no "${variant}" variant.` };
     }
 

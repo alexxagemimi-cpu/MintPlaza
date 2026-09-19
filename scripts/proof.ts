@@ -29,6 +29,7 @@ import {
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
+import { variantAxesForItem, isKnownVariant, mutationsFor } from "../src/lib/items.ts";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import {
   PARTNERS, partnerFor, valuesLink, outboundUrl, isValuesIntent,
@@ -40,6 +41,10 @@ import {
 import {
   BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, SUBSCRIPTION,
 } from "../src/lib/legal.ts";
+import {
+  BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
+  LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME, LISTING_WINDOW_HOURS,
+} from "../src/lib/level-up.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
 const line = (n: string) => console.log("\n" + "─".repeat(72) + "\n" + n + "\n");
@@ -1934,6 +1939,83 @@ line("32. THE GO-LIVE GUIDE TELLS THE TRUTH");
 }
 
 
+line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
+{
+  /* ------------------------------------------------------------------------
+   * Section 20 checks the SALES page against the database and always has. It
+   * could not check ordinary copy, and that is where the rot was:
+   *
+   *   PostTradeListing said listings expire after SEVEN DAYS and can be lifted
+   *   ONCE A DAY. Both were true of a design that no longer exists — listings
+   *   live 24 hours, three days with Level Up, and everyone gets four bumps.
+   *
+   *   The dashboard said seven days too, and told a Level Up player "all three
+   *   are in use" when they have ten.
+   *
+   * Neither throws, neither fails a build, and both are read by a player who
+   * is deciding whether the paid thing is worth ₹399. So: the numbers live in
+   * one file, that file is checked against the SQL, and no component is
+   * allowed to write one by hand.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const sql = read("../supabase/schema.sql");
+
+  const fn = (name: string, arg: string) =>
+    sql.match(new RegExp(
+      `create or replace function mintplaza\\.${name}\\(${arg}\\)[\\s\\S]*?\\$\\$;`))?.[0] ?? "";
+
+  // ---- every constant matches the function that enforces it ---------------
+  const pairs: [string, boolean, string][] = [
+    ["free listing lifetime", fn("listing_lifetime", "").includes(
+      `interval '${FREE_LISTING_HOURS} hours'`), `${FREE_LISTING_HOURS}h`],
+    ["paid listing lifetime", fn("listing_lifetime_for", "p_user uuid").includes(
+      `interval '${LEVEL_UP_LISTING_DAYS} days'`), `${LEVEL_UP_LISTING_DAYS}d`],
+    ["free listings per game", new RegExp(`select ${FREE_PER_GAME}\\b`).test(
+      fn("max_active_per_game", "")), String(FREE_PER_GAME)],
+    ["paid listings per game", new RegExp(`then ${LEVEL_UP_PER_GAME}\\s+else`).test(
+      fn("max_active_per_game_for", "p_user uuid")), String(LEVEL_UP_PER_GAME)],
+    ["the posting window", fn("listing_window", "").includes(
+      `interval '${LISTING_WINDOW_HOURS} hours'`), `${LISTING_WINDOW_HOURS}h`],
+    ["bumps a day", new RegExp(`select ${BUMPS_PER_DAY};`).test(
+      fn("bumps_per_day_for", "p_user uuid")), String(BUMPS_PER_DAY)],
+  ];
+  for (const [what, ok, shown] of pairs) {
+    assert(`${what} matches the database`, ok, shown);
+  }
+
+  // The cooldown is derived, so it cannot disagree with the bump count — but
+  // if somebody ever hard-codes it, this catches that.
+  assert("the bump cooldown follows from the bump count",
+    BUMP_COOLDOWN_HOURS === 24 / BUMPS_PER_DAY, `${BUMP_COOLDOWN_HOURS}h`);
+
+  // ---- and nothing writes one of these numbers as prose -------------------
+  //
+  // The specific wrong claims, so the exact regression cannot come back. A
+  // component is free to say "three days" when it reads it from the constant;
+  // what it may not do is type a lifetime that was never true.
+  const screens = [
+    "../src/components/PostTradeListing.tsx",
+    "../src/app/app/[game]/page.tsx",
+    "../src/components/MyTradeListings.tsx",
+    "../src/components/LevelUpCard.tsx",
+  ];
+  for (const f of screens) {
+    const src = stripComments(read(f));
+    const name = f.split("/").pop();
+    assert(`${name} does not claim a seven-day listing`,
+      !/seven days|7 days/i.test(src));
+    assert(`${name} does not claim one bump a day`,
+      !/once a day|one a day/i.test(src));
+  }
+
+  // The two screens that state the rules must read them, not retype them.
+  for (const f of ["../src/components/PostTradeListing.tsx", "../src/app/app/[game]/page.tsx"]) {
+    const src = read(f);
+    assert(`${f.split("/").pop()} reads the numbers from level-up.ts`,
+      /from "@\/lib\/level-up"/.test(src) && /FREE_LISTING_HOURS/.test(src));
+  }
+}
+
 /* ==========================================================================
  * The summary, and why it is at the bottom of the file
  * ==========================================================================
@@ -1961,6 +2043,99 @@ line("32. THE GO-LIVE GUIDE TELLS THE TRUTH");
  * to watch for.
  * ======================================================================== */
 
+line("34. A MUTATION IS A THING A PLAYER CAN ACTUALLY LIST");
+{
+  /* ------------------------------------------------------------------------
+   * MUTATIONS in items.ts described itself as a listing field. It was not one:
+   * mutationsFor() had no callers, the picker offered the game's axes only,
+   * and both server validators accepted a variant only when a GAME axis listed
+   * it — so a mutation would have been refused even if it had been offered.
+   *
+   * Blox Fruits is the launch game and Empyrean Kitsune is about the most
+   * valuable thing in it. MintPlaza could not tell it from an ordinary
+   * Kitsune, which means two players agreeing a trade here were agreeing about
+   * different items.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+
+  // ---- the data is reachable ----------------------------------------------
+  const kitsune = findItem("bf-kitsune");
+  assert("Kitsune is still in the catalogue", Boolean(kitsune));
+
+  const axes = variantAxesForItem(kitsune!);
+  assert("its mutation is offered as a variant",
+    axes.some((a) => a.options.includes("Empyrean")),
+    axes.map((a) => `${a.key}(${a.options.length})`).join(" + "));
+  assert("alongside the game's own axes, not instead of them",
+    axes.some((a) => a.key === "form"));
+
+  // ---- and it is per item, not per game -----------------------------------
+  //
+  // Empyrean belongs to Kitsune. Offering it on every fruit would invite a
+  // listing for a thing that cannot exist.
+  // Derived rather than named. The first version of this check asked for
+  // "bf-dragon", which is not an id — the fruit is filed as East and West
+  // Dragon — and the check failed on its own typo rather than on the code.
+  const plainFruits = catalogFor("blox-fruits").filter(
+    (i) => i.category === "Fruit" && mutationsFor(i.id).length === 0);
+  assert("most fruits have no mutation to offer", plainFruits.length > 30,
+    `${plainFruits.length} of ${catalogFor("blox-fruits").filter((i) => i.category === "Fruit").length} fruits`);
+  assert("and none of them is offered one",
+    plainFruits.every((i) => !variantAxesForItem(i).some((a) => a.key === "mutation")));
+
+  for (const [id, mutation] of [
+    ["bf-kitsune", "Empyrean"], ["bf-yeti", "Fiend"], ["bf-tiger", "Werewolf"],
+  ] as const) {
+    const item = findItem(id)!;
+    assert(`${item.name} accepts ${mutation}`, isKnownVariant(item, mutation));
+    assert(`and ${item.name} refuses another fruit's mutation`,
+      !isKnownVariant(item, mutation === "Empyrean" ? "Fiend" : "Empyrean"));
+  }
+
+  // A game axis still validates, or fixing mutations would have broken forms.
+  assert("a game-wide variant still validates",
+    isKnownVariant(kitsune!, "Permanent"));
+  assert("and an invented one does not",
+    !isKnownVariant(kitsune!, "Sparkly"));
+
+  // ---- both writers ask the same question ---------------------------------
+  //
+  // Two validators that disagree is how a variant gets into an inventory and
+  // then cannot be put in a listing.
+  for (const f of ["../src/lib/actions/inventory.ts", "../src/lib/actions/trades.ts"]) {
+    const src = stripComments(read(f));
+    assert(`${f.split("/").pop()} validates per item`,
+      src.includes("isKnownVariant(item, variant)")
+        && !/variantAxesFor\(gameSlug\)/.test(src));
+  }
+
+  // ---- and the picker shows it --------------------------------------------
+  const editor = stripComments(read("../src/components/InventoryEditor.tsx"));
+  assert("the picker builds its axes from the item",
+    /variantAxesForItem\(item\)/.test(editor));
+  assert("including the decision about whether a second screen is needed",
+    !/variantAxes\.length === 0/.test(editor),
+    "asking the game would skip the screen for an item whose only variant is its own mutation");
+}
+
+// Nothing may be appended below the summary. This was not a hypothetical: the
+// summary was moved here to fix exactly that bug, and section 33 was appended
+// underneath it less than an hour later, by the same person, in the same
+// sitting. `cat >> proof.ts` does not read comments.
+//
+// So the rule is enforced rather than requested. If a `line("N. ...")` header
+// appears after this point in the source, the script says so and fails.
+{
+  const self = readFileSync(new URL(import.meta.url), "utf8");
+  const below = self.slice(self.lastIndexOf("SUMMARY-MUST-BE-LAST"));
+  const orphans = [...below.matchAll(/^line\("(\d+)\./gm)].map((m) => m[1]);
+  assert("no section was appended below the summary", orphans.length === 0,
+    orphans.length
+      ? `section ${orphans.join(", ")} runs after the exit code is decided — move it up`
+      : undefined);
+}
+// SUMMARY-MUST-BE-LAST
+
 // The guide quotes how many checks this script runs. Compared against the real
 // total rather than a number typed into both places — `checked + 1` because
 // this assertion is the last one and has not counted itself yet.
@@ -1978,3 +2153,4 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log(`\nAll ${checked} assertions passed.\n`);
+

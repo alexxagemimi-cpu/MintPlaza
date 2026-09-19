@@ -16,6 +16,9 @@ import { currentProfile } from "@/lib/supabase/server";
 import { readProfile } from "@/lib/data/profile";
 import { readAllowance, readSuggestions } from "@/lib/data/trades";
 import { PROOFS_WANTED, proofsFor } from "@/lib/profile";
+import {
+  FREE_LISTING_HOURS, LEVEL_UP_LISTING_DAYS, LISTING_WINDOW_HOURS,
+} from "@/lib/level-up";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ game: g.slug }));
@@ -130,8 +133,10 @@ function SlotMeter({ used, total, nextSlotAt }: {
 
       <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">
         {left === 0 && nextSlotAt
-          ? `All three are in use. The next frees up ${relative(nextSlotAt)}.`
-          : "Slots free up three hours after each listing is posted. Listings expire on their own after seven days."}
+          ? `All ${total} are in use. The next frees up ${relative(nextSlotAt)}.`
+          : `Slots free up ${LISTING_WINDOW_HOURS} hours after each listing is posted. `
+            + `Listings expire on their own after ${FREE_LISTING_HOURS} hours, `
+            + `or ${LEVEL_UP_LISTING_DAYS} days with Level Up.`}
       </p>
     </div>
   );

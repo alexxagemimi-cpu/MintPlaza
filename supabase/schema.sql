@@ -658,9 +658,20 @@ create table if not exists public.trade_listings (
                check (status in ('active', 'completed', 'cancelled', 'expired', 'removed')),
   -- Always the database's own clock. The client is never asked what time it is.
   created_at   timestamptz not null default now(),
+  -- This default is never the lifetime a listing actually gets, and it is a
+  -- backstop rather than a rule: enforce_listing_limits() overwrites
+  -- expires_at on every insert with mintplaza.listing_lifetime_for(), which is
+  -- 24 hours free and 3 days with Level Up. It survives only so a row inserted
+  -- by some future path that bypasses the trigger still expires eventually
+  -- instead of living forever.
+  --
+  -- It was also quoted as the rule by two screens, which told players their
+  -- listings would last a week. If you are reading this to find out how long a
+  -- listing lives, the answer is listing_lifetime_for().
   expires_at   timestamptz not null default now() + interval '7 days',
-  -- One free "still available" refresh a day. Moves the listing up without
-  -- consuming a slot, so nobody has to repost to stay visible.
+  -- A free "still available" refresh that moves the listing up without
+  -- consuming a slot, so nobody has to repost to stay visible. How often is
+  -- mintplaza.bumps_per_day_for() — four a day, the same free and paid.
   bumped_at    timestamptz not null default now(),
   completed_at timestamptz,
   updated_at   timestamptz not null default now()
@@ -822,11 +833,17 @@ create trigger trade_listings_enforce_limits
 -- Bumping, and only by the listing's owner.
 --
 -- A bump is a cooldown rather than a counter: 24 hours divided by however many
--- bumps a day that player gets, so free is one every 24 hours and Level Up is
--- one every 8. A cooldown needs no daily reset job, cannot be gamed across a
--- midnight boundary, and — the part that matters on a board sorted by
--- bumped_at — spreads a paying player's bumps through the day instead of
--- letting them fire three in a row.
+-- bumps a day that player gets. That is four for everybody, paid or not, so
+-- the cooldown is six hours — see bumps_per_day_for() above for why this is
+-- not a perk.
+--
+-- (This comment used to say free was one every 24 hours and Level Up one every
+-- 8. That was the earlier design and it had a hole: a free listing lived 24
+-- hours, so it expired at the exact moment it first became bumpable.)
+--
+-- A cooldown needs no daily reset job, cannot be gamed across a midnight
+-- boundary, and — the part that matters on a board sorted by bumped_at —
+-- spreads bumps through the day instead of letting them fire in a row.
 create or replace function public.bump_listing(p_listing uuid)
 returns timestamptz language plpgsql security definer set search_path = public as $$
 declare

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { GAMES, getGame as registryGame } from "@/lib/games";
 import { getGame, getCatalog } from "@/lib/data/games";
-import { variantAxesFor } from "@/lib/items";
 import { readInventory } from "@/lib/actions/inventory";
 import { readAllowance, readMyListings, readSuggestions } from "@/lib/data/trades";
 import { currentProfile } from "@/lib/supabase/server";
@@ -162,7 +161,6 @@ async function InventoryTab({ slug, shortName }: { slug: string; shortName: stri
         // Inventory feeds matching, and matching leads to a trade, so a row the
         // game will not let players swap has no business being in here.
         catalog={catalog.filter((i) => i.tradeable !== false)}
-        variantAxes={variantAxesFor(slug)}
         initial={inventory}
       />
 

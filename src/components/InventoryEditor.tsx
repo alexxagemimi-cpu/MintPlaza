@@ -2,7 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { ClassChip, ItemTile, RarityChip, TypeChip } from "./ItemTile";
-import { searchTerms, type CatalogItem, type Rarity, type VariantAxis } from "@/lib/items";
+import {
+  searchTerms, variantAxesForItem, type CatalogItem, type Rarity,
+} from "@/lib/items";
 import type { InventoryRow } from "@/lib/inventory";
 import {
   addInventoryItem,
@@ -36,13 +38,11 @@ export function InventoryEditor({
   gameSlug,
   gameName,
   catalog,
-  variantAxes,
   initial,
 }: {
   gameSlug: string;
   gameName: string;
   catalog: readonly CatalogItem[];
-  variantAxes: readonly VariantAxis[];
   initial: InventoryRow[];
 }) {
   const [rows, setRows] = useState(initial);
@@ -188,7 +188,6 @@ export function InventoryEditor({
             {chosen ? (
               <Details
                 item={chosen}
-                axes={variantAxes}
                 onAdd={(variant, quantity) => add(chosen, adding, variant, quantity)}
               />
             ) : (
@@ -216,7 +215,7 @@ export function InventoryEditor({
                         // With no variants to choose and nothing to count past
                         // one, a second screen would be a tap that asks nothing.
                         onClick={() =>
-                          variantAxes.length === 0 ? add(item, adding) : setChosen(item)
+                          variantAxesForItem(item).length === 0 ? add(item, adding) : setChosen(item)
                         }
                         className="flex w-full items-center gap-3 rounded-[var(--radius-inner)] border border-line-soft bg-surface p-2.5 text-left transition-colors hover:border-mint"
                       >
@@ -242,7 +241,7 @@ export function InventoryEditor({
                           </span>
                         </span>
                         <span className="shrink-0 text-[0.8125rem] font-bold text-mint">
-                          {variantAxes.length === 0 ? "Add" : "Next"}
+                          {variantAxesForItem(item).length === 0 ? "Add" : "Next"}
                         </span>
                       </button>
                     </li>
@@ -271,15 +270,18 @@ export function InventoryEditor({
  */
 function Details({
   item,
-  axes,
   onAdd,
 }: {
   item: CatalogItem;
-  axes: readonly VariantAxis[];
   onAdd: (variant: string | undefined, quantity: number) => void;
 }) {
   const [variant, setVariant] = useState<string | undefined>(undefined);
   const [quantity, setQuantity] = useState(1);
+
+  // The game's axes plus this item's own mutations, where it has any. Empyrean
+  // belongs to Kitsune and to nothing else, so it is offered on Kitsune and
+  // nowhere else — and the server validates the same way, per item.
+  const shown = variantAxesForItem(item);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -296,7 +298,7 @@ function Details({
         </div>
       </div>
 
-      {axes.map((axis) => (
+      {shown.map((axis) => (
         <div key={axis.key} className="mt-5">
           <p className="label">{axis.label}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">

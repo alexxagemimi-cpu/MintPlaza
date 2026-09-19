@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { serverSupabase } from "@/lib/supabase/server";
-import { findItem, variantAxesFor } from "@/lib/items";
+import { findItem, isKnownVariant } from "@/lib/items";
 import type { InventoryRow } from "@/lib/inventory";
 
 /**
@@ -61,9 +61,10 @@ export async function addInventoryItem(
   // it against a string nothing else will ever produce and it would sit in the
   // list matching nothing, forever, with no way to tell why.
   const variant = opts.variant?.trim() || undefined;
-  if (variant) {
-    const known = variantAxesFor(gameSlug).some((a) => a.options.includes(variant));
-    if (!known) return { ok: false, error: `${gameSlug} has no "${variant}" variant.` };
+  if (variant && !isKnownVariant(item, variant)) {
+    // Per-ITEM, not per-game: a mutation belongs to one fruit and offering it
+    // on another would invite a listing for a thing that cannot exist.
+    return { ok: false, error: `${item.name} has no "${variant}" variant.` };
   }
 
   const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(opts.quantity ?? 1)));

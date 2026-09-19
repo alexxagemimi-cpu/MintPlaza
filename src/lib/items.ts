@@ -1978,6 +1978,49 @@ export function mutationsFor(itemId: string): readonly string[] {
 }
 
 /**
+ * Every variant a player can choose for ONE item: the game's own axes, plus
+ * that item's mutations where it has any.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this exists
+ * ---------------------------------------------------------------------------
+ *
+ * MUTATIONS above described itself as a listing field. It was not one. Nothing
+ * called mutationsFor(), the picker offered the game's axes only, and both
+ * server-side validators accepted a variant only if a GAME axis listed it — so
+ * a mutation would have been refused even if the picker had offered it.
+ *
+ * The effect was specific and bad: Blox Fruits is the launch game, Empyrean
+ * Kitsune is about the most valuable thing in it, and MintPlaza could not tell
+ * it apart from an ordinary Kitsune. Two players agreeing a trade on this site
+ * were agreeing about different items.
+ *
+ * Per-item rather than per-game because that is what these are: Empyrean
+ * belongs to Kitsune and to nothing else, so offering it on every fruit would
+ * invite a listing for a thing that cannot exist.
+ */
+export function variantAxesForItem(item: CatalogItem): readonly VariantAxis[] {
+  const mutations = mutationsFor(item.id);
+  const axes = variantAxesFor(item.gameSlug);
+  if (mutations.length === 0) return axes;
+  return [
+    ...axes,
+    { key: "mutation", label: "Mutation", options: [...mutations] },
+  ];
+}
+
+/**
+ * Is this a variant the player could really have chosen for this item?
+ *
+ * Both server actions ask this rather than checking the game axes themselves.
+ * A variant nothing recognises is worse than a rejection: it sits in a list
+ * matching nothing, forever, with no way to tell why.
+ */
+export function isKnownVariant(item: CatalogItem, variant: string): boolean {
+  return variantAxesForItem(item).some((a) => a.options.includes(variant));
+}
+
+/**
  * Beli prices are confirmed for 20 of the 41 fruits. The rest are absent rather
  * than derived: the Beli-to-Robux ratio is not constant (Quake is 667×, Portal
  * 950×, Spirit 1333×), so there is no formula to fall back on and a calculated
