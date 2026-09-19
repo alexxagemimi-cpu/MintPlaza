@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SettingsSheet, type SettingsProfile } from "./SettingsSheet";
@@ -16,6 +16,22 @@ import type { LevelUpStatus } from "@/lib/level-up";
  *
  * Signed out, it is a plain link to sign in instead. A gear that opens a panel
  * of controls that cannot do anything is worse than no gear.
+ *
+ * ---------------------------------------------------------------------------
+ * Why ?settings=1 is handled by a child behind Suspense
+ * ---------------------------------------------------------------------------
+ *
+ * useSearchParams() opts the whole tree above it out of static rendering, and
+ * Next refuses to prerender a page that reaches it without a Suspense boundary
+ * in between. The dashboard is normally dynamic, so the hook sat directly in
+ * this component for a long time without complaint -- right up until the page
+ * became prerenderable, at which point the build failed on a page nobody had
+ * touched.
+ *
+ * It is prerenderable whenever Supabase is not configured, which is exactly
+ * the state src/lib/supabase/config.ts promises to support. So the boundary
+ * lives here rather than at the call site: a consumer cannot forget it, and
+ * the gear still renders while the query string is being read.
  */
 export function SettingsButton({
   profile,
@@ -25,18 +41,6 @@ export function SettingsButton({
   levelUp: LevelUpStatus;
 }) {
   const [open, setOpen] = useState(false);
-  const params = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  // ?settings=1 opens it, then the parameter is dropped from the URL. Leaving
-  // it there would mean the back button reopens the panel, and a shared link
-  // would open somebody else's settings screen at them.
-  useEffect(() => {
-    if (params.get("settings") !== "1") return;
-    setOpen(true);
-    router.replace(pathname, { scroll: false });
-  }, [params, router, pathname]);
 
   const gear = (
     <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor"
@@ -61,6 +65,9 @@ export function SettingsButton({
 
   return (
     <>
+      <Suspense fallback={null}>
+        <OpenOnSettingsParam onOpen={setOpen} />
+      </Suspense>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -77,4 +84,32 @@ export function SettingsButton({
       )}
     </>
   );
+}
+
+/**
+ * Reads ?settings=1, opens the panel, and drops the parameter from the URL.
+ *
+ * Renders nothing. It exists only so the useSearchParams() call sits under a
+ * Suspense boundary instead of above one.
+ *
+ * Dropping the parameter is the point of the replace: left in place, the back
+ * button would reopen the panel, and a shared link would open somebody else's
+ * settings screen at them.
+ *
+ * onOpen is a useState setter, which React keeps stable across renders, so it
+ * is safe in the dependency list -- an inline closure there would re-run this
+ * effect on every render and fight the replace it just performed.
+ */
+function OpenOnSettingsParam({ onOpen }: { onOpen: (open: boolean) => void }) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (params.get("settings") !== "1") return;
+    onOpen(true);
+    router.replace(pathname, { scroll: false });
+  }, [params, router, pathname, onOpen]);
+
+  return null;
 }

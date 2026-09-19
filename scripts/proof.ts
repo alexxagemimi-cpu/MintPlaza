@@ -2228,6 +2228,41 @@ line("35. A BROKEN SUPABASE KEY IS CAUGHT HERE, NOT ON SOMEBODY ELSE'S ERROR PAG
     /SUPABASE_CONFIG_PROBLEM\.detail/.test(panelSrc));
 }
 
+line("36. THE SITE STILL BUILDS WHEN SUPABASE IS NOT CONFIGURED");
+{
+  // config.ts promises MintPlaza runs without a project. That promise was not
+  // true of a production build: /app/[game] is dynamic whenever Supabase is
+  // configured and never gets prerendered, so a useSearchParams() call sitting
+  // above every Suspense boundary went unnoticed. Take the project away and
+  // the page becomes prerenderable, Next refuses it, and `next build` dies on
+  // a page nobody had edited.
+  //
+  // The rule is therefore about where the hook sits, not whether it is used:
+  // it opts its whole tree out of static rendering, so it needs a boundary
+  // between itself and the page, and the safe place for that boundary is the
+  // same file, where the next person to add the hook will see it.
+  const clientFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? clientFiles(`${dir}/${e.name}`)
+        : e.name.endsWith(".tsx")
+          ? [`${dir}/${e.name}`]
+          : []);
+
+  const users = clientFiles("src").filter((f) =>
+    /useSearchParams\s*\(/.test(readFileSync(f, "utf8")));
+
+  assert("some screen still reads the query string — this rule has something to guard",
+    users.length > 0);
+
+  for (const f of users) {
+    const src = readFileSync(f, "utf8");
+    assert(`${f.replace("src/", "")} keeps useSearchParams under a Suspense boundary`,
+      /from\s+"react"/.test(src) && /\bSuspense\b/.test(src) && /<Suspense/.test(src),
+      "without one, the page cannot be prerendered and the build fails the moment it becomes static");
+  }
+}
+
 // Nothing may be appended below the summary. This was not a hypothetical: the
 // summary was moved here to fix exactly that bug, and section 33 was appended
 // underneath it less than an hour later, by the same person, in the same
