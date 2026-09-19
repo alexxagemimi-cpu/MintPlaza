@@ -55,7 +55,34 @@ Supabase reads an identifier without the `custom:` prefix as one of its
 built-in providers, and there is no built-in Roblox. The app sends
 `custom:roblox`; see `ROBLOX_PROVIDER` in `src/lib/supabase/config.ts`.
 
-## 3. Sign in as yourself, once
+## 3. Supabase — let your live site receive the sign-in
+
+This step does not exist while developing on `localhost`, and it is the reason
+a correctly configured Roblox app can still fail the moment the site is
+deployed.
+
+`SignInPanel` asks Supabase to return the player to
+`https://<your-domain>/auth/callback`. Supabase checks that address against an
+allow list and **silently substitutes the Site URL when it does not match** —
+no error, no warning. The player approves on Roblox and lands on whatever the
+Site URL points at, which by default is `http://localhost:3000`.
+
+Dashboard → **Authentication** → **URL Configuration**:
+
+| Field | Value |
+| --- | --- |
+| Site URL | `https://smart-rfid-and-password-door-lock-a.vercel.app` |
+| Redirect URLs | `https://smart-rfid-and-password-door-lock-a.vercel.app/**` |
+
+The `/**` matters. The callback carries a `next` query parameter, so the exact
+address varies from sign-in to sign-in; a bare domain with no wildcard matches
+none of them.
+
+Add a second redirect entry for any custom domain later, and keep
+`http://localhost:3000/**` if you still develop locally. The list holds many
+entries; adding one does not remove another.
+
+## 4. Sign in as yourself, once
 
 The control panel is bound to your account by that first sign-in, not by
 anything stored in this repo.
@@ -75,7 +102,7 @@ select roblox_username, roblox_user_id, bound_at from mintplaza.admin_allowlist;
 `roblox_user_id` should hold a number and `bound_at` a timestamp. Until then the
 panel is invisible to everybody, including you.
 
-## 4. Turn the development door off
+## 5. Turn the development door off
 
 Once the real sign-in works, in `.env.local`:
 
@@ -96,6 +123,7 @@ Roblox works.
 | `Unsupported provider` | Identifier is missing the `custom:` prefix |
 | Sign-in fails right after approving on Roblox | **Email optional** is off |
 | `redirect_uri_mismatch` | The Roblox redirect URL does not match §1 character for character |
+| Roblox approved, then landed on `localhost` or a blank page | The live domain is not in Supabase's Redirect URLs — §3 |
 | Signed in, but the panel is still invisible | Your Roblox username is not `alx22n`, or the allowlist is already bound to a different id |
 
 One thing I could not check from here: this machine cannot reach

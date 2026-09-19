@@ -159,6 +159,14 @@ exactly `custom:roblox`. They never go into this codebase, into `.env.local`,
 or into a message — Supabase does the token exchange itself, so the site never
 holds the secret and cannot leak it.
 
+There is a second half that does not exist while developing locally and is easy
+to miss: Supabase must also be told that your live domain is allowed to receive
+the player coming back from Roblox. Authentication → URL Configuration → add
+`https://smart-rfid-and-password-door-lock-a.vercel.app/**` to Redirect URLs and
+set Site URL to the same domain. Skip it and sign-in fails with no error at all
+— Roblox approves, then drops the player on `localhost`. It is §3 of
+`docs/roblox-sign-in.md`.
+
 ---
 
 ## 4. Getting paid: UPI, GPay and cards
