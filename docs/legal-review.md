@@ -13,39 +13,52 @@ What follows is everything that genuinely needs a real opinion, hardest first.
 
 ---
 
-## 1. The operator is 13. This is the one to sort out first.
+## 1. Whose name the money is in
 
-**The problem.** In India, a contract made by a minor is `void ab initio`
-(Indian Contract Act 1872, §11) — not voidable, not shaky, *void from the
-start*. The same broad principle applies in most countries. That cuts two ways
-and both are bad:
+**This file previously said the operator was 13 and that item 1 was the one to
+sort out before launch. That was wrong — it came from a bad assumption, not
+from anything you said.** The operator is 19 and an adult, so the hard version
+of this problem does not exist:
 
-- The Terms of Service are an agreement between the user and **the operator**.
-  If the operator cannot legally contract, it is genuinely unclear what has
-  been formed. The one document that exists to protect you may not.
-- Every payment processor — Stripe, Razorpay, Paddle, Lemon Squeezy, all of
-  them — requires the account holder to be 18+. Opening one by saying otherwise
-  is a term-of-service breach that gets funds frozen, usually after money has
-  come in and been spent.
+- The Terms of Service are a real agreement. An adult can contract, so §2 now
+  names him in his own name and on his own responsibility, which is stronger
+  than the parent-or-guardian wording it replaced.
+- Every payment processor requires the account holder to be 18+. You are. You
+  can open a Razorpay, Cashfree or PhonePe business account in **your own
+  name** with your own PAN and Aadhaar.
 
-**What the terms currently say.** §2 names a parent or guardian as legally
-responsible for the service, payments, and personal data. That is the right
-structure and it is the honest one. But writing it down does not make it true.
+What is left is a smaller question with a real answer, and it is worth getting
+right because it decides who a refund demand lands on.
 
-**What has to actually happen before a single payment is taken:**
+**If the payment account is in your father's name, he is the merchant.** Not in
+a paperwork sense — in the sense that the gateway's KYC is his, the settlement
+bank account is his, the income is reported against his PAN, and a chargeback
+or a tax notice is addressed to him. That is a fine arrangement if it is a
+deliberate one. It is a bad one if it happened only because it was easier, for
+three reasons:
 
-1. A parent or guardian genuinely agrees to be the operator. Not as a
-   formality — they are the one a complaint, a refund demand or a data request
-   lands on.
-2. The payment account is **in their name**, with their identity documents.
-3. Ideally, put their name in §2 rather than the generic phrase. A named person
-   is far more credible than "a parent or guardian".
+1. **It contradicts the terms.** §2 says the service is run by and the
+   responsibility of one person. If the money is collected by another, a
+   disgruntled customer can reasonably ask which of you they are dealing with.
+   §2 now carries a sentence saying payments may be collected through a family
+   member's account, which closes that gap honestly — but it is a patch over a
+   mismatch, not a reason to create one.
+2. **Most gateway agreements prohibit it.** Processing another person's
+   business through your account is generally a term-of-service breach.
+   Accounts get frozen for it, usually with money in them.
+3. **The income is his.** It goes on his return, not yours, at his slab.
 
-**Do not skip this by leaving Level Up switched off and taking payments some
-other way.** UPI to a personal account for a service a website advertises is
-the same transaction with worse records, and it is harder to refund.
+**The recommendation is the boring one: open the account in your own name.**
+You are old enough, and the paperwork is the same. If you want the money to
+reach your father, transfer it to him after it settles — that is a family
+transfer and nobody's problem. If instead he genuinely wants to be the person
+running the business side, that is also fine, but then change §2 to name him
+and mean it.
 
----
+Either way, **do not take UPI payments into a personal savings account for a
+service the website advertises.** It is the same transaction with no invoice,
+no refund trail and no way to prove what was sold, and banks do close personal
+accounts used as business accounts.
 
 ## 2. Children's data, and India's DPDP Act in particular
 
@@ -180,5 +193,6 @@ Take it to a lawyer along with `/terms` and `/privacy`. An hour of their time
 against this list is worth more than a week of redrafting, because most of what
 is here is already fine and the items that are not are specific.
 
-**Item 1 is not optional.** Everything else can be improved after launch. That
-one has to be settled before money moves.
+**Item 1 is now a choice rather than a blocker** — but make the choice on
+purpose, and before the first payment, because it decides whose name is on the
+money. Everything else can be improved after launch.

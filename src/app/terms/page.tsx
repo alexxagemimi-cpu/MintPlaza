@@ -74,9 +74,18 @@ export default function TermsPage() {
       <Section n={2} title="Who runs it, and how to reach a person">
         <p>
           MintPlaza is run by Albert Whitestroke (Shashwat), an independent
-          creator, with the support of a parent or guardian who is legally
-          responsible for the service, any payments it takes, and the personal
-          information it holds.
+          creator in India, in his own name and on his own responsibility. He
+          is an adult. He is the person responsible for the service, for any
+          payment it takes, and for the personal information it holds, and he
+          is the person these terms are an agreement with.
+        </p>
+        <p>
+          Payments for {SUBSCRIPTION.name} may be collected through a payment
+          account held by a family member, because that is how the payment
+          company&rsquo;s own rules work for a service this size. That changes
+          nothing about who is responsible or who to write to: it is still the
+          person named above, at the address below, and a refund is still
+          settled here.
         </p>
         <p>
           For anything at all — a complaint, a legal notice, a question about

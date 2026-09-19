@@ -5,24 +5,38 @@ import { serverSupabase } from "@/lib/supabase/server";
 /**
  * Shortcuts that search can surface.
  *
- * Search returns places as well as items. This is the only one so far, and it
- * is the way into the admin panel — which has no link anywhere in MintPlaza.
+ * Search returns places as well as items. This is the only one, and it is the
+ * way into the admin panel — which has no link anywhere in MintPlaza.
  *
- * Three things keep it out of sight:
+ * ---------------------------------------------------------------------------
+ * What actually keeps it out of sight, corrected
+ * ---------------------------------------------------------------------------
  *
- *   1. The phrase that reveals it is not in this file, or anywhere else in the
- *      code. Only a bcrypt hash of it exists, in a table PostgREST does not
- *      expose, and the comparison happens inside the database. Reading the
- *      source or the browser bundle turns up nothing to try.
- *   2. The match is exact. bcrypt gives no partial credit, so one wrong
- *      character is simply a non-match.
- *   3. It answers for the one allowlisted account only. Everyone else gets an
- *      empty list — the same empty list any unmatched word returns.
+ * This comment used to claim the phrase existed only as a bcrypt hash in a
+ * table PostgREST does not expose, and that reading the source turned up
+ * nothing to try. That was not true. The phrase was a plain string literal in
+ * supabase/schema.sql, and it was four ordinary words — 'control panel',
+ * 'console', 'studio', 'admin' — any of which a player might type by accident.
+ *
+ * Writing the stronger claim down did not make it so, and a comment that
+ * overstates a defence is worse than none: it is the reason nobody re-checks.
+ * So, honestly, here is what holds:
+ *
+ *   1. **is_admin() is the lock.** The phrase is not a password and was never
+ *      one. console_phrase_matches() answers false for every account but the
+ *      one on the allowlist, and it checks that FIRST, so for anybody else
+ *      the phrase is irrelevant — there is nothing to guess. /admin itself
+ *      404s to everybody else regardless of how they got there.
+ *   2. **The match is exact and whole.** One phrase, '/openadminpanel',
+ *      compared in the database. A missing letter is a non-match. It is not
+ *      hashed, and it does not need to be, because of 1.
+ *   3. **It is not in the client bundle.** The comparison happens server-side,
+ *      so the phrase never reaches a browser and reading the JavaScript turns
+ *      up nothing. That much was, and remains, true.
  *
  * Nothing here is named for the admin either, because a server action's name is
  * compiled into the client bundle of every page that calls it.
  */
-
 export interface Shortcut {
   href: string;
   title: string;
@@ -45,6 +59,6 @@ export async function searchShortcuts(query: string): Promise<Shortcut[]> {
   return [{
     href: "/admin",
     title: "Open the control panel",
-    body: "Edit items, prices and values across all six games.",
+    body: "Items, games, templates, reports and support, across all six games.",
   }];
 }

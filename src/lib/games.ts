@@ -72,6 +72,18 @@ export interface Game {
   /** What the Explore card on the dashboard advertises. Changes per game. */
   exploreHighlights: readonly string[];
   activityKinds: readonly string[];
+  /**
+   * Every category that actually has rows in this game's catalogue, commonest
+   * first. Seeded into games.item_categories and offered in the panel when an
+   * admin adds an item.
+   *
+   * This list is derived, not designed. It rotted badly once — Blox Fruits
+   * claimed swords, guns and fighting styles, none of which the game will let
+   * a player trade, and Fisch claimed "Rod Skins" while every row said "Rod
+   * Skin" — so scripts/proof.ts now regenerates it from the catalogue and
+   * fails if either this array or the SQL seed has drifted. Do not hand-edit:
+   * add the items and let the check tell you what to paste.
+   */
   itemCategories: readonly string[];
   itemAttributes: readonly ItemAttribute[];
   /** In-game gate on trading at all, where one exists. Shown, not enforced. */
@@ -103,7 +115,7 @@ export const GAMES: readonly Game[] = [
     ],
     exploreTabs: [
       { id: "trades", label: "Trade & Offers", kind: "trades",
-        blurb: "Every fruit, sword, gun and material on offer, with what each trader wants back." },
+        blurb: "Every fruit, skin, gamepass and scroll on offer, with what each trader wants back. Swords, guns and fighting styles are not listed because Blox Fruits will not let you trade them." },
       { id: "raids", label: "Raids & Services", kind: "services",
         blurb: "Raid carries, V4 trials, puzzle steps and boss runs \u2014 the things that need one or two people, not a crew." },
       { id: "community", label: "Help & Recruitment", kind: "community",
@@ -111,7 +123,7 @@ export const GAMES: readonly Game[] = [
     ],
     exploreHighlights: ["Trades", "Raid help", "Leviathan hunt", "Dough King recruit", "V4 trials"],
     activityKinds: ["Raid", "Sea event", "Boss hunt", "Race awakening", "Grind session"],
-    itemCategories: ["Fruit", "Sword", "Gun", "Fighting style", "Accessory", "Material"],
+    itemCategories: ["Fruit", "Skin", "Gamepass", "Scroll"],
     itemAttributes: [
       { key: "form", label: "Form", options: ["Physical", "Permanent"] },
     ],
@@ -145,13 +157,13 @@ export const GAMES: readonly Game[] = [
     ],
     exploreTabs: [
       { id: "trades", label: "Trade Hub", kind: "trades",
-        blurb: "I have X, I want Y \u2014 pets, neons, potions, vehicles and pet wear. In-game trades only: no Robux, no off-platform, no middleman." },
+        blurb: "I have X, I want Y \u2014 pets, neons, eggs, vehicles, toys, strollers and food. In-game trades only: no Robux, no off-platform, no middleman." },
       { id: "community", label: "Events & Learning", kind: "community",
         blurb: "Group up for a live seasonal event, or teach a new trader what a trust trade looks like before somebody shows them the hard way." },
     ],
     exploreHighlights: ["Trades", "Neon & Mega Neon", "Retired limiteds", "Seasonal events"],
     activityKinds: ["Event", "Crew"],
-    itemCategories: ["Pet", "Egg", "Potion", "Vehicle", "Toy", "Pet Wear", "Food", "Stroller"],
+    itemCategories: ["Pet", "Toy", "Vehicle", "Food", "Stroller", "Egg", "Furniture", "Potion"],
     itemAttributes: [
       { key: "neon", label: "Neon", options: ["Normal", "Neon", "Mega Neon"] },
       { key: "potion", label: "Ability", options: ["No Potion", "Fly", "Ride", "Fly-Ride"] },
@@ -170,7 +182,7 @@ export const GAMES: readonly Game[] = [
     name: "Pet Simulator 99",
     shortName: "PS99",
     blurb:
-      "Huges, Titanics and enchants, with RAP and exists counts published by the game itself \u2014 the only honest numbers on the site.",
+      "Huges, Titanics and enchants \u2014 the biggest catalogue on MintPlaza, straight from the game's own published data.",
     modules: ["trades", "inventory", "activities", "services", "help"],
     wants: [
       { label: "wtt huge cat", kind: "trade" },
@@ -184,15 +196,17 @@ export const GAMES: readonly Game[] = [
     ],
     exploreTabs: [
       { id: "trades", label: "Trading Plaza", kind: "trades",
-        blurb: "I have X, I want Y \u2014 pets, huges, titanics, enchants and gems. RAP comes from the game; community values are estimates. MintPlaza holds nothing." },
+        blurb: "I have X, I want Y \u2014 pets, eggs, enchants, charms, booths and hoverboards. MintPlaza does not price anything and holds nothing: check a values site before you accept." },
       { id: "raids", label: "Raids & Runs", kind: "services",
         blurb: "Raid carries, where the chests drop for everyone who came." },
       { id: "community", label: "Clans & Battles", kind: "community",
         blurb: "Start or fill a clan for the weekly Clan Battle \u2014 every member of a winning clan gets the prize, not just the top scorer." },
     ],
-    exploreHighlights: ["Trades", "Weekly Clan Battles", "RAP checks", "Huge & Titanic hunting"],
+    exploreHighlights: ["Trades", "Weekly Clan Battles", "Raid carries", "Huge & Titanic hunting"],
     activityKinds: ["Raid", "Boss", "Crew"],
-    itemCategories: ["Pet", "Egg", "Enchant", "Charm", "Booth", "Hoverboard", "Potion", "Item"],
+    itemCategories: ["Pet", "Egg", "Item", "Booth", "Hoverboard", "Lootbox", "Enchant", "Card",
+      "Boost", "Charm", "Rod", "Shovel", "Ultimate", "Huge", "Fruit", "Potion", "Seed", "Titanic",
+      "Watering Can", "Sprinkler"],
     itemAttributes: [
       // Golden, Rainbow and Shiny are tints painted on a pet, not rarities, and
       // Shiny stacks on top of the other two. Treating them as rarity would put
@@ -231,13 +245,13 @@ export const GAMES: readonly Game[] = [
     ],
     exploreTabs: [
       { id: "trades", label: "Trade Realm", kind: "trades",
-        blurb: "I have X, I want Y \u2014 creatures, palettes, materials and plushies. One trade caps at 500,000 Shooms, and every value here is a community estimate." },
+        blurb: "I have X, I want Y \u2014 creatures, palettes, materials and plushies. One trade caps at 500,000 Shooms. MintPlaza does not price anything: check a values site before you accept." },
       { id: "community", label: "Growers & Guides", kind: "community",
         blurb: "Group up so nobody gets killed mid-growth, and teach new players the Trade Realm before somebody grey-slots them." },
     ],
     exploreHighlights: ["Trade Realm", "Trade-only creatures", "Palettes & Materials", "Safe growing"],
     activityKinds: ["Crew"],
-    itemCategories: ["Creature", "Palette", "Material", "Plushie", "Token"],
+    itemCategories: ["Creature", "Material", "Palette", "Plushie"],
     itemAttributes: [
       // Sonaria's five size tiers describe how big a creature is, not how good
       // or how rare, and its value lists contradict the wiki on tier in 14
@@ -282,7 +296,8 @@ export const GAMES: readonly Game[] = [
     ],
     exploreHighlights: ["Trades", "Crew Rod", "Diamond puzzle", "Apex hunts", "Aurora Totem"],
     activityKinds: ["Puzzle", "Crew", "Hunt", "Event", "Island", "Grind"],
-    itemCategories: ["Fish", "Rod Skins", "Boats", "Bobbers", "Gliders", "Relics"],
+    itemCategories: ["Fish", "Rod", "Item", "Rod Skin", "Bait", "Bobber", "Totem", "Gliders",
+      "Boat", "Relics"],
     itemAttributes: [
       // A fish carries at most ONE mutation, and any number of attributes on
       // top of it. Two different shapes, so two different fields.
@@ -320,13 +335,14 @@ export const GAMES: readonly Game[] = [
     ],
     exploreTabs: [
       { id: "trades", label: "Garden Market", kind: "trades",
-        blurb: "Crops, seeds, pets and gear. Read this first: GAG2 has no two-sided trade window. Items move by one-way Mailbox gift, by dropping them, or inside a guild \u2014 so whoever sends first is trusting the other person completely." },
+        blurb: "Cosmetics, crops, seeds, pets and gear. Read this first: GAG2 has no two-sided trade window. Items move by one-way Mailbox gift, by dropping them, or inside a guild \u2014 so whoever sends first is trusting the other person completely." },
       { id: "community", label: "Guilds & Growers", kind: "community",
         blurb: "Fill a guild for the weekly competition \u2014 every member on a qualifying tier gets the reward \u2014 or teach a new grower the night cycle before they lose a garden to it." },
     ],
     exploreHighlights: ["Weekly guild competition", "Night-stealing defence", "Mutation farming"],
     activityKinds: ["Crew"],
-    itemCategories: ["Seed", "Crop", "Pet", "Egg", "Gear", "Prop", "Crate", "Mutation Item"],
+    itemCategories: ["Cosmetic", "Crop", "Gear", "Pet", "Crate", "Seed", "Pack", "Egg", "Chest",
+      "Mutation Item"],
     itemAttributes: [
       { key: "variant", label: "Pet variant", options: ["Normal", "Big", "Mega", "Rainbow"] },
       { key: "mutation", label: "Crop mutation", options: ["None", "Gold", "Rainbow", "Glow", "Aurora", "Frozen", "Electric", "Starstruck", "Bloodlit", "Ignited"] },

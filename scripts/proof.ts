@@ -1626,3 +1626,213 @@ line("28. THE SIGN-IN BUTTON IS DEAD UNTIL THE BOX IS TICKED");
   assert("the ungated sign-in button no longer exists",
     !existsSync("src/components/RobloxSignIn.tsx"));
 }
+
+line("29. EVERY GAME CAN ACTUALLY BE POSTED IN, AND SAYS SO HONESTLY");
+{
+  /* ------------------------------------------------------------------------
+   * What this section is for
+   * ------------------------------------------------------------------------
+   *
+   * An audit of the six games found no broken screen and no empty board — but
+   * it found prose. Blox Fruits advertised "every fruit, sword, gun and
+   * material"; the game has no trading system for swords, guns or fighting
+   * styles and the catalogue has never held one. Adopt Me advertised pet wear
+   * it does not stock. Pet Simulator 99 promised RAP and exists counts in
+   * three separate strings, on a site whose CatalogItem has never carried
+   * either field. Two tabs still described "community values" months after
+   * the value system was deleted.
+   *
+   * None of that throws. It is the failure mode a test suite is worst at and
+   * a user is quickest to find: the site describing a version of itself that
+   * stopped being true. So these are assertions now.
+   * --------------------------------------------------------------------- */
+
+  // ---- the boards are not empty -------------------------------------------
+  for (const g of GAMES) {
+    const items = catalogFor(g.slug);
+    assert(`${g.shortName}: has a catalogue to list from`, items.length > 0,
+      `${items.length} rows`);
+    assert(`${g.shortName}: something in it is actually tradeable`,
+      items.some((i) => i.tradeable !== false));
+
+    for (const tab of g.exploreTabs) {
+      if (tab.kind === "trades") continue;
+      // "community" is the tab's own word; the template catalogue files the
+      // same boards under "recruit". Passing the tab's word straight through
+      // returns nothing and looks exactly like an empty board, which is how
+      // this audit produced its first false alarm.
+      const section = tab.kind === "services" ? "services" : "recruit";
+      const n = servicesFor(g.slug, section).length;
+      assert(`${g.shortName}: the "${tab.label}" board has something postable`,
+        n > 0, `${n} templates`);
+    }
+  }
+
+  // ---- the categories are derived, not remembered --------------------------
+  //
+  // Regenerated here from the catalogue itself. If this fails, do not edit the
+  // array to match: the detail line prints exactly what to paste.
+  const realCats = (slug: string) => {
+    const n = new Map<string, number>();
+    for (const i of catalogFor(slug)) n.set(i.category, (n.get(i.category) ?? 0) + 1);
+    return [...n]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([c]) => c);
+  };
+
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const sql = read("../supabase/schema.sql");
+  for (const g of GAMES) {
+    const real = realCats(g.slug);
+    assert(`${g.shortName}: itemCategories matches the catalogue`,
+      JSON.stringify([...g.itemCategories]) === JSON.stringify(real),
+      JSON.stringify(real));
+
+    // And the SQL seed matches it, because getGames() reads this table back
+    // and lets it win — a stale seed is not a dormant copy, it is the copy
+    // players get.
+    const arr = "'{" + real
+      .map((c) => (/[^A-Za-z0-9]/.test(c) ? `"${c}"` : c))
+      .join(",") + "}'";
+    assert(`${g.shortName}: the SQL seed carries the same categories`,
+      sql.includes(arr), arr);
+  }
+
+  // ---- the seeded prose is the prose that was reviewed ----------------------
+  //
+  // getGames() overrides name, blurb, hue and art from this table. Two blurbs
+  // had drifted, and one of them was still selling value checks.
+  for (const g of GAMES) {
+    assert(`${g.shortName}: the SQL seed blurb matches the registry`,
+      sql.includes(g.blurb.replace(/'/g, "''")));
+  }
+
+  // ---- nothing advertises a number this site does not have ------------------
+  //
+  // CatalogItem has no rap field and no exists field, and no screen renders
+  // one, so a game that promises either is selling a feature that was never
+  // built. Three PS99 strings did.
+  //
+  // Scanned against the PARSED registry, not the source file. The first
+  // version of this check grepped games.ts whole and failed on two sourceNote
+  // entries — provenance text, admin-only, and correct: BIG Games' API really
+  // does publish RAP, and Sonaria's list really is a community value list.
+  // Saying where data came from is not the same as promising a screen.
+  //
+  // wants[] is excluded too, and deliberately. "what's the rap on this" is an
+  // example of what a player posts, not a claim that MintPlaza answers it —
+  // the answer is the partner link, which is what section 1 proves exists.
+  const promises = GAMES.flatMap((g) => [
+    g.blurb,
+    ...g.exploreHighlights,
+    ...g.exploreTabs.flatMap((t) => [t.label, t.blurb]),
+  ]);
+  for (const bad of ["RAP", "exists count", "community value"]) {
+    const hit = promises.find((t) => t.includes(bad));
+    assert(`no player-facing string promises "${bad}"`, !hit,
+      hit ?? "the value system was removed; see referrals.ts");
+  }
+
+  // ---- and no trades tab advertises stock the catalogue does not hold -------
+  //
+  // A regression guard, not a prose checker, and worth being honest about the
+  // difference: it holds a list of the exact claims this audit found false and
+  // makes sure none of them comes back. The general guarantee is the
+  // itemCategories check above, which is fully derived and cannot be fooled.
+  //
+  // Only the FIRST sentence is scanned, because that is where the stock list
+  // lives and the sentences after it are where the honest caveats live. Blox
+  // Fruits now says swords are not listed and why; a checker that cannot tell
+  // that from advertising swords would punish the fix.
+  const FALSE_CLAIMS = ["sword", "gun", "fighting style", "pet wear", "material", "gem"];
+  for (const g of GAMES) {
+    const have = new Set(g.itemCategories.map((c) => c.toLowerCase()));
+    for (const tab of g.exploreTabs) {
+      if (tab.kind !== "trades") continue;
+      const stockList = tab.blurb.split(/\.\s/)[0].toLowerCase();
+      const unstocked = FALSE_CLAIMS.filter(
+        (w) => new RegExp(`\\b${w}s?\\b`).test(stockList)
+          && !have.has(w) && !have.has(w + "s") && !have.has(w.replace(/s$/, "")));
+      assert(`${g.shortName}: the trades tab stocks everything it advertises`,
+        unstocked.length === 0,
+        unstocked.length ? `claims ${unstocked.join(", ")} — catalogue has none` : undefined);
+    }
+  }
+}
+
+line("30. ONE PHRASE, MATCHED WHOLE, ON EVERY SEARCH BOX");
+{
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const schema = read("../supabase/schema.sql");
+
+  const fn = schema.match(
+    /create or replace function public\.console_phrase_matches\(p_phrase text\)[\s\S]*?\$\$;/,
+  )?.[0] ?? "";
+  assert("console_phrase_matches() exists", fn.length > 0);
+
+  // Whole-string equality, not IN and not LIKE. The old version accepted four
+  // words, three of which appear in this site's own help text; "admin" typed
+  // into a search box should never have been a door, even a locked one.
+  assert("the phrase is compared whole, with =",
+    /=\s*'\/openadminpanel'/.test(fn), "exactly /openadminpanel");
+  assert("and no longer accepts a list of words",
+    !/\bin\s*\(/.test(fn) && !/like/i.test(fn));
+
+  // The one-character-wrong requirement, stated as the thing it depends on:
+  // nothing in the comparison is a prefix, suffix or pattern match.
+  for (const near of ["openadminpanel", "/openadminpane", "/open admin panel", "admin", "console"]) {
+    assert(`"${near}" is not the phrase`,
+      !new RegExp(`=\\s*'${near.replace(/[/ ]/g, "\\$&")}'`).test(fn));
+  }
+
+  // is_admin() is checked in the same expression, so the phrase is never the
+  // only thing between an account and the panel.
+  assert("and it still answers only for the allowlisted account",
+    fn.includes("public.is_admin()"));
+
+  // Not callable by a signed-out request at all.
+  assert("anon cannot call it",
+    /revoke all on function public\.console_phrase_matches\(text\)\s+from public, anon;/.test(schema));
+
+  // ---- the phrase is not in anything a browser downloads --------------------
+  //
+  // The comparison is server-side. If the phrase ever appears in a client
+  // component, the whole arrangement is decoration.
+  const clientFiles = [
+    "../src/components/ConsoleShortcut.tsx",
+    "../src/components/ExploreCatalog.tsx",
+    "../src/components/InventoryEditor.tsx",
+    "../src/components/PostListing.tsx",
+  ];
+  for (const f of clientFiles) {
+    const src = stripComments(read(f));
+    assert(`the phrase is not in ${f.split("/").pop()}`, !src.includes("openadminpanel"));
+  }
+
+  // ---- every player-facing search box has the door ---------------------------
+  //
+  // It used to be on one screen out of three. The owner does not know which
+  // screen they will be on when they need the panel, so "any search bar" has
+  // to mean all of them — and a check that counts search inputs is the only
+  // way a fourth one added later gets caught.
+  const searchBoxes = [
+    "../src/components/ExploreCatalog.tsx",
+    "../src/components/InventoryEditor.tsx",
+    "../src/components/PostListing.tsx",
+  ];
+  for (const f of searchBoxes) {
+    const src = stripComments(read(f));
+    assert(`${f.split("/").pop()} renders the shortcut`,
+      /<ConsoleShortcut query=\{query\}/.test(src));
+  }
+
+  // And the card is rendered before the results, not after them.
+  const explore = stripComments(read("../src/components/ExploreCatalog.tsx"));
+  assert("the card sits above the results, not under 4,959 pets",
+    explore.indexOf("<ConsoleShortcut") < explore.indexOf("shown.map"));
+
+  // ---- and it does not advertise a feature that was deleted ------------------
+  const search = stripComments(read("../src/lib/admin/search.ts"));
+  assert("the card does not still offer to edit values",
+    !/values/i.test(search.slice(search.indexOf("href: \"/admin\""))));
+}

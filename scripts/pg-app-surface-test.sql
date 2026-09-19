@@ -358,6 +358,74 @@ begin
     public.console_unlocked(v_token) = false);
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- The phrase that reveals the panel in search
+--
+-- It used to be four words matched with IN — 'control panel', 'console',
+-- 'studio', 'admin' — and three of those appear in this site's own help text.
+-- It is one phrase now, matched whole. These run against the real function,
+-- because the TypeScript proof can only read the SQL as text and a regex that
+-- says "= '/openadminpanel'" proves the literal is there, not that Postgres
+-- refuses everything else.
+-- ---------------------------------------------------------------------------
+
+do $$ begin
+  -- Signed in as the owner. Every false below is the phrase being refused,
+  -- not the account.
+  perform pg_temp.ok('the exact phrase opens the panel',
+    public.console_phrase_matches('/openadminpanel'));
+
+  -- Forgiven, because a phone keyboard does both and the owner still has to
+  -- be able to open their own panel on their own phone.
+  perform pg_temp.ok('capitals are forgiven',
+    public.console_phrase_matches('/OpenAdminPanel'));
+  perform pg_temp.ok('surrounding spaces are forgiven',
+    public.console_phrase_matches('   /openadminpanel  '));
+
+  -- Not forgiven. One wrong character anywhere is a non-match.
+  perform pg_temp.ok('a missing last letter is not a match',
+    public.console_phrase_matches('/openadminpane') = false);
+  perform pg_temp.ok('a missing middle letter is not a match',
+    public.console_phrase_matches('/opnadminpanel') = false);
+  perform pg_temp.ok('an extra letter is not a match',
+    public.console_phrase_matches('/openadminpanell') = false);
+  perform pg_temp.ok('no leading slash is not a match',
+    public.console_phrase_matches('openadminpanel') = false);
+  perform pg_temp.ok('spaces inside are not a match',
+    public.console_phrase_matches('/open admin panel') = false);
+  perform pg_temp.ok('the phrase as a prefix of something longer is not a match',
+    public.console_phrase_matches('/openadminpanel now') = false);
+  perform pg_temp.ok('the phrase as a suffix of something longer is not a match',
+    public.console_phrase_matches('please /openadminpanel') = false);
+
+  -- The four words it used to answer to. Every one of these is a word a
+  -- player could plausibly type into a search box.
+  perform pg_temp.ok('"admin" no longer opens anything',
+    public.console_phrase_matches('admin') = false);
+  perform pg_temp.ok('"console" no longer opens anything',
+    public.console_phrase_matches('console') = false);
+  perform pg_temp.ok('"studio" no longer opens anything',
+    public.console_phrase_matches('studio') = false);
+  perform pg_temp.ok('"control panel" no longer opens anything',
+    public.console_phrase_matches('control panel') = false);
+
+  -- Degenerate input answers false rather than erroring, because an error is
+  -- a different response from a non-match and a different response is a signal.
+  perform pg_temp.ok('null is not a match',
+    public.console_phrase_matches(null) = false);
+  perform pg_temp.ok('an empty string is not a match',
+    public.console_phrase_matches('') = false);
+end $$;
+
+-- And the phrase is worth nothing to anybody else. This is the part that
+-- matters: the phrase is not a password, is_admin() is the lock.
+set "request.jwt.claim.sub" = 'bbbbbbbb-0000-0000-0000-00000000000b';
+do $$ begin
+  perform pg_temp.ok('the exact phrase does nothing for another account',
+    public.console_phrase_matches('/openadminpanel') = false);
+end $$;
+set "request.jwt.claim.sub" = 'aaaaaaaa-0000-0000-0000-00000000000a';
+
 -- The owner's own writes, which is the other half of the gate being worth
 -- anything.
 do $$

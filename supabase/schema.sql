@@ -1214,28 +1214,28 @@ insert into public.games (slug, name, short_name, blurb, modules, activity_kinds
    'Raid teams, sea hunts and fruit trades — the things that need more players than you have friends online.',
    '{trades,inventory,activities,help}',
    '{Raid,"Sea event","Boss hunt","Race awakening","Grind session"}',
-   '{Fruit,Sword,Gun,"Fighting style",Accessory,Material}',
+   '{Fruit,Skin,Gamepass,Scroll}',
    '#D9542B', '/games/blox-fruits.jpg', 1),
 
   ('adopt-me', 'Adopt Me!', 'Adopt Me',
-   'Pet trades, and finding people who will actually sit through a neon or mega project with you.',
+   'Pet trades where Neon and Fly/Ride decide the value, and people to run a live event alongside.',
    '{trades,inventory,help,activities}',
    '{"Neon project","Mega project","Aging help","Task run",Event}',
-   '{Pet,Egg,Vehicle,Toy,Stroller,Food}',
+   '{Pet,Toy,Vehicle,Food,Stroller,Egg,Furniture,Potion}',
    '#E8B23A', '/games/adopt-me.jpg', 3),
 
   ('pet-simulator-99', 'Pet Simulator 99', 'PS99',
-   'Huge, Titanic and Exclusive trades, value checks before you accept, and people to run a clan with.',
+   'Huges, Titanics and enchants — the biggest catalogue on MintPlaza, straight from the game''s own published data.',
    '{trades,inventory,help,activities}',
    '{Clan,Event,"Group session"}',
-   '{Pet,Egg,Enchant,Charm,Item}',
+   '{Pet,Egg,Item,Booth,Hoverboard,Lootbox,Enchant,Card,Boost,Charm,Rod,Shovel,Ultimate,Huge,Fruit,Potion,Seed,Titanic,"Watering Can",Sprinkler}',
    '#D9538F', '/games/pet-simulator-99.jpg', 4),
 
   ('creatures-of-sonaria', 'Creatures of Sonaria', 'Sonaria',
-   'Creature trades where the details decide the value, and packs for the missions built to need a group.',
+   'Creatures, palettes and plushies traded in the Trade Realm, where the top of the market is genuinely unpriced and we say so.',
    '{trades,inventory,activities,help}',
    '{"Pack mission","Daily mission","Weekly mission","Monthly mission","Event mission"}',
-   '{Creature,Plushie,Token,Palette,Material,Skin}',
+   '{Creature,Material,Palette,Plushie}',
    '#4E8FB5', '/games/creatures-of-sonaria.jpg', 6)
 on conflict (slug) do update set
   name = excluded.name, short_name = excluded.short_name, blurb = excluded.blurb,
@@ -2909,14 +2909,14 @@ insert into public.games (slug, name, short_name, blurb, modules, activity_kinds
    'The huge fishing game — catch, mutate and trade over a thousand fish, and find the second pair of hands the Grotto puzzle actually needs.',
    '{trades,inventory,activities,services,help}',
    '{Puzzle,Crew,Hunt,Event,Island,Grind}',
-   '{Fish,"Rod Skins",Boats,Bobbers,Gliders,Relics}',
+   '{Fish,Rod,Item,"Rod Skin",Bait,Bobber,Totem,Gliders,Boat,Relics}',
    '#127D91', '/games/fisch.jpg', 7),
 
   ('gag2', 'Grow a Garden 2', 'GAG2',
    'Plant, grow offline, sell for Sheckles and defend against night raids. Items move by one-way Mailbox gift — there is no protected trade window in this game.',
    '{trades,inventory,activities,help}',
    '{Crew}',
-   '{Seed,Crop,Pet,Egg,Gear,Prop,Crate,"Mutation Item"}',
+   '{Cosmetic,Crop,Gear,Pet,Crate,Seed,Pack,Egg,Chest,"Mutation Item"}',
    '#4CAF50', '', 8)
 on conflict (slug) do update set
   name = excluded.name, short_name = excluded.short_name, blurb = excluded.blurb,
@@ -3462,15 +3462,38 @@ $$;
 /**
  * Does this search phrase open the panel?
  *
- * The panel has no link anywhere in the interface. Typing the phrase in search
- * is how the owner reaches it, and for everybody else the phrase matches
- * nothing, so the panel does not exist as far as search is concerned.
+ * The panel has no link anywhere in the interface. Typing the phrase into any
+ * search box is how the owner reaches it, and for everybody else the phrase
+ * matches nothing, so the panel does not exist as far as search is concerned.
+ *
+ * ---------------------------------------------------------------------------
+ * One phrase, matched whole
+ * ---------------------------------------------------------------------------
+ *
+ * This used to accept any of four words: 'control panel', 'console', 'studio'
+ * and 'admin'. Every one of them is a word a player might type into a search
+ * box by accident, and three of them are words that appear in this site's own
+ * help text. The gate held — is_admin() is the real lock and it is checked
+ * first — but a hidden door that opens on the word "admin" is not hidden.
+ *
+ * Now there is exactly one phrase and it is matched whole. A missing letter,
+ * an extra letter, a word on its own: all of them are simply not a match, and
+ * the search returns the same empty list any unmatched word returns.
+ *
+ * The leading slash is doing real work. It is a character nobody types while
+ * looking for an item, so the phrase can never be reached by accident, and it
+ * reads as a command rather than a search, which is what it is.
+ *
+ * Case is folded and surrounding spaces are trimmed, and neither weakens it:
+ * a phone keyboard capitalises and a paste carries a trailing space, and
+ * punishing either would mean the owner cannot open their own panel on their
+ * own phone. What is NOT forgiven is a wrong character anywhere inside.
  */
 create or replace function public.console_phrase_matches(p_phrase text)
 returns boolean language sql stable security definer
 set search_path = public, pg_catalog as $$
   select public.is_admin()
-     and lower(btrim(coalesce(p_phrase, ''))) in ('control panel', 'console', 'studio', 'admin');
+     and lower(btrim(coalesce(p_phrase, ''))) = '/openadminpanel';
 $$;
 
 revoke all on function public.console_unlock(text)          from public, anon;

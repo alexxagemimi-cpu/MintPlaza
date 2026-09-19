@@ -11,6 +11,7 @@ import { postListing } from "@/lib/actions/board";
 import { RefTile } from "./RefTile";
 import { useTemplatesFor } from "./TemplateProvider";
 import { ServiceArt } from "./ServiceArt";
+import { ConsoleShortcut } from "@/components/ConsoleShortcut";
 
 /**
  * Posting a listing.
@@ -205,6 +206,7 @@ export function PostListing({
             placeholder="Search" aria-label="Search what you can get help with"
             className="mb-2 w-full rounded-[10px] border border-line bg-surface px-3 py-2.5 text-[0.9375rem] text-ink outline-none focus:border-mint"
           />
+          <ConsoleShortcut query={query} />
           {/* Picture, name, crew size. Nothing else.
               The game's requirement used to sit under every row here, and it
               turned choosing between twenty things into reading twenty

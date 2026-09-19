@@ -16,8 +16,9 @@
  * behaves, written to be understood by the people who use it — who are mostly
  * teenagers. They are not legal advice, they were not written by a lawyer, and
  * they have not been reviewed by one. Read docs/legal-review.md before
- * launching: it lists the things that genuinely need a qualified opinion, and
- * the one that needs sorting out before a single payment is taken.
+ * launching: it lists the things that genuinely need a qualified opinion,
+ * including the one decision to make on purpose before a single payment is
+ * taken — whose name the payment account is in.
  */
 
 /**

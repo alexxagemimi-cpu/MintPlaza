@@ -9,6 +9,7 @@ import {
   removeInventoryItem,
   setInventoryQuantity,
 } from "@/lib/actions/inventory";
+import { ConsoleShortcut } from "@/components/ConsoleShortcut";
 
 /**
  * The two lists matching runs on.
@@ -199,6 +200,8 @@ export function InventoryEditor({
                   placeholder={`Search ${gameName} items`}
                   className="w-full rounded-full border border-line bg-page px-4 py-2.5 text-[0.9375rem] text-ink placeholder:text-ink-faint focus:border-mint focus:outline-none"
                 />
+
+                <ConsoleShortcut query={query} />
 
                 <ul className="mt-3 flex-1 space-y-1.5 overflow-y-auto">
                   {options.length === 0 && (
