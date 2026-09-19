@@ -2200,6 +2200,26 @@ line("35. A BROKEN SUPABASE KEY IS CAUGHT HERE, NOT ON SOMEBODY ELSE'S ERROR PAG
   assert("SUPABASE_READY depends on the problem check",
     /SUPABASE_READY\s*=[\s\S]{0,120}SUPABASE_CONFIG_PROBLEM\s*===\s*null/.test(configSrc));
 
+  // ---- this file is compiled for the Edge Runtime ------------------------
+  //
+  // src/middleware.ts imports it, which drags it into the edge bundle, where
+  // Node built-ins do not exist. A Buffer fallback added here once did not
+  // fall back -- it failed the Vercel build outright while `next build`
+  // locally was perfectly happy, because the local run and the edge compile
+  // do not agree about what globals exist.
+  {
+    const mw = readFileSync("src/middleware.ts", "utf8");
+    assert("middleware still imports the supabase config — the constraint below is live",
+      /from\s+["']@\/lib\/supabase\/config["']/.test(mw));
+
+    const code = configSrc
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    assert("and the config reaches for no Node built-in",
+      !/\bBuffer\b/.test(code) && !/from\s+["']node:/.test(code),
+      "Buffer or a node: import here breaks the edge build, not the local one");
+  }
+
   // ---- and the sign-in screen has to show it -----------------------------
   const panelSrc = readFileSync("src/components/SignInPanel.tsx", "utf8");
   assert("the sign-in screen names the offending variable",

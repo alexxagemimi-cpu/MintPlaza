@@ -51,11 +51,12 @@ function jwtPayload(token: string): Record<string, unknown> | null {
   try {
     const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-    const json =
-      typeof atob === "function"
-        ? atob(padded)
-        : Buffer.from(padded, "base64").toString("utf8");
-    const claims: unknown = JSON.parse(json);
+    // atob and nothing else. This module is imported by src/middleware.ts, so
+    // it is compiled into the Edge Runtime bundle, where Node built-ins do not
+    // exist -- a Buffer fallback here does not fall back, it fails the build.
+    // atob is global in browsers, in the Edge Runtime and in Node since 16, so
+    // there is no environment left for the fallback to serve.
+    const claims: unknown = JSON.parse(atob(padded));
     return typeof claims === "object" && claims !== null
       ? (claims as Record<string, unknown>)
       : null;
