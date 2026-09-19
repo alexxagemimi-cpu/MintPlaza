@@ -29,7 +29,9 @@ import {
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
-import { supabaseConfigProblem } from "../src/lib/supabase/config.ts";
+import {
+  describeAuthResponse, supabaseConfigProblem, withApiKey,
+} from "../src/lib/supabase/config.ts";
 import { variantAxesForItem, isKnownVariant, mutationsFor } from "../src/lib/items.ts";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import {
@@ -2202,14 +2204,14 @@ line("35. A BROKEN SUPABASE KEY IS CAUGHT HERE, NOT ON SOMEBODY ELSE'S ERROR PAG
 
   // ---- this file is compiled for the Edge Runtime ------------------------
   //
-  // src/middleware.ts imports it, which drags it into the edge bundle, where
+  // src/proxy.ts imports it, which drags it into the edge bundle, where
   // Node built-ins do not exist. A Buffer fallback added here once did not
   // fall back -- it failed the Vercel build outright while `next build`
   // locally was perfectly happy, because the local run and the edge compile
   // do not agree about what globals exist.
   {
-    const mw = readFileSync("src/middleware.ts", "utf8");
-    assert("middleware still imports the supabase config — the constraint below is live",
+    const mw = readFileSync("src/proxy.ts", "utf8");
+    assert("the proxy still imports the supabase config — the constraint below is live",
       /from\s+["']@\/lib\/supabase\/config["']/.test(mw));
 
     const code = configSrc
@@ -2260,6 +2262,106 @@ line("36. THE SITE STILL BUILDS WHEN SUPABASE IS NOT CONFIGURED");
     assert(`${f.replace("src/", "")} keeps useSearchParams under a Suspense boundary`,
       /from\s+"react"/.test(src) && /\bSuspense\b/.test(src) && /<Suspense/.test(src),
       "without one, the page cannot be prerendered and the build fails the moment it becomes static");
+  }
+}
+
+line("37. SIGN-IN CANNOT LEAVE THIS SITE WITHOUT ITS KEY");
+{
+  // supabase-js builds /auth/v1/authorize?provider=... and navigates to it.
+  // A top-level navigation carries no headers, so the apikey header every
+  // other Supabase call gets is absent from the single request that leaves
+  // the site -- and a project that wants one answers with raw gateway JSON
+  // reading "No API key found in request", on Supabase's domain, naming
+  // nothing. This was observed, not imagined: the URL the browser actually
+  // built was captured and had no apikey on it anywhere.
+  const AUTHORIZE =
+    "https://ref.supabase.co/auth/v1/authorize?provider=custom%3Aroblox" +
+    "&redirect_to=https%3A%2F%2Fmintplaza.app%2Fauth%2Fcallback%3Fnext%3D%252Fapp" +
+    "&scopes=openid+profile&code_challenge=abc123&code_challenge_method=s256";
+
+  // Negative control: the thing being fixed is genuinely broken to begin with.
+  assert("supabase-js builds an authorize URL with no key on it — the fix below has a reason",
+    !new URL(AUTHORIZE).searchParams.has("apikey"));
+
+  const keyed = new URL(withApiKey(AUTHORIZE, "sb_publishable_test"));
+  assert("withApiKey attaches the key the navigation cannot send as a header",
+    keyed.searchParams.get("apikey") === "sb_publishable_test");
+
+  // PKCE dies if any of these are dropped, and it dies silently -- the player
+  // gets all the way through Roblox and fails at the code exchange.
+  assert("and carries every parameter the flow needs through untouched",
+    keyed.searchParams.get("provider") === "custom:roblox" &&
+    keyed.searchParams.get("code_challenge") === "abc123" &&
+    keyed.searchParams.get("code_challenge_method") === "s256" &&
+    keyed.searchParams.get("scopes") === "openid profile" &&
+    keyed.searchParams.get("redirect_to") ===
+      "https://mintplaza.app/auth/callback?next=%2Fapp");
+
+  assert("a key already present is left alone rather than overwritten",
+    new URL(withApiKey(AUTHORIZE + "&apikey=theirs", "ours"))
+      .searchParams.get("apikey") === "theirs");
+
+  // ---- the panel has to actually take the navigation over ----------------
+  //
+  // Attaching a key to a URL nobody navigates to fixes nothing. Without
+  // skipBrowserRedirect, supabase-js calls window.location.assign itself and
+  // the browser is gone before withApiKey is ever reached.
+  const panel = readFileSync("src/components/SignInPanel.tsx", "utf8");
+  assert("sign-in stops supabase-js navigating on its own",
+    /skipBrowserRedirect:\s*true/.test(panel));
+  assert("and leaves only through withApiKey",
+    /window\.location\.assign\(\s*withApiKey\(/.test(panel));
+
+  // ---- a refusal names the variable that caused it -----------------------
+  const refusedKey = describeAuthResponse(401);
+  assert("a refused key is reported against the key",
+    refusedKey?.field === "NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  assert("a 403 is read the same way",
+    describeAuthResponse(403)?.field === "NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  assert("an address that is not a project is reported against the URL",
+    describeAuthResponse(404)?.field === "NEXT_PUBLIC_SUPABASE_URL");
+  assert("a paused project is reported against the URL, and says it is paused",
+    describeAuthResponse(503)?.field === "NEXT_PUBLIC_SUPABASE_URL" &&
+    /pause/i.test(describeAuthResponse(503)?.detail ?? ""));
+
+  // Negative control, and the important one: this check must never refuse a
+  // sign-in that would have worked. A working project answers 200.
+  assert("a working project is not held back",
+    describeAuthResponse(200) === null && describeAuthResponse(204) === null);
+
+  assert("and the screen is wired to report what it finds",
+    /describeAuthResponse\(/.test(panel));
+}
+
+line("38. THE EDGE RUNS ON PAGES, NOT ON EVERY CATALOGUE PICTURE");
+{
+  // The proxy opens a Supabase auth round-trip on every request it matches.
+  // It used to match /api/item-image, which is one request per catalogue tile
+  // -- thirty of them on a single Pet Simulator 99 explore screen, each one
+  // an auth call standing between the player and a picture. The webhook was
+  // matched too, where an auth call buys nothing: it is authenticated by an
+  // HMAC signature, and anything extra on that path is a new way for a
+  // payment to go missing.
+  assert("the old middleware file is gone, so there is one of these and not two",
+    !existsSync("src/middleware.ts"));
+
+  const proxySrc = readFileSync("src/proxy.ts", "utf8");
+  assert("the proxy exports the name Next 16 looks for",
+    /export\s+async\s+function\s+proxy\s*\(/.test(proxySrc),
+    "a file named proxy.ts exporting `middleware` is never run, and the session silently stops refreshing");
+
+  const matcher = proxySrc.match(/"(\/\(\(\?![^"]+)"/)?.[1];
+  assert("the matcher is readable from the source", Boolean(matcher));
+  const re = new RegExp("^" + matcher!.replace(/\\\\/g, "\\") + "$");
+
+  for (const path of ["/api/item-image/123", "/api/level-up/webhook"]) {
+    assert(`the proxy stays out of ${path}`, !re.test(path));
+  }
+  // Negative control. Excluding too much is the worse bug of the two: it
+  // takes sessions down instead of making pictures slow, and it does it
+  // quietly.
+  for (const path of ["/", "/app/fisch", "/app/fisch/explore", "/login", "/auth/callback", "/messages"]) {
+    assert(`and still refreshes the session on ${path}`, re.test(path));
   }
 }
 

@@ -143,6 +143,69 @@ export function supabaseConfigProblem(
   return null;
 }
 
+/**
+ * The sign-in URL with the publishable key attached.
+ *
+ * supabase-js builds `/auth/v1/authorize?provider=…` and hands it straight to
+ * window.location.assign. A top-level navigation carries no headers, so the
+ * `apikey` header that every other Supabase request gets is simply absent from
+ * the one request that leaves the site — and a project whose gateway wants one
+ * answers it with raw JSON reading "No API key found in request", on Supabase's
+ * domain, naming nothing the player or the operator can act on. That is the
+ * exact failure this function exists to remove.
+ *
+ * Putting the key in the query string discloses nothing. It is already public:
+ * anything named NEXT_PUBLIC_ is compiled into the JavaScript every visitor
+ * downloads, and row-level security — not secrecy of this key — is what
+ * protects the data. Supabase documents `apikey` as a query parameter for this
+ * endpoint precisely because a navigation cannot send a header.
+ *
+ * An apikey already present is left alone rather than overwritten, so this
+ * stays correct if supabase-js ever starts attaching one itself.
+ */
+export function withApiKey(authorizeUrl: string, key: string): string {
+  const parsed = new URL(authorizeUrl);
+  if (!parsed.searchParams.has("apikey")) parsed.searchParams.set("apikey", key);
+  return parsed.toString();
+}
+
+/**
+ * What an answer from `/auth/v1/settings` says about the configuration.
+ *
+ * Sign-in is a one-way door: once the browser leaves for Supabase, any mistake
+ * in these two values surfaces as somebody else's error page. So the project is
+ * asked one cheap question first, and a definitive refusal is turned into a
+ * named variable here rather than a redirect there.
+ *
+ * Only statuses that mean sign-in cannot work are reported. Anything else
+ * returns null and lets sign-in proceed — refusing to start a sign-in that
+ * would have worked is a worse failure than the one this guards against.
+ */
+export function describeAuthResponse(status: number): SupabaseConfigProblem | null {
+  if (status === 401 || status === 403) {
+    return {
+      field: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      detail:
+        "was refused by the project. It belongs to a different project, or it has been revoked and replaced.",
+    };
+  }
+  if (status === 404) {
+    return {
+      field: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "is a real address that is not a Supabase project. Check the project reference in it against the Project URL in the dashboard.",
+    };
+  }
+  if (status >= 500) {
+    return {
+      field: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "answered, but the project behind it did not. A free-tier project pauses itself after a week of inactivity and has to be resumed from the dashboard before anyone can sign in.",
+    };
+  }
+  return null;
+}
+
 /** Set to something, right or wrong. Distinguishes "not set up" from "set up wrong". */
 export const SUPABASE_PRESENT =
   SUPABASE_URL.length > 0 || SUPABASE_ANON_KEY.length > 0;
