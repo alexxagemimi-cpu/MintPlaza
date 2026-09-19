@@ -118,6 +118,13 @@ Roblox works.
 
 ## If it does not work
 
+Read the sign-in screen first. It now checks the project before sending you
+anywhere, so a wrong value is named on MintPlaza's own page — in red, under the
+button, with the variable in it — rather than becoming a Supabase error page
+three redirects away. If it says `NEXT_PUBLIC_SUPABASE_URL` or
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, that is the variable to fix in Vercel, and
+nothing in the table below applies.
+
 | What you see | Almost always |
 | --- | --- |
 | `Unsupported provider` | Identifier is missing the `custom:` prefix |
@@ -125,6 +132,19 @@ Roblox works.
 | `redirect_uri_mismatch` | The Roblox redirect URL does not match §1 character for character |
 | Roblox approved, then landed on `localhost` or a blank page | The live domain is not in Supabase's Redirect URLs — §3 |
 | Signed in, but the panel is still invisible | Your Roblox username is not `alx22n`, or the allowlist is already bound to a different id |
+
+### `No API key found in request`
+
+Fixed in code, and worth knowing why it happened. supabase-js builds
+`/auth/v1/authorize?provider=…` and navigates the browser straight to it — and a
+top-level navigation carries no headers, so the `apikey` header that every other
+Supabase call sends was simply absent from the one request that leaves the site.
+Sign-in now takes that navigation over and puts the publishable key on the URL
+itself, which is how Supabase documents the endpoint for exactly this reason.
+
+If this message ever comes back, check `withApiKey` in
+`src/lib/supabase/config.ts` is still on the path — `npm run proof` section 37
+fails if it is not.
 
 One thing I could not check from here: this machine cannot reach
 `apis.roblox.com`, so the issuer URL above is from Roblox's published OAuth
