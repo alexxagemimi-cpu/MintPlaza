@@ -29,6 +29,7 @@ import {
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
 import { GAMES } from "../src/lib/games.ts";
+import { supabaseConfigProblem } from "../src/lib/supabase/config.ts";
 import { variantAxesForItem, isKnownVariant, mutationsFor } from "../src/lib/items.ts";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import {
@@ -2116,6 +2117,95 @@ line("34. A MUTATION IS A THING A PLAYER CAN ACTUALLY LIST");
   assert("including the decision about whether a second screen is needed",
     !/variantAxes\.length === 0/.test(editor),
     "asking the game would skip the screen for an item whose only variant is its own mutation");
+}
+
+line("35. A BROKEN SUPABASE KEY IS CAUGHT HERE, NOT ON SOMEBODY ELSE'S ERROR PAGE");
+{
+  // A Supabase JWT carrying a chosen role. The signature is deliberately not
+  // real: the validator reads the payload to work out which key was pasted,
+  // and never pretends to verify one.
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const jwt = (role: string) =>
+    `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ iss: "supabase", role })}.not-a-real-signature`;
+
+  const ANON = jwt("anon");
+  const ORIGIN = "https://bfmjslvpssufcujfhbce.supabase.co";
+
+  const ok = (url: string, key: string) => supabaseConfigProblem(url, key) === null;
+  const blames = (url: string, key: string, field: string) => {
+    const p = supabaseConfigProblem(url, key);
+    return p !== null && p.field === field;
+  };
+
+  // ---- the shapes that are genuinely fine -------------------------------
+  //
+  // These are the negative control. Without them the rejections below would
+  // also pass for a validator that simply refused everything.
+  assert("a project origin and an anon key are accepted", ok(ORIGIN, ANON));
+  assert("a trailing slash is accepted — supabase-js normalises it",
+    ok(`${ORIGIN}/`, ANON));
+  assert("a publishable key is accepted", ok(ORIGIN, "sb_publishable_abc123def456"));
+  assert("a self-hosted http origin is accepted",
+    ok("http://localhost:54321", ANON));
+  // The false positive this file must never have. Refusing a key that works
+  // takes down a site that was fine, which is a worse outcome than the raw
+  // gateway error this validator exists to replace. So only a payload that
+  // positively says service_role is refused.
+  assert("a readable JWT with no role claim is accepted, not guessed at",
+    ok(ORIGIN, `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ iss: "supabase" })}.sig`));
+
+  // ---- the URL mistakes -------------------------------------------------
+  assert("a bare project reference is refused",
+    blames("bfmjslvpssufcujfhbce.supabase.co", ANON, "NEXT_PUBLIC_SUPABASE_URL"));
+  assert("a dashboard address is refused — it has a path",
+    blames("https://supabase.com/dashboard/project/bfmjslvpssufcujfhbce", ANON,
+      "NEXT_PUBLIC_SUPABASE_URL"));
+  assert("an empty url is refused",
+    blames("", ANON, "NEXT_PUBLIC_SUPABASE_URL"));
+  assert("an origin carrying a query string is refused",
+    blames(`${ORIGIN}/?apikey=x`, ANON, "NEXT_PUBLIC_SUPABASE_URL"));
+
+  // ---- the key mistakes -------------------------------------------------
+  assert("an empty key is refused",
+    blames(ORIGIN, "", "NEXT_PUBLIC_SUPABASE_ANON_KEY"));
+  assert("a key with a line break in it is refused — the paste was cut short",
+    blames(ORIGIN, ANON.slice(0, 40) + "\n" + ANON.slice(40),
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY"));
+  assert("a key that is not a Supabase key at all is refused",
+    blames(ORIGIN, "hunter2", "NEXT_PUBLIC_SUPABASE_ANON_KEY"));
+
+  // ---- the two that are a security incident, not a typo -----------------
+  //
+  // NEXT_PUBLIC_ values are compiled into the JavaScript every visitor
+  // downloads. Either of these in this slot publishes a key that ignores every
+  // row-level security policy in the schema, to everybody, permanently.
+  const serviceRole = supabaseConfigProblem(ORIGIN, jwt("service_role"));
+  assert("the service_role key is refused in the public slot",
+    serviceRole !== null && serviceRole.field === "NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  assert("and the refusal says why, not merely that",
+    serviceRole !== null && /service_role/.test(serviceRole.detail) &&
+      /row-level security/.test(serviceRole.detail));
+
+  const secret = supabaseConfigProblem(ORIGIN, "sb_secret_abc123");
+  assert("a secret key is refused in the public slot",
+    secret !== null && secret.field === "NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  assert("and that refusal says why too",
+    secret !== null && /secret key/.test(secret.detail));
+
+  // ---- the check cannot regress to counting characters -------------------
+  const configSrc = readFileSync("src/lib/supabase/config.ts", "utf8");
+  assert("SUPABASE_READY is not merely a length test",
+    !/SUPABASE_READY\s*=\s*\n?\s*SUPABASE_URL\.length\s*>\s*0\s*&&\s*SUPABASE_ANON_KEY\.length\s*>\s*0/.test(configSrc),
+    "the length-only check is what let a wrong value reach the browser");
+  assert("SUPABASE_READY depends on the problem check",
+    /SUPABASE_READY\s*=[\s\S]{0,120}SUPABASE_CONFIG_PROBLEM\s*===\s*null/.test(configSrc));
+
+  // ---- and the sign-in screen has to show it -----------------------------
+  const panelSrc = readFileSync("src/components/SignInPanel.tsx", "utf8");
+  assert("the sign-in screen names the offending variable",
+    /SUPABASE_CONFIG_PROBLEM\.field/.test(panelSrc));
+  assert("and prints the reason beside it",
+    /SUPABASE_CONFIG_PROBLEM\.detail/.test(panelSrc));
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the

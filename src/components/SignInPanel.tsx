@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { browserSupabase } from "@/lib/supabase/client";
-import { ROBLOX_PROVIDER, SUPABASE_READY } from "@/lib/supabase/config";
+import {
+  ROBLOX_PROVIDER,
+  SUPABASE_CONFIG_PROBLEM,
+  SUPABASE_READY,
+} from "@/lib/supabase/config";
 import { TERMS_COOKIE, TERMS_VERSION } from "@/lib/legal";
 
 /**
@@ -49,6 +53,28 @@ export function SignInPanel({ next = "/app" }: { next?: string }) {
   const [failed, setFailed] = useState<string | null>(null);
 
   if (!SUPABASE_READY) {
+    // A value that is present but wrong is a different problem from one that
+    // was never set, and it has a different audience: nobody but the operator
+    // can fix it, and they can only fix it if they are told which variable it
+    // is. Saying so here is what stops the failure surfacing three redirects
+    // away as somebody else's gateway error.
+    if (SUPABASE_CONFIG_PROBLEM) {
+      return (
+        <div className="glass-quiet rounded-[var(--radius-inner)] px-5 py-4 text-left">
+          <p className="text-[0.9375rem] font-bold text-ink">
+            Sign-in is misconfigured
+          </p>
+          <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-ink-mute">
+            <code className="font-mono">{SUPABASE_CONFIG_PROBLEM.field}</code>{" "}
+            {SUPABASE_CONFIG_PROBLEM.detail}
+          </p>
+          <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-ink-mute">
+            Sign-in is held back rather than started, because starting it would
+            end on an error page that names none of this.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="glass-quiet rounded-[var(--radius-inner)] px-5 py-4 text-left">
         <p className="text-[0.9375rem] font-bold text-ink">Sign-in isn&rsquo;t connected yet</p>
