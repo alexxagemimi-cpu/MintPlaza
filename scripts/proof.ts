@@ -135,8 +135,10 @@ function stripComments(src: string): string {
 }
 
 let failures = 0;
+let checked = 0;
 function assert(label: string, ok: boolean, detail?: string) {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
+  checked++;
   if (!ok) failures++;
 }
 
@@ -894,13 +896,6 @@ line("19. THE SECURITY POSTURE HOLDS");
   assert("and the actions that rely on that do call those functions",
     /cancel_trade_listing/.test(board) && /bump_listing/.test(board));
 }
-
-console.log("\n" + "─".repeat(72));
-if (failures > 0) {
-  console.log(`\n${failures} assertion${failures === 1 ? "" : "s"} FAILED.\n`);
-  process.exit(1);
-}
-console.log("\nAll assertions passed.\n");
 
 line("20. LEVEL UP — the page cannot promise what the database will not give");
 {
@@ -1836,3 +1831,150 @@ line("30. ONE PHRASE, MATCHED WHOLE, ON EVERY SEARCH BOX");
   assert("the card does not still offer to edit values",
     !/values/i.test(search.slice(search.indexOf("href: \"/admin\""))));
 }
+
+line("31. A PAYMENT CANNOT ARRIVE WITHOUT AN ACCOUNT TO PUT IT ON");
+{
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const go = stripComments(read("../src/app/upgrade/go/route.ts"));
+  const hook = stripComments(read("../src/app/api/level-up/webhook/route.ts"));
+
+  // The webhook grants to a username. If the hand-off does not carry one, the
+  // checkout page has to ask — and a typo there is money that arrives with
+  // nowhere to go, which is a refund rather than a retry.
+  assert("the webhook grants against a username",
+    /p_username:\s*username/.test(hook));
+  assert("and the hand-off sends the username with the player",
+    /searchParams\.set\("u",\s*me\.username\)/.test(go));
+
+  // Read from the session. A username taken from the query string would let
+  // the caller name who a payment is for.
+  assert("taken from the session, not from the request",
+    /const me = await currentProfile\(\)/.test(go)
+      && !/searchParams\.get\("u"\)/.test(go));
+
+  // Signed out means no username, so there is nothing to grant. Sending them
+  // to pay anyway is the one failure here that costs real money.
+  assert("a signed-out visitor is sent to sign in first",
+    /if \(!me\?\.username\)/.test(go) && go.includes("/login?next="));
+
+  // And they land back on the price they picked, or the sign-in is a dead end
+  // that loses the sale and the player.
+  assert("and comes back to the same price",
+    /\/upgrade\?country=\$\{raw\}/.test(go));
+
+  // Still no open redirect: the destination is built from the environment and
+  // only the country comes from the request.
+  assert("the destination still comes from the environment, not the request",
+    /checkoutUrlFor\(raw!\)/.test(go) && !/searchParams\.get\("url"\)/.test(go));
+}
+
+line("32. THE GO-LIVE GUIDE TELLS THE TRUTH");
+{
+  /* ------------------------------------------------------------------------
+   * A deployment guide is the one document somebody follows literally, at
+   * night, on a phone, while something is broken. Every command in it that
+   * does not work costs an hour, and a guide that has quietly rotted is worse
+   * than no guide because it is trusted.
+   *
+   * So the parts of it that name real things are checked against those things.
+   * Prose is not checked and should not be.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const doc = read("../docs/go-live.md");
+  const schema = read("../supabase/schema.sql");
+
+  assert("it names the one SQL file that exists",
+    doc.includes("supabase/schema.sql") && existsSync("supabase/schema.sql"));
+
+  // The allowlist insert. This is the command that decides whether the owner
+  // has a panel at all, and the first version of this guide invented a
+  // function that does not exist.
+  assert("the allowlist command matches the real table",
+    doc.includes("insert into mintplaza.admin_allowlist (roblox_username)")
+      && /create table if not exists mintplaza\.admin_allowlist \(\s*roblox_username text primary key/.test(schema));
+  assert("and does not invent a helper function",
+    !/mintplaza\.add_admin/.test(doc));
+
+  // The passcode command, and the seeded code.
+  assert("the passcode command exists in the schema",
+    doc.includes("mintplaza.set_console_passcode(")
+      && schema.includes("create or replace function mintplaza.set_console_passcode(p_new text)"));
+  assert("and the seeded passcode is the one the guide gives",
+    doc.includes("`1927`") && schema.includes("mintplaza.set_console_passcode('1927')"));
+
+  // The phrase. If these two ever disagree, the owner cannot open their panel.
+  const fn = schema.match(
+    /create or replace function public\.console_phrase_matches\(p_phrase text\)[\s\S]*?\$\$;/)?.[0] ?? "";
+  assert("the phrase in the guide is the phrase in the database",
+    doc.includes("/openadminpanel") && fn.includes("'/openadminpanel'"));
+
+  // Every environment variable the guide names must be one .env.example knows
+  // about, or somebody sets a variable nothing reads.
+  const envExample = read("../.env.example");
+  const named = [...doc.matchAll(/`(NEXT_PUBLIC_[A-Z_]+|SUPABASE_[A-Z_]+|LEVEL_UP_[A-Z_]+|DEV_PASSWORD)`/g)]
+    .map((m) => m[1]);
+  const unknown = [...new Set(named)].filter((v) => !envExample.includes(v));
+  assert("every environment variable it names is real", unknown.length === 0,
+    unknown.length ? unknown.join(", ") : `${new Set(named).size} checked`);
+
+  // The webhook contract it prints has to be the one the route enforces.
+  const hook = read("../src/app/api/level-up/webhook/route.ts");
+  for (const part of ["x-mintplaza-timestamp", "x-mintplaza-signature", "payment_ref"]) {
+    assert(`the webhook contract names ${part} and the route reads it`,
+      doc.includes(part) && hook.includes(part));
+  }
+
+  // The database counts are measured by other tools, so they can rot here
+  // without anything noticing. The app's own count is checked at the very
+  // bottom of this file, against the real total.
+  assert("the database counts it quotes are still right",
+    doc.includes("239 on the database") && doc.includes("17 on installing")
+      && doc.includes("14 on"),
+    "update docs/go-live.md if npm run proof:db or redteam:webhook moved");
+}
+
+
+/* ==========================================================================
+ * The summary, and why it is at the bottom of the file
+ * ==========================================================================
+ *
+ * It used to sit in the middle, immediately after section 19. It printed "All
+ * assertions passed", and then thirteen more sections ran underneath it with
+ * nothing reading their results.
+ *
+ * The effect was total: every check in sections 20 to 32 — Level Up's limits,
+ * the payment webhook's guards, no-dead-buttons, no-blocking, the control
+ * panel, the terms, the sign-in gate, the game catalogues — printed FAIL in
+ * red and the script exited 0. A failing assertion did not fail the build, and
+ * had not been able to for as long as those sections have existed.
+ *
+ * That is the worst failure a proof script can have. A check that cannot fail
+ * is not a check, it is a comment that takes longer to run, and thirteen
+ * sections of them read as reassurance while proving nothing. It was found by
+ * deliberately breaking a check and noticing the exit code was still 0 — which
+ * is the only reason to ever break a check on purpose, and the reason every
+ * check added to this file gets that treatment.
+ *
+ * So: one summary, at the end, after everything. If a section is ever added
+ * below this block it will be outside the count again, which is why the count
+ * is printed — a number that stops moving when checks are added is the symptom
+ * to watch for.
+ * ======================================================================== */
+
+// The guide quotes how many checks this script runs. Compared against the real
+// total rather than a number typed into both places — `checked + 1` because
+// this assertion is the last one and has not counted itself yet.
+{
+  const quoted = readFileSync(new URL("../docs/go-live.md", import.meta.url), "utf8")
+    .match(/(\d+) checks on the app/)?.[1];
+  assert("the guide quotes the real number of checks",
+    Number(quoted) === checked + 1,
+    `guide says ${quoted}, this run has ${checked + 1}`);
+}
+
+console.log("\n" + "─".repeat(72));
+if (failures > 0) {
+  console.log(`\n${failures} of ${checked} assertions FAILED.\n`);
+  process.exit(1);
+}
+console.log(`\nAll ${checked} assertions passed.\n`);

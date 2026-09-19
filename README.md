@@ -19,6 +19,17 @@ npm run dev
 
 Open http://localhost:3000.
 
+## Putting it live
+
+**[docs/go-live.md](docs/go-live.md)** — the database, the deploy, Roblox
+sign-in and taking payments, in order, in plain English. Start there.
+
+| Document | What it covers |
+| --- | --- |
+| [docs/go-live.md](docs/go-live.md) | Deploying, and getting paid |
+| [docs/roblox-sign-in.md](docs/roblox-sign-in.md) | The Roblox OIDC provider |
+| [docs/legal-review.md](docs/legal-review.md) | What to take to a lawyer, and the one thing to decide before money moves |
+
 ## Scripts
 
 | Command | What it does |
@@ -27,6 +38,9 @@ Open http://localhost:3000.
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run typecheck` | TypeScript, no emit |
+| `npm run proof` | 273 checks on the application |
+| `npm run proof:db` | Installs the schema into a throwaway Postgres: 239 checks, then 17 more on re-running and recovering the install |
+| `npm run redteam:webhook` | 14 checks against a live payment webhook |
 
 ## Layout
 

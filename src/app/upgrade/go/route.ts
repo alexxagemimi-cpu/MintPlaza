@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { checkoutUrlFor, isCountryCode } from "@/lib/level-up";
+import { currentProfile } from "@/lib/supabase/server";
 
 /**
  * The hand-off to whoever is taking the money.
@@ -26,6 +27,33 @@ import { checkoutUrlFor, isCountryCode } from "@/lib/level-up";
  * On a site whose users are mostly children, a link carrying MintPlaza's domain
  * that forwards anywhere the caller likes would be a ready-made payment-phishing
  * page — which is exactly the shape this avoids.
+ *
+ * ---------------------------------------------------------------------------
+ * Why the username goes with them
+ * ---------------------------------------------------------------------------
+ *
+ * The webhook grants Level Up to a username. If the checkout page has to ask
+ * the player to type theirs, then every typo is money that arrives with no
+ * account to put it on — a 422, a log line, and somebody's parent asking where
+ * ₹399 went. So the username travels in the URL as `u`, and the checkout page
+ * shows it back rather than asking for it.
+ *
+ * It is not a secret and it is not a credential: a Roblox username is on every
+ * profile page on this site. Anybody can edit it to somebody else's, and all
+ * that achieves is paying for a stranger's subscription — which is generous,
+ * not an attack. What it must never become is the thing the checkout page
+ * TRUSTS silently: the page has to show whose account is being upgraded, so a
+ * hand-edited link is visible before the money moves, not after.
+ *
+ * ---------------------------------------------------------------------------
+ * And why signing in comes first
+ * ---------------------------------------------------------------------------
+ *
+ * A signed-out visitor has no username to send. Letting them through would
+ * mean taking a payment that cannot be granted to anybody — the single worst
+ * outcome this route can produce, and one that costs a refund and a apology
+ * rather than a retry. So they are sent to sign in, and come back to the same
+ * price.
  */
 export async function GET(request: NextRequest) {
   const raw = new URL(request.url).searchParams.get("country");
@@ -43,7 +71,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(`/upgrade?country=${raw}`, request.url), 302);
   }
 
-  const response = NextResponse.redirect(url, 302);
+  // Who is paying. Read from the session, never from the query string — the
+  // caller does not get to say who a payment is for.
+  const me = await currentProfile();
+  if (!me?.username) {
+    return NextResponse.redirect(
+      new URL(`/login?next=${encodeURIComponent(`/upgrade?country=${raw}`)}`, request.url),
+      302,
+    );
+  }
+
+  // Appended rather than assigned, because a processor's own checkout link
+  // usually already carries query parameters of its own and replacing them
+  // would break the link.
+  const destination = new URL(url);
+  destination.searchParams.set("u", me.username);
+
+  const response = NextResponse.redirect(destination.toString(), 302);
   // The processor needs to know a payment started, not which page of MintPlaza
   // the player was reading when they decided to pay.
   response.headers.set("Referrer-Policy", "no-referrer");
