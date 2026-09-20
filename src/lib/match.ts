@@ -334,8 +334,21 @@ export function suggestTrades(
       else missing.push(e);
     }
 
-    const openToOffers = youGive.length === 0;
-    const canClose = !openToOffers && missing.length === 0;
+    // A listing with an entry the catalogue could not resolve is not a listing
+    // this function has read in full, and "open to offers" means they named
+    // nothing — not that everything they named failed to load. Getting this
+    // wrong would turn a listing asking for three items into an invitation to
+    // send whatever you like.
+    const openToOffers = youGive.length === 0 && listing.unresolved.length === 0;
+
+    // And it can never be closed today, whatever the resolved half says. The
+    // loop above compared your have list against the entries it could see; an
+    // unresolved entry is one it could not, so `missing.length === 0` means
+    // "nothing I could check is missing", which is not the same claim.
+    // RECIPROCAL_MATCH reads "you can close this today" on the card, and that
+    // is the one sentence on the dashboard a player acts on without rechecking.
+    const canClose =
+      !openToOffers && missing.length === 0 && listing.unresolved.length === 0;
 
     // Nothing on either list. The prefilter should not have returned this, but
     // this function is also run over the plain board, where it will.
@@ -476,9 +489,53 @@ export interface CardListing {
   wanting: ListingItem[];
   note?: string;
   postedHoursAgo: number;
-  reason: ReasonCode;
+  /**
+   * Names on the listing that the catalogue could not resolve.
+   *
+   * toBoardListing has always collected these, and until now nothing rendered
+   * them — so a listing with an item the registry no longer carries drew as a
+   * two-item offer when it was a three-item offer, silently. On a site whose
+   * whole job is two people agreeing on what changes hands, a card showing
+   * fewer items than the listing holds is the most expensive bug available:
+   * both sides read the same screen and agree to different trades.
+   *
+   * They cannot be drawn as tiles — there is no item to draw — so they are
+   * named, and the card says plainly that it cannot show them properly.
+   */
+  unresolved?: string[];
+  /**
+   * Why this listing is in front of this player — and absent when it is not
+   * in front of them for any reason at all.
+   *
+   * Every reason code is a statement about the viewer: they hold this, they
+   * asked for that. On the public board there is no such statement to make.
+   * The rows there are simply what is live, in bump order, and they are shown
+   * to signed-out visitors who have no lists for a reason to be computed
+   * against. Defaulting to OPEN_TO_OFFERS would put "they hold something you
+   * want" under a card belonging to somebody who wants nothing, which is the
+   * one thing this site does not do. So the line is drawn or it is not.
+   */
+  reason?: ReasonCode;
   /** Absent or false on anything real. Only the generator sets it. */
   isDemo?: boolean;
+}
+
+/**
+ * A listing off the public board, with no claim about the viewer attached.
+ *
+ * The same card as a suggestion, minus the one thing the board cannot know.
+ */
+export function toBoardCard(
+  listing: BoardListing,
+  now: number = Date.now(),
+): CardListing {
+  // Built from toCardListing so the two can never drift: one mapper decides
+  // what a card is made of, and this one drops the single field it may not
+  // assert. Destructured rather than deleted, so adding a field to CardListing
+  // brings it here automatically.
+  const { reason: _omitted, ...card } = toCardListing(listing, "OPEN_TO_OFFERS", now);
+  void _omitted;
+  return card;
 }
 
 export function toCardListing(
@@ -498,6 +555,7 @@ export function toCardListing(
       0,
       Math.floor((now - new Date(listing.bumpedAt).getTime()) / 3_600_000),
     ),
+    unresolved: listing.unresolved.length > 0 ? listing.unresolved : undefined,
     reason,
   };
 }

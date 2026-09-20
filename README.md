@@ -38,7 +38,7 @@ sign-in and taking payments, in order, in plain English. Start there.
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run typecheck` | TypeScript, no emit |
-| `npm run proof` | 420 checks on the application |
+| `npm run proof` | 444 checks on the application |
 | `npm run proof:db` | Installs the schema into a throwaway Postgres: 250 checks, then 17 more on re-running and recovering the install |
 | `npm run redteam:webhook` | 14 checks against a live payment webhook |
 

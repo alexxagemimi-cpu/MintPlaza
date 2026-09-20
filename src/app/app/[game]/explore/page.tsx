@@ -8,6 +8,8 @@ import { SafetyNotice } from "@/components/SafetyNotice";
 import { GameArt } from "@/components/GameArt";
 import { DEMO_ENABLED, demoListings } from "@/lib/demo";
 import { getBoard } from "@/lib/data/board";
+import { readTradeBoard } from "@/lib/data/trades";
+import { toBoardCard, type CardListing } from "@/lib/match";
 import { touchPresence } from "@/lib/actions/board";
 import { TradeListingCard } from "@/components/TradeListingCard";
 import { ServiceListingCard } from "@/components/ServiceListingCard";
@@ -27,6 +29,16 @@ export async function generateMetadata({
   const game = getGame((await params).game);
   return { title: game ? `Explore ${game.shortName}` : "Explore" };
 }
+
+/**
+ * Listings per page of the board.
+ *
+ * Thirty is two to three phone screens of the compact rows, which is about as
+ * far as anybody scrolls before either finding something or changing what they
+ * are looking for. `trade_feed` caps its own limit at 100 regardless, so this
+ * cannot be turned into an expensive query from the query string.
+ */
+const BOARD_PAGE = 30;
 
 /* ------------------------------------------------------------------ */
 
@@ -131,22 +143,42 @@ export default async function ExplorePage({
   searchParams,
 }: {
   params: Promise<{ game: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; before?: string }>;
 }) {
   const game = getGame((await params).game);
   if (!game) notFound();
 
-  const requested = (await searchParams).tab;
+  const query = await searchParams;
   const active =
-    game.exploreTabs.find((t) => t.id === requested) ?? game.exploreTabs[0];
-
-  const listings = demoListings(game.slug);
+    game.exploreTabs.find((t) => t.id === query.tab) ?? game.exploreTabs[0];
   // Reading the board is also when we mark the reader present, which is what
   // the green dots elsewhere are reading.
-  const [serviceListings] = await Promise.all([
+  //
+  // The trade board is read here whichever tab is showing, alongside the
+  // services board, because both reads are one round trip in parallel and
+  // branching on the tab would serialise the page behind a decision that saves
+  // nothing. This is also the read that was missing: every trade anybody posted
+  // went to a board that no page on the site called, so a listing appeared
+  // nowhere but its author's own My Lists. `trade_feed` had been written,
+  // granted to anon and tested, and never wired to a surface.
+  const [serviceListings, board] = await Promise.all([
     getBoard(game.slug),
+    readTradeBoard(game.slug, BOARD_PAGE, query.before),
     touchPresence(),
   ]);
+
+  // Real listings, and the generated examples only when there are none and the
+  // demo switch is on — which it is not in a production build, by construction.
+  // A board that quietly mixes the two would be the worst of both.
+  const listings: CardListing[] =
+    board.length > 0 ? board.map((l) => toBoardCard(l)) : demoListings(game.slug).slice();
+
+  // A full page means there may be another. A short one is the end of the
+  // board, and asking the database again to discover that is a wasted query on
+  // the tab most people open first.
+  const nextCursor =
+    board.length === BOARD_PAGE ? board[board.length - 1].bumpedAt : null;
+  const onFirstPage = !query.before;
   // From the merge, so a template edited or invented in the Studio shows up
   // here without a deploy — and a retired one stops being offered.
   const [services, recruitTemplates] = await Promise.all([
@@ -196,23 +228,67 @@ export default async function ExplorePage({
       {active.kind === "trades" && (
         <div className="mt-7 grid gap-8">
           <section>
-            <h2 className="mb-3 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
-              Open listings
-            </h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                Open listings
+              </h2>
+              <Link
+                href={`/app/${game.slug}/trades`}
+                className="pill pill-mint shrink-0 py-2 text-[0.8125rem]"
+              >
+                Post a trade
+              </Link>
+            </div>
+
             {listings.length > 0 ? (
-              <div className="grid gap-2 md:grid-cols-2">
-                {listings.map((l) => (
-                  <TradeListingCard
-                    key={l.id}
-                    listing={l}
-                    viewerUsername={profile?.username ?? undefined}
-                  />
-                ))}
-              </div>
-            ) : (
+              <>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {listings.map((l) => (
+                    <TradeListingCard
+                      key={l.id}
+                      listing={l}
+                      viewerUsername={profile?.username ?? undefined}
+                    />
+                  ))}
+                </div>
+
+                {/* Paged with links rather than a button, so the board works
+                    with JavaScript still loading and each page is a URL a
+                    player can send to somebody. The cursor is a bump time, not
+                    an offset — see readTradeBoard for why that matters on a
+                    board ordered by exactly the thing people keep changing. */}
+                {(nextCursor || !onFirstPage) && (
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    {onFirstPage ? (
+                      <span />
+                    ) : (
+                      <Link
+                        href={`/app/${game.slug}/explore?tab=${active.id}`}
+                        className="pill pill-ghost py-2 text-[0.8125rem]"
+                      >
+                        Newest first
+                      </Link>
+                    )}
+                    {nextCursor && (
+                      <Link
+                        href={`/app/${game.slug}/explore?tab=${active.id}&before=${encodeURIComponent(nextCursor)}`}
+                        className="pill pill-ghost py-2 text-[0.8125rem]"
+                      >
+                        Older listings
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : onFirstPage ? (
               <EmptyPanel
                 title="No listings yet"
-                body="Nothing is invented to fill this space. The first real listing for this game will appear here."
+                body="Nothing is invented to fill this space. The first real listing for this game will appear here — post one and it shows up on this board straight away."
+              />
+            ) : (
+              <EmptyPanel
+                title="That is the whole board"
+                body="There is nothing older than this for this game."
               />
             )}
           </section>

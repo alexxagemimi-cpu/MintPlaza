@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AnnouncementGate } from "@/components/AnnouncementGate";
+import { SITE_URL } from "@/lib/site";
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -18,6 +19,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Without this, the icon and Open Graph image in every link preview resolve
+  // against localhost:3000 — see src/lib/site.ts.
+  metadataBase: SITE_URL,
   title: {
     default: "MintPlaza — find the trade, the team, or the help you need",
     template: "%s · MintPlaza",

@@ -95,6 +95,21 @@ export function SuggestionCard({
         <Side label="You get" entries={youGet} tone="get" />
       </div>
 
+      {/* ---- an entry this build cannot read ----
+           Named, never dropped. The two Side lists above are built only from
+           entries the catalogue resolved, so without this the card states a
+           complete deal that is not the whole listing — and "You give" is the
+           single most load-bearing sentence on the dashboard. suggestTrades
+           also refuses to call such a listing closeable, so this never appears
+           under a "you can close this today". */}
+      {listing.unresolved.length > 0 && (
+        <p className="mx-4 mb-3 rounded-[var(--radius-inner)] border border-warn/30 bg-warn-wash px-3 py-2 text-[0.75rem] leading-relaxed text-ink-soft">
+          <span className="font-bold text-ink">Not the whole listing.</span>{" "}
+          It also names {list(listing.unresolved)}, which MintPlaza cannot show.
+          Ask them what it is before you agree to anything.
+        </p>
+      )}
+
       {/* ---- what stands between you and closing it ---- */}
       {missing.length > 0 && (
         <p className="mx-4 mb-3 rounded-[var(--radius-inner)] border border-warn/30 bg-warn-wash px-3 py-2 text-[0.75rem] leading-relaxed text-ink-soft">

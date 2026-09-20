@@ -2680,6 +2680,192 @@ line("41. THE ANNOUNCEMENT IS THE ONE THING EVERY VISITOR SEES");
   }
 }
 
+line("42. EVERY BOARD READER REACHES A SCREEN");
+{
+  // -----------------------------------------------------------------------
+  // The bug this section exists for
+  // -----------------------------------------------------------------------
+  //
+  // trade_feed() was written, granted to anon, indexed, covered by the database
+  // suite and correct in every particular — and no page called it. The Explore
+  // tab that was supposed to show it rendered demoListings() instead, which is
+  // off in a production build by construction, so the board read "No listings
+  // yet" forever however many real trades had been posted. A player posted a
+  // listing and it appeared nowhere on the site but their own My Lists.
+  //
+  // Nothing caught it, because every individual piece was right. The only check
+  // that could have is this one: a reader nobody calls is a feature nobody has.
+
+  const read = (f: string) => readFileSync(f, "utf8");
+  const trades = read("src/lib/data/trades.ts");
+  const explore = read("src/app/app/[game]/explore/page.tsx");
+  const card = read("src/components/TradeListingCard.tsx");
+  const match = read("src/lib/match.ts");
+  const sql = read("supabase/schema.sql");
+
+  // ---- every exported reader has a caller somewhere else ----------------
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name)) sources.push(p);
+    }
+  })("src");
+
+  const exported = [...trades.matchAll(/export async function (\w+)/g)].map((m) => m[1]);
+  assert("the board module exports the readers this check is about",
+    exported.length >= 4, `found ${exported.length}`);
+
+  const callersOf = (name: string) =>
+    sources.filter((f) => f !== "src/lib/data/trades.ts" && read(f).includes(name));
+
+  for (const fn of exported) {
+    const callers = callersOf(fn);
+    assert(`${fn}() is called by a screen`, callers.length > 0,
+      "a reader with no caller is a database function pretending to be a feature");
+  }
+
+  // Negative control. If the caller search matched anything at all, the loop
+  // above would pass whether or not it works.
+  assert("and the caller search can actually come up empty",
+    callersOf("readTradeBoardThatDoesNotExist").length === 0);
+
+  // ---- Explore shows the real board, not the generated one --------------
+  assert("Explore reads the real trade board",
+    /readTradeBoard\(/.test(explore));
+  assert("the real board is what the cards are built from",
+    /board\.map\(\(l\) => toBoardCard\(l\)\)/.test(explore));
+  assert("and the examples only fill in when the real board is empty",
+    /board\.length > 0\s*\?[\s\S]{0,120}:\s*demoListings/.test(explore),
+    "a board that mixes real listings with generated ones is the worst of both");
+
+  // ---- signed-out visitors can see it -----------------------------------
+  //
+  // The whole point of a public board is the person who has not signed up yet.
+  assert("trade_feed is granted to anon",
+    /grant execute on function public\.trade_feed\([^)]*\) to authenticated, anon/.test(sql),
+    "a board only signed-in players can read is not discovery, it is a members' area");
+
+  // ---- the board makes no claim about the viewer ------------------------
+  assert("a board card carries no reason",
+    /export function toBoardCard/.test(match) && /reason: _omitted/.test(match));
+  assert("and the card only draws the reason line when there is one",
+    /\{listing\.reason \?/.test(card),
+    "REASON_LABEL[listing.reason] on a card with no reason is a claim about somebody's lists that nobody made");
+
+  // ---- paging cannot be turned into an attack ---------------------------
+  assert("the cursor from the query string is validated before it reaches the RPC",
+    /Number\.isNaN\(Date\.parse\(before\)\)/.test(trades));
+  assert("and the database caps the page size whatever is asked for",
+    /limit least\(coalesce\(p_limit, 30\), 100\)/.test(sql));
+}
+
+line("43. AN ITEM THE CATALOGUE CANNOT READ IS NEVER SILENTLY DROPPED");
+{
+  // -----------------------------------------------------------------------
+  // What this protects
+  // -----------------------------------------------------------------------
+  //
+  // toBoardListing() has always collected the names on a listing it could not
+  // resolve, and until now nothing rendered them. A listing whose item had
+  // been renamed or retired since it was posted therefore drew as a two-item
+  // offer when it was a three-item offer, on every surface, with no warning.
+  //
+  // On a site whose entire job is two people agreeing what changes hands, that
+  // is the most expensive bug available: both sides read the same screen and
+  // agree to different trades. Worse, suggestTrades() compared your have list
+  // against only the entries it could see, so it would call such a listing
+  // RECIPROCAL_MATCH — "You can close this today" — while it asked for
+  // something the card never mentioned.
+
+  const read = (f: string) => readFileSync(f, "utf8");
+  const NOW_ISO = "2026-09-13T12:00:00Z";
+  const NOW = Date.parse(NOW_ISO);
+
+  // ---- the verdict cannot be reached with an entry unread ---------------
+  //
+  // 'bf-not-a-real-item' resolves to nothing, exactly as a retired slug would.
+  const withGhost = toBoardListing({
+    listing_id: "ghost", game_slug: "blox-fruits",
+    user_id: "u", username: "ghosty", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-kitsune", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-not-a-real-item", customName: "Retired Fruit", quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+
+  assert("an unreadable entry is kept, not discarded",
+    withGhost.unresolved.length === 1 && withGhost.unresolved[0] === "Retired Fruit",
+    JSON.stringify(withGhost.unresolved));
+
+  const ghostly = suggestTrades(
+    [withGhost], [{ itemId: "bf-kitsune", quantity: 1 }], [{ itemId: "bf-magnet", quantity: 1 }],
+    { now: NOW },
+  )[0];
+
+  assert("the listing still surfaces — it is not hidden either",
+    ghostly !== undefined,
+    "dropping it would lose a real listing over a catalogue change");
+  assert("but it is never called closeable",
+    ghostly?.canClose === false,
+    "'You can close this today' on a listing asking for something it never showed you");
+  assert("and it is not called a reciprocal match",
+    ghostly?.reason !== "RECIPROCAL_MATCH");
+
+  // Positive control: the identical listing WITHOUT the unreadable entry must
+  // close, or the two assertions above would pass on a matcher that simply
+  // never closes anything.
+  const clean = toBoardListing({
+    listing_id: "clean", game_slug: "blox-fruits",
+    user_id: "u", username: "cleany", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-kitsune", customName: null, quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+  const good = suggestTrades(
+    [clean], [{ itemId: "bf-kitsune", quantity: 1 }], [{ itemId: "bf-magnet", quantity: 1 }],
+    { now: NOW },
+  )[0];
+  assert("and the same listing without it does close",
+    good?.canClose === true && good?.reason === "RECIPROCAL_MATCH",
+    `${good?.reason} / canClose=${good?.canClose}`);
+
+  // ---- "open to offers" means they named nothing, not that nothing loaded --
+  const allGhosts = toBoardListing({
+    listing_id: "allghost", game_slug: "blox-fruits",
+    user_id: "u", username: "g", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-gone", customName: "Gone", quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+  const g = suggestTrades(
+    [allGhosts], [], [{ itemId: "bf-magnet", quantity: 1 }], { now: NOW },
+  )[0];
+  assert("a listing whose whole want side failed to load is not 'open to offers'",
+    g?.reason !== "OPEN_TO_OFFERS",
+    "that would invite somebody to send anything they liked for it");
+
+  // ---- and every surface that draws a listing says so --------------------
+  for (const [what, file, needle] of [
+    ["the board card", "src/components/TradeListingCard.tsx", "listing.unresolved"],
+    ["the suggestion card", "src/components/SuggestionCard.tsx", "listing.unresolved"],
+    ["your own lists", "src/components/MyTradeListings.tsx", "l.unresolved"],
+  ] as const) {
+    assert(`${what} names what it could not show`, read(file).includes(needle),
+      "a card that draws fewer items than the listing holds is how two people agree to different trades");
+  }
+}
+
 // Nothing may be appended below the summary. This was not a hypothetical: the
 // summary was moved here to fix exactly that bug, and section 33 was appended
 // underneath it less than an hour later, by the same person, in the same

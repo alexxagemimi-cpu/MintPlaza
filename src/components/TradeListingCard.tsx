@@ -269,6 +269,24 @@ export function TradeListingCard({
           </p>
         )}
 
+        {/* Named rather than dropped. These are entries on the listing whose
+            item is not in the catalogue this build carries — usually an item
+            renamed or retired since it was posted. Leaving them out would draw
+            a three-item offer as a two-item one, and the deal agreed would not
+            be the deal on screen. There is no tile to draw, so the card says
+            what it cannot show and stops pretending the list is complete. */}
+        {listing.unresolved && listing.unresolved.length > 0 && (
+          <p className="mt-3 rounded-[12px] border border-warn/30 bg-warn-wash px-3 py-2.5 text-[0.8125rem] leading-relaxed text-warn">
+            <span className="font-semibold">
+              {listing.unresolved.length === 1
+                ? "This listing also names an item MintPlaza cannot show:"
+                : "This listing also names items MintPlaza cannot show:"}
+            </span>{" "}
+            {listing.unresolved.join(", ")}. Check with the trader before you
+            agree to anything — the sides above are not the whole listing.
+          </p>
+        )}
+
         {/* ---- where the W/F/L lives now ----
              Every game on the roster has a partner and the proof script keeps
              it that way, so this is never a dead end. See referrals.ts. ---- */}
@@ -285,12 +303,22 @@ export function TradeListingCard({
         )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="flex min-w-0 items-center gap-2 text-[0.6875rem] text-ink-faint">
-            {listing.reason === "RECIPROCAL_MATCH" && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-mint" />
-            )}
-            <span className="truncate">{REASON_LABEL[listing.reason]}</span>
-          </p>
+          {/* Only drawn when there is a reason to draw it. On the public board
+              there is none: those rows are everything that is live, shown to
+              people who may have no lists at all, and a card that says "has
+              something you want" to somebody who wants nothing is the kind of
+              small lie that costs a site its credibility. The row still says
+              plenty — who, what for what, how long ago — without it. */}
+          {listing.reason ? (
+            <p className="flex min-w-0 items-center gap-2 text-[0.6875rem] text-ink-faint">
+              {listing.reason === "RECIPROCAL_MATCH" && (
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-mint" />
+              )}
+              <span className="truncate">{REASON_LABEL[listing.reason]}</span>
+            </p>
+          ) : (
+            <span className="min-w-0" />
+          )}
           {/* This was a "Message" button and a "Make offer" button, and neither
               did anything: messaging is not built (see /messages, which says so)
               and there is no offer flow behind a listing. Two buttons that look
