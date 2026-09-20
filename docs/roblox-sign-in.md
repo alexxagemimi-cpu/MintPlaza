@@ -24,6 +24,25 @@ Scopes: **openid** and **profile**. Nothing else. MintPlaza never asks for
 anything that can act on your account — no inventory write, no trading scope, no
 password, no cookie.
 
+### Set the App Category, or the scopes do nothing
+
+This is the one that wastes an afternoon. The Permissions panel will happily
+list `openid` and `profile` while **App Category** above it is still empty —
+and an app with no category is allowed no scopes at all, so Roblox refuses the
+sign-in with:
+
+```
+Authorization Error
+Scope not allowed for this application: openid
+```
+
+Nothing in that message mentions a category. Pick one in the dropdown, save,
+and the two scopes already listed start working.
+
+While you are on that screen, fill in **Entry Link**, **Privacy Policy URL**
+and **Terms of Service URL** as well — they are `https://<your-domain>/`,
+`/privacy` and `/terms`. They are not optional once the app goes for review.
+
 ## 2. Supabase — add Roblox as a custom provider
 
 Dashboard → **Authentication** → **Providers** → **New Provider**.
@@ -71,8 +90,8 @@ Dashboard → **Authentication** → **URL Configuration**:
 
 | Field | Value |
 | --- | --- |
-| Site URL | `https://smart-rfid-and-password-door-lock-a.vercel.app` |
-| Redirect URLs | `https://smart-rfid-and-password-door-lock-a.vercel.app/**` |
+| Site URL | `https://mintplaza-alexxagemimi-cpu.vercel.app` |
+| Redirect URLs | `https://mintplaza-alexxagemimi-cpu.vercel.app/**` |
 
 The `/**` matters. The callback carries a `next` query parameter, so the exact
 address varies from sign-in to sign-in; a bare domain with no wildcard matches
