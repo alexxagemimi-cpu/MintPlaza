@@ -42,7 +42,7 @@ import {
   isLocalCurrency, priceFor, priceNote,
 } from "../src/lib/level-up.ts";
 import {
-  BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, SUBSCRIPTION,
+  BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, REFUND_EXCEPTIONS, SUBSCRIPTION,
 } from "../src/lib/legal.ts";
 import {
   BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
@@ -2379,6 +2379,73 @@ line("38. THE EDGE RUNS ON PAGES, NOT ON EVERY CATALOGUE PICTURE");
   for (const path of ["/", "/app/fisch", "/app/fisch/explore", "/login", "/auth/callback", "/messages"]) {
     assert(`and still refreshes the session on ${path}`, re.test(path));
   }
+}
+
+line("39. A PAYMENT PROVIDER CAN FIND THE REFUND POLICY");
+{
+  // Razorpay will not activate an account until it can see a refund policy,
+  // and its reviewer looks in the footer for one by that name. The words were
+  // all present in §7 of the terms and that was not enough: a policy nobody
+  // can find reads as a policy that does not exist -- to the reviewer, and to
+  // the customer who wants their money back and is not going to read eleven
+  // sections of anything to find out how.
+  assert("there is a refund policy at a page of its own",
+    existsSync("src/app/refunds/page.tsx"));
+
+  const refunds = readFileSync("src/app/refunds/page.tsx", "utf8");
+  const terms = readFileSync("src/app/terms/page.tsx", "utf8");
+  const home = readFileSync("src/app/page.tsx", "utf8");
+  const legalDoc = readFileSync("src/components/LegalDoc.tsx", "utf8");
+
+  // ---- the two documents cannot come to disagree ------------------------
+  //
+  // A page saying "not refundable" beside one that offers fourteen days is
+  // the gap a dispute lives in, and it appears the day somebody edits one of
+  // them. Both render the same list, so there is no second copy to edit.
+  assert("there are exceptions to list at all — this rule has something to guard",
+    REFUND_EXCEPTIONS.length > 0);
+  for (const [what, src] of [["the refund page", refunds], ["the terms", terms]] as const) {
+    assert(`${what} renders the shared exception list rather than its own`,
+      /REFUND_EXCEPTIONS\.map/.test(src));
+  }
+
+  // ---- and the headline is the one that was actually chosen -------------
+  //
+  // The policy is: not refundable. It was a cooling-off window for about an
+  // hour, and the wrong half surviving in one document is precisely the
+  // failure this section exists to catch.
+  for (const [what, src] of [["the refund page", refunds], ["the terms", terms]] as const) {
+    assert(`${what} says plainly that it is not refundable`,
+      /is not refundable/i.test(src));
+    assert(`${what} carries no leftover cooling-off window`,
+      !/within \d+ days/.test(src) && !/change your mind within/i.test(src),
+      "a refund window left behind here contradicts the headline above it");
+  }
+
+  // ---- and it is reachable without reading the terms --------------------
+  for (const [what, src] of [["the home page footer", home], ["every legal page", legalDoc]] as const) {
+    assert(`${what} links to the refund policy`, /href="\/refunds"/.test(src));
+  }
+  assert("the home page footer also offers a way to contact somebody",
+    /href="\/support"/.test(home),
+    "a payment provider checks for this too, and a refund policy with no route to a human is not one");
+
+  // ---- the parts a reviewer checks for ----------------------------------
+  //
+  // Not decoration: each of these is a question the review asks, and an
+  // answer that is missing holds up activation rather than failing it
+  // outright, which is worse -- nothing says which one was wrong.
+  assert("it says whether the payment recurs",
+    /does not renew/i.test(refunds) && /nothing to cancel|no cancel button/i.test(refunds));
+  assert("it says how long the money takes to arrive",
+    /REFUND\.issuedWithinDays/.test(refunds) && /REFUND\.bankDays/.test(refunds),
+    "'refunded promptly' is not a policy; a customer waiting on a bank needs the real number");
+  assert("it says refunds go back the way they came",
+    /back to the card or account that paid/i.test(refunds));
+  assert("it covers delivery, which is a question asked even of digital goods",
+    /nothing is shipped/i.test(refunds));
+  assert("and it still says what is NOT refunded",
+    /suspended/i.test(refunds) && /nothing is refunded/i.test(refunds));
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the
