@@ -349,7 +349,7 @@ hand and check your page is actually calling the webhook. The player is out
 | Panel opens | any search box → `/openadminpanel` → `1927` |
 | Level Up says "not on sale yet" | `/upgrade` |
 
-Run `npm run proof` and `npm run proof:db` any time. 395 checks on the app,
+Run `npm run proof` and `npm run proof:db` any time. 420 checks on the app,
 239 on the database, 17 on installing and re-installing the database, and 14 on
 the payment webhook with `npm run redteam:webhook`. If something is broken they
 say which thing and where.

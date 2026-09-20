@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { AnnouncementGate } from "@/components/AnnouncementGate";
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -36,7 +37,14 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${manrope.variable} ${jetbrains.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Site-wide, and a client component on purpose: it checks storage
+            before it asks the server, so a visitor who has already closed it
+            costs no request and no page stops being prerendered. It renders
+            nothing on the panel or the legal documents. */}
+        <AnnouncementGate />
+      </body>
     </html>
   );
 }

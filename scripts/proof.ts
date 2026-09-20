@@ -2583,6 +2583,103 @@ line("40. A PARTLY-SEEDED ITEM TABLE DOES NOT DELETE THE CATALOGUE");
     "filtering there makes deactivation a no-op — see the note on applyCatalogOverrides");
 }
 
+line("41. THE ANNOUNCEMENT IS THE ONE THING EVERY VISITOR SEES");
+{
+  // One person's words, in front of everybody, on every screen. That makes it
+  // the highest-blast-radius surface on the site and the one most worth
+  // holding still.
+  const gate = readFileSync("src/components/AnnouncementGate.tsx", "utf8");
+  const action = readFileSync("src/lib/actions/announcement.ts", "utf8");
+  const admin = readFileSync("src/lib/admin/actions.ts", "utf8");
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+  const sql = readFileSync("supabase/schema.sql", "utf8");
+
+  // ---- it is actually mounted, everywhere ------------------------------
+  assert("the gate is mounted site-wide",
+    /<AnnouncementGate\s*\/>/.test(layout));
+
+  // ---- the two buttons mean two different things ------------------------
+  //
+  // If both wrote to the same place there would be one button, and the one
+  // that survives a restart would be whichever was written last.
+  assert("Okay keeps its answer for the session only",
+    /remember\("session", seenKey/.test(gate));
+  assert("and don't-show-again keeps its answer for good",
+    /remember\("local", hiddenKey/.test(gate));
+  assert("don't-show-again also records it against the account",
+    /dismissAnnouncement\(/.test(gate) && /rpc\("dismiss_announcement"/.test(action),
+    "localStorage alone does not follow a player to their phone");
+
+  // ---- a browser that refuses storage must not take the page with it ----
+  const storageCalls = [...gate.matchAll(/(localStorage|sessionStorage)/g)].length;
+  assert("the gate really does touch storage — this rule has something to guard",
+    storageCalls > 0);
+  assert("and every storage call is wrapped",
+    /try\s*\{[\s\S]{0,400}(localStorage|sessionStorage)[\s\S]{0,400}\}\s*catch/.test(gate),
+    "these throw rather than return empty in a private window");
+
+  // ---- the home page must stay prerendered ------------------------------
+  assert("the announcement is fetched by the client, not read while a page renders",
+    /"use client"/.test(gate) && /await readAnnouncement\(\)/.test(gate),
+    "a read in the layout would make the prerendered home page dynamic for every visitor");
+  assert("and storage is checked before the server is asked",
+    gate.indexOf('stored("local"') > 0 &&
+    gate.indexOf("readAnnouncement()") < gate.indexOf('stored("local"'),
+    "somebody who already closed it should cost no request");
+
+  // ---- one person's text reaches everybody, so it stays text ------------
+  assert("the body is rendered as text and never as markup",
+    !/dangerouslySetInnerHTML/.test(gate));
+  assert("an attachment must be https, checked in the app as well as the database",
+    /startsWith\("https:\/\/"\)/.test(action) &&
+    /\^https:\\\/\\\/\\S\+\$/.test(admin),
+    "this value becomes the src of a tag every visitor loads");
+  assert("and the database refuses anything else too",
+    /media_url ~ '\^https:\/\/\[\^\\s\]\+\$'/.test(sql));
+
+  // The first version of that constraint used a regex repetition count of
+  // {1,2000}. Postgres caps those at 255, so the table created cleanly and
+  // then threw on every insert — invisible to a schema that is only applied.
+  assert("the media URL length is not a regex repetition count",
+    !/media_url ~ '[^']*\{\d+,\d{3,}\}/.test(sql),
+    "Postgres caps repetition at 255; this parses at create time and throws on every write");
+
+  // ---- writing is the owner's alone -------------------------------------
+  assert("announcements are readable only while they are running",
+    /create policy announcements_read_live[\s\S]{0,200}using \(is_active/.test(sql));
+  assert("and no policy lets anyone but the owner write one",
+    !/create policy[^\n]*on public\.announcements for (insert|update|delete)/.test(sql),
+    "writes go through the SECURITY DEFINER functions, which check is_admin()");
+  for (const fn of [
+    "admin_save_announcement", "admin_set_announcement_active", "admin_announcements",
+  ]) {
+    const body = sql.slice(sql.indexOf(`function public.${fn}(`), sql.indexOf(`function public.${fn}(`) + 900);
+    assert(`${fn} guards itself with require_admin(), like every other admin_ function`,
+      /perform mintplaza\.require_admin\(\);/.test(body),
+      "an inline is_admin() check works but drifts — one shared guard is the convention here");
+  }
+
+  // ---- the panel cannot delete one --------------------------------------
+  //
+  // A deleted announcement takes every dismissal with it.
+  assert("nothing in the panel deletes an announcement",
+    !/from public\.announcements|delete\(\)/.test(admin.slice(admin.indexOf("Announcements"))),
+    "ending one early sets is_active false instead");
+
+  // ---- the look the owner asked for -------------------------------------
+  assert("the title is the green one",
+    /id="announcement-title"[\s\S]{0,300}text-mint/.test(gate));
+  assert("and the description is ordinary black",
+    /whitespace-pre-wrap[\s\S]{0,80}text-ink[^-]/.test(gate));
+  assert("both buttons are there",
+    /Don&rsquo;t show again/.test(gate) && />\s*Okay\s*</.test(gate));
+
+  // ---- it never covers a screen it should not ---------------------------
+  for (const p of ["/admin", "/terms", "/privacy", "/refunds"]) {
+    assert(`it stays off ${p}`, new RegExp(`"${p}"`).test(gate));
+  }
+}
+
 // Nothing may be appended below the summary. This was not a hypothetical: the
 // summary was moved here to fix exactly that bug, and section 33 was appended
 // underneath it less than an hour later, by the same person, in the same
