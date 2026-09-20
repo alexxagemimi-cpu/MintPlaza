@@ -8,6 +8,8 @@ import { ServiceListingCard } from "./ServiceListingCard";
 import { LiveCountdown } from "./LiveCountdown";
 import { Face } from "./VotersSheet";
 import { answerRequest } from "@/lib/actions/board";
+import { MyTradeListings } from "./MyTradeListings";
+import type { BoardListing } from "@/lib/match";
 
 /**
  * Everything you have a stake in, in one place.
@@ -88,9 +90,17 @@ function IncomingRequest({
 }
 
 export function MyLists({
-  posted, joined,
+  gameSlug, posted, trades, joined,
 }: {
+  gameSlug: string;
   posted: readonly ServiceListing[];
+  /**
+   * Trade listings are posts too, and this screen claims to show what you
+   * posted. They used to live only under Trades, so posting one and coming
+   * here found an empty page — which reads as the post having failed rather
+   * than as having looked in the wrong place.
+   */
+  trades: readonly BoardListing[];
   joined: readonly ServiceListing[];
 }) {
   const [tab, setTab] = useState<Tab>("mine");
@@ -130,7 +140,7 @@ export function MyLists({
   const rest = joined.filter((l) => !waiting.includes(l));
 
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: "mine", label: "My lists", count: posted.length },
+    { id: "mine", label: "My lists", count: posted.length + trades.length },
     { id: "activity", label: "My activity", count: joined.length },
   ];
 
@@ -168,26 +178,42 @@ export function MyLists({
       </div>
 
       {tab === "mine" && (
-        <div className="mt-5">
-          {posted.length === 0 ? (
+        <div className="mt-5 grid gap-5">
+          {trades.length > 0 && (
+            <section>
+              <h2 className="mb-2 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                Your trades
+              </h2>
+              <MyTradeListings gameSlug={gameSlug} listings={trades} />
+            </section>
+          )}
+
+          {posted.length === 0 && trades.length === 0 ? (
             <div className="glass-quiet rounded-[var(--radius-panel)] px-6 py-14 text-center">
               <p className="text-[1.0625rem] font-bold tracking-[-0.02em] text-ink">
                 You have not posted anything
               </p>
               <p className="mx-auto mt-1.5 max-w-[38ch] text-[0.9375rem] leading-relaxed text-ink-mute">
-                Post from Raids &amp; Services when you need a hand, or when you
-                have time to give one.
+                Post a trade from Trades, or post from Raids &amp; Services when
+                you need a hand — or when you have time to give one.
               </p>
             </div>
-          ) : (
-            <ul className="grid gap-2">
-              {posted.map((l) => (
-                <li key={l.id}>
-                  <ServiceListingCard listing={l} showOwnerControls />
-                </li>
-              ))}
-            </ul>
-          )}
+          ) : posted.length > 0 ? (
+            <section>
+              {trades.length > 0 && (
+                <h2 className="mb-2 text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
+                  Raids &amp; services
+                </h2>
+              )}
+              <ul className="grid gap-2">
+                {posted.map((l) => (
+                  <li key={l.id}>
+                    <ServiceListingCard listing={l} showOwnerControls />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
       )}
 

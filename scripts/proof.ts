@@ -24,7 +24,7 @@
  */
 import {
   findItem, catalogFor, CATALOG, catalogProvenance,
-  thumbnailFor, variantAxesFor,
+  thumbnailFor, variantAxesFor, applyCatalogOverrides, type CatalogRow,
 } from "../src/lib/items.ts";
 import { suggestTrades, toBoardListing, type ListingRow } from "../src/lib/match.ts";
 import { SERVICES, postable, servicesFor, PARTIAL_SERVICES } from "../src/lib/sessions.ts";
@@ -2446,6 +2446,141 @@ line("39. A PAYMENT PROVIDER CAN FIND THE REFUND POLICY");
     /nothing is shipped/i.test(refunds));
   assert("and it still says what is NOT refunded",
     /suspended/i.test(refunds) && /nothing is refunded/i.test(refunds));
+}
+
+line("40. A PARTLY-SEEDED ITEM TABLE DOES NOT DELETE THE CATALOGUE");
+{
+  // Both rules here were broken in production at the same time, and between
+  // them they took out listing and inventory in four of the six games.
+  //
+  //   1. getCatalog returned the database rows whenever there were any. The
+  //      table is seeded per item, so fifteen rows for Pet Simulator 99 meant
+  //      fifteen items, not 4,959.
+  //   2. It returned game_items.id, a uuid. Everything a player creates keys
+  //      items by slug and the database enforces it -- is_item_slug() guards
+  //      listing_sides.item_id and inventory_entries.item_id and rejects uuids
+  //      explicitly. So every pick was unsaveable, which is what reached the
+  //      player as "this item is not in the catalogue".
+  //
+  // The uuid below is a real one, copied from the live table.
+  const base = catalogFor("blox-fruits");
+  const row = (over: Partial<CatalogRow> = {}): CatalogRow => ({
+    id: "a3e1e3af-23c0-4e8d-8164-8494f501fb72",
+    game_slug: "blox-fruits",
+    name: "2x Mastery",
+    category: "Gamepass",
+    attributes: { slug: "bf-gp-2x-mastery" },
+    verified_at: null,
+    is_active: true,
+    ...over,
+  });
+
+  assert("the registry has a catalogue to protect — this rule has something to guard",
+    base.length > 50);
+
+  // ---- 1. an untouched item survives a partial seed ----------------------
+  const partial = applyCatalogOverrides(base, [row()]);
+  assert("one edited row does not shrink the catalogue to one item",
+    partial.length === base.length,
+    `${base.length} items in, ${partial.length} out`);
+  assert("and every registry item is still reachable by its own id",
+    base.every((i) => partial.some((m) => m.id === i.id)));
+
+  // ---- 2. an id is a slug, and never a uuid ------------------------------
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  assert("no merged id is uuid-shaped, because the database refuses those",
+    partial.every((i) => !UUID.test(i.id)),
+    "a uuid id cannot be listed or stocked — is_item_slug() rejects it");
+  assert("the edited item keeps its slug as its id",
+    partial.find((i) => i.name === "2x Mastery")?.id === "bf-gp-2x-mastery");
+
+  // Negative control. The uuid IS uuid-shaped, so the check above is testing
+  // something rather than passing on a regex that matches nothing.
+  assert("the control is live — that uuid really is uuid-shaped",
+    UUID.test(row().id));
+
+  // ---- 3. the panel's edit wins where it exists --------------------------
+  const renamed = applyCatalogOverrides(base, [row({ name: "Double Mastery" })]);
+  assert("an edit in the panel replaces the registry's copy",
+    renamed.some((i) => i.id === "bf-gp-2x-mastery" && i.name === "Double Mastery"));
+  assert("and does not leave the old copy beside it",
+    renamed.filter((i) => i.id === "bf-gp-2x-mastery").length === 1);
+
+  // ---- 3b. an override adds, and cannot silently delete ------------------
+  //
+  // Most rows were written by an ingest that never carried every column, so a
+  // whole-row replacement dropped whatever the row had no key for. `beli` is
+  // the live example: 21 Blox Fruits items have it in the registry and not one
+  // row in the table carries it.
+  const withBeli = base.find((i) => i.beli !== undefined);
+  assert("the registry really does hold beli — this rule has something to lose",
+    withBeli !== undefined && typeof withBeli.beli === "number");
+
+  const sparse = applyCatalogOverrides(base, [
+    row({ name: "Renamed", attributes: { slug: withBeli!.id } }),
+  ]);
+  const after = sparse.find((i) => i.id === withBeli!.id);
+  assert("a row that defines no beli leaves the registry's beli alone",
+    after?.beli === withBeli!.beli,
+    `beli went from ${withBeli!.beli} to ${after?.beli}`);
+  assert("while the field the row does define still wins",
+    after?.name === "Renamed");
+
+  // ---- 4. deactivating actually removes ---------------------------------
+  const hidden = applyCatalogOverrides(base, [row({ is_active: false })]);
+  assert("is_active false removes the item rather than falling back to the registry",
+    !hidden.some((i) => i.id === "bf-gp-2x-mastery"),
+    "filtering inactive rows in the query instead would let the registry copy through");
+  assert("and removes exactly one thing",
+    hidden.length === base.length - 1);
+
+  // ---- 5. an item the registry has never heard of ------------------------
+  const added = applyCatalogOverrides(base, [
+    row({ id: "new", name: "Brand New Fruit", attributes: { slug: "bf-brand-new" } }),
+  ]);
+  assert("an item added in the panel joins the catalogue",
+    added.some((i) => i.id === "bf-brand-new" && i.name === "Brand New Fruit"));
+  assert("and nothing from the registry is lost to make room",
+    added.length === base.length + 1);
+
+  // ---- 6. a row with no slug cannot be keyed, so it is not an item -------
+  //
+  // The live table has one of these, left from before the panel stamped slugs.
+  const slugless = applyCatalogOverrides(base, [
+    row({ id: "80419cde-67d2-4969-b075-6610577999e6", name: "2x Boss Drop Chance", attributes: {} }),
+  ]);
+  assert("a row with no slug is dropped, not shown under its uuid",
+    slugless.length === base.length &&
+    !slugless.some((i) => i.name === "2x Boss Drop Chance"));
+
+  // ---- 7. the call site cannot quietly go back to the old behaviour ------
+  const src = readFileSync("src/lib/data/games.ts", "utf8");
+  assert("getCatalog starts from the registry rather than replacing it",
+    /const base = catalogFor\(gameSlug\)/.test(src) &&
+    /applyCatalogOverrides\(base,/.test(src));
+  // ---- 8. a trade you posted turns up where the screen says it will -----
+  //
+  // "My lists" reads "What you posted". It read only the service board, so a
+  // trade listing — which is a post, and which the database stored perfectly —
+  // appeared nowhere on it. Posting one and finding an empty page reads as the
+  // post having failed, not as having looked in the wrong place.
+  {
+    const page = readFileSync("src/app/app/[game]/my-lists/page.tsx", "utf8");
+    assert("the My lists screen reads trade listings as well as the board",
+      /readMyListings\(/.test(page) && /getBoard\(/.test(page));
+    assert("and hands them to the component",
+      /trades=\{trades\}/.test(page));
+    const cmp = readFileSync("src/components/MyLists.tsx", "utf8");
+    assert("which renders them rather than accepting and dropping them",
+      /<MyTradeListings/.test(cmp));
+    assert("and counts them on the tab, so the number is not a lie",
+      /posted\.length \+ trades\.length/.test(cmp));
+  }
+
+  assert("and does not filter inactive rows away in the query",
+    !/\.eq\("is_active", true\)[\s\S]{0,200}game_items/.test(src) &&
+    !/game_items[\s\S]{0,300}\.eq\("is_active", true\)/.test(src),
+    "filtering there makes deactivation a no-op — see the note on applyCatalogOverrides");
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the

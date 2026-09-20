@@ -2030,3 +2030,122 @@ export function beliCoverage(): { known: number; total: number } {
   const fruits = catalogFor("blox-fruits").filter((i) => i.category === "Fruit");
   return { known: fruits.filter((i) => i.beli !== undefined).length, total: fruits.length };
 }
+
+/**
+ * One catalogue row as the database stores it.
+ *
+ * Deliberately structural rather than imported from a generated client type:
+ * this is the shape the merge needs, and stating it here is what lets the
+ * merge be tested without a database.
+ */
+export interface CatalogRow {
+  id: string;
+  game_slug: string;
+  name: string;
+  category: string | null;
+  attributes: Record<string, unknown> | null;
+  verified_at?: string | null;
+  is_active?: boolean | null;
+}
+
+/**
+ * The code registry with the control panel's edits laid over it.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this merges instead of choosing
+ * ---------------------------------------------------------------------------
+ *
+ * The read this replaced returned the database rows whenever there were any,
+ * and the registry only when there were none. That reads as "the database
+ * wins", which sounds right and was catastrophic: the table is seeded per item,
+ * so a partial seed does not mean "these are the items", it means "these are
+ * the items somebody has touched". Fifteen rows for Pet Simulator 99 silently
+ * removed 4,944 items from the product.
+ *
+ * So the registry is the baseline and a row is an override. `is_active: false`
+ * is how the panel removes an item, which is why inactive rows must be fetched
+ * rather than filtered out in the query -- filter them there and the registry's
+ * copy reappears, making deactivation do nothing at all.
+ *
+ * ---------------------------------------------------------------------------
+ * The id is the slug, never the uuid
+ * ---------------------------------------------------------------------------
+ *
+ * `game_items.id` is a uuid and it is internal. Everything a player creates
+ * keys items by catalogue slug, and the database enforces it: is_item_slug()
+ * guards listing_sides.item_id and inventory_entries.item_id, and rejects
+ * uuid-shaped values outright. Returning the uuid handed the pickers an id
+ * that could not be saved, so listing or stocking anything failed in the four
+ * games that had rows, while the two with none worked perfectly.
+ *
+ * A row with no slug is a leftover from before the panel stamped them. It
+ * cannot be keyed by a player, so it is dropped rather than shown under a uuid.
+ */
+export function applyCatalogOverrides(
+  base: readonly CatalogItem[],
+  rows: readonly CatalogRow[],
+): CatalogItem[] {
+  const attrsOf = (row: CatalogRow) => row.attributes ?? {};
+
+  const bySlug = new Map<string, CatalogRow>();
+  for (const row of rows) {
+    const slug = attrsOf(row).slug;
+    if (typeof slug === "string" && slug.length > 0) bySlug.set(slug, row);
+  }
+
+  // `base` is the registry's copy where there is one. A row supplies the
+  // fields it actually defines and the registry supplies the rest, because a
+  // row is an edit rather than a replacement -- most of these were written by
+  // an ingest that never carried every column. Whole-row replacement dropped
+  // `beli` from the 21 Blox Fruits items that have it, silently, because the
+  // rows simply have no beli key.
+  const fromRow = (row: CatalogRow, slug: string, base?: CatalogItem): CatalogItem => {
+    const a = attrsOf(row);
+    const parentSlug = a.parentSlug;
+    return {
+      id: slug,
+      gameSlug: row.game_slug,
+      name: row.name,
+      category: row.category ?? "",
+      rarity: (a.rarity as CatalogItem["rarity"]) ?? base?.rarity,
+      type: (a.type as string | undefined) ?? base?.type,
+      formerly: Array.isArray(a.formerly) ? (a.formerly as string[]) : base?.formerly,
+      aliases: Array.isArray(a.aliases) ? (a.aliases as string[]) : base?.aliases,
+      // Already a slug, which is what an id is now, so there is nothing to
+      // translate -- the uuid lookup this replaced existed only because ids
+      // were uuids.
+      parentId: typeof parentSlug === "string" ? parentSlug : base?.parentId,
+      // Absent means tradeable, so only an explicit false may turn it off --
+      // otherwise a row predating the column vanishes from every picker.
+      tradeable: a.tradeable === false ? false : base?.tradeable,
+      chromatic: a.chromatic === true ? true : base?.chromatic,
+      robux: typeof a.robux === "number" ? a.robux : base?.robux,
+      beli: typeof a.beli === "number" ? a.beli : base?.beli,
+      note: (a.note as string | undefined) ?? base?.note,
+      verified: a.verified === false ? false : base?.verified,
+      art: (a.art as string | undefined) ?? base?.art,
+      checkedAt: row.verified_at ?? base?.checkedAt,
+    };
+  };
+
+  const merged: CatalogItem[] = [];
+  for (const item of base) {
+    const row = bySlug.get(item.id);
+    if (!row) {
+      merged.push(item);
+      continue;
+    }
+    bySlug.delete(item.id);
+    if (row.is_active === false) continue;
+    merged.push(fromRow(row, item.id, item));
+  }
+
+  // Whatever is left was added in the panel and the registry has never heard
+  // of it. It belongs in the catalogue too.
+  for (const [slug, row] of bySlug) {
+    if (row.is_active === false) continue;
+    merged.push(fromRow(row, slug));
+  }
+
+  return merged;
+}

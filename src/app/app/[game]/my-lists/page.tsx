@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getGame } from "@/lib/games";
 import { getBoard } from "@/lib/data/board";
+import { readMyListings } from "@/lib/data/trades";
 import { touchPresence } from "@/lib/actions/board";
 import { MyLists } from "@/components/MyLists";
 
@@ -25,11 +26,21 @@ export default async function MyListsPage({
   const game = getGame((await params).game);
   if (!game) notFound();
 
-  const [all] = await Promise.all([getBoard(game.slug), touchPresence()]);
+  // Trades are read here as well as on the Trades tab. "My lists" says it
+  // shows what you posted, and a trade listing is something you posted — it
+  // only ever appeared under Trades, so posting one and then looking here
+  // found nothing, which reads as the post having failed.
+  const [all, trades] = await Promise.all([
+    getBoard(game.slug),
+    readMyListings(game.slug),
+    touchPresence(),
+  ]);
 
   return (
     <MyLists
+      gameSlug={game.slug}
       posted={all.filter((l) => l.yours)}
+      trades={trades}
       joined={all.filter((l) => !l.yours && l.youVoted)}
     />
   );
