@@ -1,5 +1,5 @@
 import { GAMES, type Game } from "@/lib/games";
-import { catalogFor, type CatalogItem } from "@/lib/items";
+import { catalogFor, applyCatalogOverrides, type CatalogItem, type CatalogRow } from "@/lib/items";
 import { serverSupabase } from "@/lib/supabase/server";
 
 /**
@@ -47,60 +47,34 @@ export async function getGame(slug: string): Promise<Game | undefined> {
   return (await getGames()).find((g) => g.slug === slug);
 }
 
+/**
+ * One game's catalogue: the code registry, with the control panel's edits
+ * laid over it.
+ *
+ * The merge itself is `applyCatalogOverrides` in src/lib/items.ts, which is pure and
+ * therefore provable -- the reasoning for why this merges rather than chooses,
+ * and why an id is a slug and never a uuid, lives beside it. Both rules were
+ * written after each was broken in production: a partial seed had removed
+ * 4,944 items from Pet Simulator 99, and uuid ids made it impossible to list
+ * or stock anything in any game that had rows at all.
+ *
+ * Inactive rows are fetched rather than filtered out in the query on purpose.
+ * `is_active: false` is how the panel removes an item, and a row excluded here
+ * would simply let the registry's copy through, making deactivation a no-op.
+ */
 export async function getCatalog(gameSlug: string): Promise<readonly CatalogItem[]> {
+  const base = catalogFor(gameSlug);
+
   const supabase = await serverSupabase();
-  if (!supabase) return catalogFor(gameSlug);
+  if (!supabase) return base;
 
   const { data, error } = await supabase
     .from("game_items")
-    .select("id, game_slug, name, category, attributes, verified_at")
+    .select("id, game_slug, name, category, attributes, verified_at, is_active")
     .eq("game_slug", gameSlug)
-    .eq("is_active", true)
     .order("name");
 
-  if (error || !data || data.length === 0) return catalogFor(gameSlug);
+  if (error || !data || data.length === 0) return base;
 
-  // Rows carry their catalogue slug ("bf-dragon") alongside the database uuid.
-  // The uuid is the id everything else keys on, so a parent recorded by slug
-  // has to be translated back before it will resolve.
-  const uuidBySlug = new Map<string, string>();
-  for (const row of data) {
-    const slug = (row.attributes as Record<string, unknown> | null)?.slug;
-    if (typeof slug === "string") uuidBySlug.set(slug, row.id);
-  }
-
-  return data.map((row) => {
-    const attrs = (row.attributes ?? {}) as Record<string, unknown>;
-    const parentSlug = attrs.parentSlug;
-    return {
-      id: row.id,
-      gameSlug: row.game_slug,
-      name: row.name,
-      category: row.category ?? "",
-      rarity: attrs.rarity as CatalogItem["rarity"],
-      type: attrs.type as string | undefined,
-      formerly: Array.isArray(attrs.formerly) ? (attrs.formerly as string[]) : undefined,
-      aliases: Array.isArray(attrs.aliases) ? (attrs.aliases as string[]) : undefined,
-      parentId:
-        typeof parentSlug === "string" ? uuidBySlug.get(parentSlug) : undefined,
-      // Absent means tradeable, so only an explicit false may turn it off —
-      // otherwise a row that predates the column would silently vanish from
-      // every listing picker.
-      tradeable: attrs.tradeable === false ? false : undefined,
-      chromatic: attrs.chromatic === true ? true : undefined,
-      robux: typeof attrs.robux === "number" ? attrs.robux : undefined,
-      beli: typeof attrs.beli === "number" ? attrs.beli : undefined,
-      // No value or demand is read back, and none is written. MintPlaza does
-      // not keep values — see referrals.ts. A database that predates that
-      // decision may still carry valuePhysical/valuePermanent/demand keys in
-      // attributes; they are ignored here rather than mapped, so a stale number
-      // from months ago cannot reappear on a tile.
-      note: attrs.note as string | undefined,
-      verified: attrs.verified === false ? false : undefined,
-      art: attrs.art as string | undefined,
-      // Stamped by every save in the panel, so the panel can show what was
-      // touched recently.
-      checkedAt: (row as { verified_at?: string | null }).verified_at ?? undefined,
-    };
-  });
+  return applyCatalogOverrides(base, data as CatalogRow[]);
 }
