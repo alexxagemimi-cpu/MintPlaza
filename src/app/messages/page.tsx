@@ -113,7 +113,13 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-8 sm:py-12">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-[1.5rem] font-bold tracking-[-0.03em] text-ink">Messages</h1>
-        <Link href="/app" className="text-[0.8125rem] font-semibold text-ink-mute hover:text-ink">
+        {/* Padded, not just styled: the text alone is a 30x20 tap target, and
+            this is a phone-first screen. The negative margin keeps the label
+            optically flush with the edge the padding pushed it off. */}
+        <Link
+          href="/app"
+          className="-mr-2 rounded-full px-2 py-1.5 text-[0.8125rem] font-semibold text-ink-mute hover:text-ink"
+        >
           Back
         </Link>
       </div>

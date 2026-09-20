@@ -4,9 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { browserSupabase } from "@/lib/supabase/client";
 import {
+  describeAuthResponse,
   ROBLOX_PROVIDER,
+  SUPABASE_ANON_KEY,
   SUPABASE_CONFIG_PROBLEM,
   SUPABASE_READY,
+  SUPABASE_URL,
+  withApiKey,
 } from "@/lib/supabase/config";
 import { TERMS_COOKIE, TERMS_VERSION } from "@/lib/legal";
 
@@ -99,6 +103,35 @@ export function SignInPanel({ next = "/app" }: { next?: string }) {
     setBusy(true);
     setFailed(null);
 
+    // ---- ask the project one question before handing the player to it ------
+    //
+    // Everything below this point is a one-way door: once the browser leaves,
+    // a wrong project reference or a revoked key stops being something this
+    // site can explain and becomes somebody else's error page. So the project
+    // is asked for its public auth settings first, with the key in a header
+    // where a fetch can put one, and a definitive refusal is reported here
+    // against the variable that caused it.
+    //
+    // A thrown fetch is deliberately NOT treated as a failure. It cannot be
+    // told apart from a cross-origin rule or a moment of bad signal, and
+    // refusing to start a sign-in that would have worked is worse than the
+    // error page this check exists to avoid. Only an answer counts.
+    try {
+      const probe = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+        headers: { apikey: SUPABASE_ANON_KEY },
+        signal: AbortSignal.timeout(8000),
+      });
+      const problem = describeAuthResponse(probe.status);
+      if (problem) {
+        setBusy(false);
+        setFailed(`${problem.field} ${problem.detail}`);
+        return;
+      }
+    } catch {
+      // Unreachable for a reason we cannot name. Carry on and let the real
+      // sign-in say what is wrong.
+    }
+
     // Ten minutes: long enough for a slow Roblox sign-in on a bad connection,
     // short enough that a shared or forgotten device is not still carrying an
     // agreement tomorrow. Lax survives the redirect back from Roblox, which
@@ -106,19 +139,27 @@ export function SignInPanel({ next = "/app" }: { next?: string }) {
     document.cookie =
       `${TERMS_COOKIE}=${encodeURIComponent(TERMS_VERSION)}; Max-Age=600; Path=/; SameSite=Lax`;
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    // skipBrowserRedirect hands back the URL instead of navigating to it, so
+    // the key can be attached before the browser leaves. supabase-js has
+    // already stored the PKCE verifier by the time it returns, so taking the
+    // navigation over does not disturb the flow.
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: ROBLOX_PROVIDER as never,
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         scopes: "openid profile",
+        skipBrowserRedirect: true,
       },
     });
 
-    if (error) {
+    if (error || !data?.url) {
       setBusy(false);
-      setFailed(error.message);
+      setFailed(error?.message ?? "Sign-in could not be started.");
+      return;
     }
-    // On success the browser leaves for Roblox, so there is nothing to reset.
+
+    window.location.assign(withApiKey(data.url, SUPABASE_ANON_KEY));
+    // The browser leaves for Roblox now, so there is nothing to reset.
   }
 
   return (
