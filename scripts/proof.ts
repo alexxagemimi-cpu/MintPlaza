@@ -1184,6 +1184,22 @@ line("23. THE PAYMENT WEBHOOK — the guards that are not in the red team");
   assert("no secret means every request is refused",
     /if \(!secret/.test(route) && route.includes("503"));
 
+  // ---- and the red team has to be honest about what it proved ------------
+  //
+  // That 503 is returned for a missing service-role key too, not only a
+  // missing signing secret. Run the red team against a server in that state
+  // and every attack is refused with the wrong status: ten FAILs that read as
+  // ten holes in the webhook, when the truth is one unset variable. Worse in
+  // the other direction, the suite's one anti-vacuity check used to accept a
+  // 503 as "got past every guard" — so a wholly unconfigured endpoint could
+  // satisfy the only check whose job is to prove the rest mean something.
+  const redteam = stripComments(read("../scripts/webhook-redteam.mjs"));
+  assert("the red team refuses to grade a server that is not configured",
+    /status\s*===\s*503/.test(redteam) && /CANNOT RED TEAM/.test(redteam),
+    "without this a missing service key reports as ten security failures");
+  assert("and a 503 cannot satisfy its anti-vacuity check",
+    /r\.status\s*!==\s*503/.test(redteam));
+
   // The raw text is signed, never a re-serialised object. JSON.stringify of a
   // parsed body reorders keys and drops whitespace, so a signature computed
   // over it would not match the sender's — or worse, would match several

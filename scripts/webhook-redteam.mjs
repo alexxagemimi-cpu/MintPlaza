@@ -76,6 +76,37 @@ if (FAIL_CLOSED_MODE) {
   process.exit(failures === 0 ? 0 : 1);
 }
 
+// ---- what the endpoint is actually configured with -----------------------
+//
+// The signing secret is not the only thing this route fails closed on: it
+// wants SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL too, and
+// without either it answers 503 to everything. Every attack below then gets
+// refused with the wrong status and the run prints ten FAILs — which reads as
+// ten holes in the webhook when the truth is one unset variable on the server.
+//
+// So the state is established once, here, from a request that ought to
+// succeed, instead of being misread ten times from the wrong evidence.
+{
+  const ts = now();
+  const b = body();
+  const probe = await post(b, {
+    "x-mintplaza-timestamp": String(ts),
+    "x-mintplaza-signature": "sha256=" + sign(ts, b),
+  });
+  if (probe.status === 503) {
+    console.log("\nLEVEL UP WEBHOOK — CANNOT RED TEAM\n");
+    console.log("  The server answers 503 to a correctly signed request, so it is");
+    console.log("  missing something other than the signing secret. The route needs");
+    console.log("  all three, and refuses everything without them:\n");
+    console.log("    LEVEL_UP_WEBHOOK_SECRET      set here, so this one is fine");
+    console.log("    SUPABASE_SERVICE_ROLE_KEY    <- almost always this one");
+    console.log("    NEXT_PUBLIC_SUPABASE_URL\n");
+    console.log("  Set them on the SERVER process, not just in this shell, and rerun.");
+    console.log("  Nothing is proven either way about the signature checks.\n");
+    process.exit(1);
+  }
+}
+
 console.log("\nLEVEL UP WEBHOOK — RED TEAM\n");
 
 // ---- the shape of the endpoint -------------------------------------------
@@ -210,8 +241,12 @@ console.log("\nLEVEL UP WEBHOOK — RED TEAM\n");
     "x-mintplaza-timestamp": String(ts),
     "x-mintplaza-signature": "sha256=" + sign(ts, b),
   });
+  // 503 is excluded deliberately. It means the route fell at the first guard
+  // and reached none of the others, so counting it as "got past every guard"
+  // would let a wholly unconfigured endpoint satisfy the one check here whose
+  // job is to prove the suite is not passing vacuously.
   check("a correctly signed, fresh, well-formed request gets past every guard",
-    r.status !== 401 && r.status !== 400 && r.status !== 413,
+    r.status !== 401 && r.status !== 400 && r.status !== 413 && r.status !== 503,
     `got ${r.status}${r.json?.error ? ` (${r.json.error})` : ""}`);
 }
 
