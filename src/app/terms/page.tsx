@@ -7,6 +7,7 @@ import {
   HOUSE_RULES,
   LEGAL_CONTACT,
   PLATFORM_OWNER,
+  REFUND_EXCEPTIONS,
   SERVICE_NAME,
   SUBSCRIPTION,
   SUBSCRIPTION_EXCLUDES,
@@ -264,13 +265,28 @@ export default function TermsPage() {
           suspended.
         </Important>
         <p>
-          <strong className="font-semibold text-ink">Refunds.</strong> If
-          something does not work as described here, or you change your mind
-          within 14 days and have not meaningfully used the extra room, email{" "}
-          {LEGAL_CONTACT} and you will get your money back. Beyond that,
-          refunds are not automatic, but ask anyway — a fair case gets a fair
-          answer. If your account is suspended for breaking the rules, nothing
-          is refunded.
+          <strong className="font-semibold text-ink">
+            {SUBSCRIPTION.name} is not refundable.
+          </strong>{" "}
+          The {SUBSCRIPTION.days} days are delivered the moment the payment
+          clears, so there is no cooling-off window and no partial refund for
+          days you did not use. Changing your mind is not a refund, and neither
+          is not trading as much as you expected to. If your account is
+          suspended for breaking the rules in §5, nothing is refunded.
+        </p>
+        <p>Money comes back in exactly three cases and no others:</p>
+        <ul className="ml-4 list-decimal space-y-1.5">
+          {REFUND_EXCEPTIONS.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+        <p>
+          Email {LEGAL_CONTACT} if one of those applies. The full policy,
+          including how long the money then takes to arrive, is the{" "}
+          <Link href="/refunds" className="font-semibold text-ink underline">
+            Refund &amp; Cancellation Policy
+          </Link>
+          .
         </p>
         <p>
           <strong className="font-semibold text-ink">If prices change</strong>, the

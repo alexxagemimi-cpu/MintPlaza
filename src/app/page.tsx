@@ -361,6 +361,14 @@ export default function HomePage() {
               <p className="text-ink-mute">LEGAL</p>
               <p><Link href="/privacy" className="transition-colors hover:text-ink-soft">Privacy</Link></p>
               <p><Link href="/terms" className="transition-colors hover:text-ink-soft">Terms</Link></p>
+              {/* Named in full, and in the footer, because a payment provider
+                  reviewing this site looks here for exactly these words. */}
+              <p><Link href="/refunds" className="transition-colors hover:text-ink-soft">Refunds</Link></p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-ink-mute">HELP</p>
+              <p><Link href="/support" className="transition-colors hover:text-ink-soft">Contact</Link></p>
+              <p><Link href="/upgrade" className="transition-colors hover:text-ink-soft">Pricing</Link></p>
             </div>
           </div>
         </div>

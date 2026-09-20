@@ -163,6 +163,49 @@ export const SUBSCRIPTION = {
 } as const;
 
 /**
+ * The refund terms, as numbers rather than prose.
+ *
+ * Here for the same reason every other constant in this file is: the refund
+ * policy is now a page of its own, because a payment provider reviewing this
+ * site looks in the footer for one by name and will not go reading §7 of the
+ * terms to find it. Two documents saying different things about a refund is
+ * precisely the gap a chargeback lives in, so both read these.
+ *
+ * The bank window is stated separately and honestly. A refund that has been
+ * sent still takes days to appear, and a policy that says "instant" turns a
+ * normal wait into somebody believing they were lied to.
+ */
+export const REFUND = {
+  /** Working days from a refund being agreed to it being sent. */
+  issuedWithinDays: 3,
+  /** What the bank then takes, which is out of MintPlaza's hands. */
+  bankDays: "5 to 7 working days",
+} as const;
+
+/**
+ * The only three things that get money back, and why they are not generosity.
+ *
+ * Level Up is not refundable. That is the policy, it is allowed for a digital
+ * good delivered immediately, and it is the whole of the headline.
+ *
+ * These three are on the list because refusing them costs more than paying
+ * them. A charge a child made on a parent's card is won at the bank whether
+ * or not this page agrees, and it arrives as a chargeback — a fee, plus a mark
+ * against the payment account, which is the thing that eventually gets it
+ * frozen. A payment that never delivered is not a refund at all, it is a
+ * fault. And keeping money for days of a service that has stopped existing is
+ * the one promise here small enough to be worth making.
+ *
+ * Shared by the policy page and the terms so the two cannot drift apart, which
+ * is exactly the gap a dispute lives in.
+ */
+export const REFUND_EXCEPTIONS: readonly string[] = [
+  "The payment was made on somebody else's card without their permission. Whoever owns the card gets it back in full when they ask, and the account that bought it may be suspended.",
+  "You paid and Level Up never arrived. That is a fault rather than a change of mind, and it is either fixed or refunded — your choice.",
+  "MintPlaza shuts down while your days are still running. The part you have not used is refunded.",
+];
+
+/**
  * The things a subscription explicitly does NOT buy.
  *
  * This list is the refund-dispute list. Every item on it is something a player

@@ -54,6 +54,7 @@ export function LegalDoc({
       <div className="mt-12 flex flex-wrap gap-4 border-t border-line-soft pt-5 text-[0.8125rem]">
         <Link href="/terms" className="font-semibold text-ink-mute hover:text-ink">Terms of Service</Link>
         <Link href="/privacy" className="font-semibold text-ink-mute hover:text-ink">Privacy Policy</Link>
+        <Link href="/refunds" className="font-semibold text-ink-mute hover:text-ink">Refunds</Link>
         <Link href="/support" className="font-semibold text-ink-mute hover:text-ink">Contact</Link>
       </div>
     </div>
