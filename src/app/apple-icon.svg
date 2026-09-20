@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="MintPlaza">
-  <rect width="180" height="180" fill="#0D1613"/>
-  <circle cx="68" cy="70" r="21" fill="#3ED8A3"/>
-  <circle cx="118" cy="70" r="21" fill="#3ED8A3" opacity="0.55"/>
-  <path d="M31 143c4.5-20.8 18.6-32 36.6-32S99.7 122.2 104 143Z" fill="#3ED8A3"/>
-  <path d="M81 143c4.5-20.8 18.6-32 36.6-32S149.7 122.2 154 143Z" fill="#3ED8A3" opacity="0.55"/>
-</svg>
