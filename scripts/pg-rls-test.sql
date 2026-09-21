@@ -33,6 +33,27 @@ grant all privileges on all tables in schema public to authenticated;
 grant select on all tables in schema public to anon;
 grant usage on all sequences in schema public to authenticated;
 
+-- ...and then the hardening from the tail of supabase/schema.sql, re-applied
+-- because the blanket grant above has just undone it.
+--
+-- This is not tidiness. Table privileges became part of the defence when it
+-- turned out an RLS policy chooses which ROWS you may write and never which
+-- COLUMNS — `update trade_listings set created_at = ...` reset the posting
+-- limit, and `update profiles set status = 'active'` un-banned an account.
+-- A test file that grants everything back is a test file that proves the
+-- opposite of what the live database does.
+--
+-- proof.ts asserts these lines match the ones in schema.sql, so the two
+-- cannot drift apart.
+revoke insert, update, delete, truncate on all tables in schema public from anon;
+revoke insert, update, delete, truncate on
+  public.profiles,
+  public.trade_listings,
+  public.listing_sides
+from authenticated;
+revoke update on public.service_listings from authenticated;
+grant update (stage) on public.service_listings to authenticated;
+
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'alice@x.test'),
   ('22222222-2222-2222-2222-222222222222', 'mallory@x.test');
@@ -268,14 +289,26 @@ begin
   get diagnostics n = row_count;
   perform pg_temp.ok('a stranger cannot restage somebody''s board post', n = 0);
 
-  update public.trade_listings set note = 'hijacked'
-   where id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
-  get diagnostics n = row_count;
+  -- These two are refused a step earlier than the rest of this block: the
+  -- tail of schema.sql takes the write privilege on trade_listings and
+  -- profiles away from `authenticated` altogether, so Postgres says
+  -- "permission denied" instead of matching zero rows. Both are a refusal and
+  -- the privilege one is the stronger of the two, so either passes — but it
+  -- has to be caught, or it takes this whole block with it.
+  begin
+    update public.trade_listings set note = 'hijacked'
+     where id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+    get diagnostics n = row_count;
+  exception when insufficient_privilege then n := 0;
+  end;
   perform pg_temp.ok('a stranger cannot edit somebody''s trade listing', n = 0);
 
-  update public.profiles set username = 'alice2'
-   where id = '11111111-1111-1111-1111-111111111111';
-  get diagnostics n = row_count;
+  begin
+    update public.profiles set username = 'alice2'
+     where id = '11111111-1111-1111-1111-111111111111';
+    get diagnostics n = row_count;
+  exception when insufficient_privilege then n := 0;
+  end;
   perform pg_temp.ok('a stranger cannot rename somebody''s profile', n = 0);
 
   -- Reading somebody's messages is one thing; editing them is another. A
@@ -731,6 +764,288 @@ begin
   select count(*) into n from public.terms_acceptance
    where user_id <> '22222222-2222-2222-2222-222222222222';
   perform pg_temp.ok('and cannot see anybody else''s acceptance', n = 0);
+end $$;
+
+reset role;
+
+-- ===========================================================================
+-- The service board's two "you have to take part first" rules
+--
+-- Both were written as a correlated subquery against a table that happens to
+-- share the outer table's column name, and both silently became something
+-- else. Postgres resolves an unqualified column to the INNERMOST scope that
+-- has one, so inside `select 1 from service_votes v where v.listing_id =
+-- listing_id` the right-hand side is v's own column, not the comment's — the
+-- test is `v.listing_id = v.listing_id`, true for every row.
+--
+-- Nothing errors, the policy reads correctly in the file, and the rule it
+-- describes is simply not the rule in force. These five assertions are the
+-- only thing that can tell the difference, which is why they run as a real
+-- `authenticated` session rather than as the superuser that bypasses RLS.
+--
+-- Two listings of their own rather than the fixtures above, which earlier
+-- assertions have deliberately restaged and expired.
+-- ===========================================================================
+
+reset role;
+reset request.jwt.claim.sub;
+
+insert into public.service_listings (id, game_slug, author_id, side, service_ids, stage, expires_at)
+values ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', 'blox-fruits',
+        '33333333-3333-3333-3333-333333333333', 'offer', '{bf-raid}',
+        'voting', now() + interval '90 minutes'),
+       ('b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2', 'blox-fruits',
+        '33333333-3333-3333-3333-333333333333', 'offer', '{bf-raid}',
+        'voting', now() + interval '90 minutes');
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+-- Mallory puts her hand up on the first listing, and only the first.
+do $$
+declare v_ok boolean := false;
+begin
+  begin
+    insert into public.service_votes (listing_id, user_id)
+    values ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+            '22222222-2222-2222-2222-222222222222');
+    v_ok := true;
+  exception when others then v_ok := false;
+  end;
+  perform pg_temp.ok('a player may vote on a listing that is open', v_ok);
+end $$;
+
+-- Voting on one listing must not buy a voice in another's thread. Before the
+-- fix a single vote anywhere unlocked every thread on the site, which is the
+-- drive-by commenting the rule exists to stop.
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  begin
+    insert into public.service_comments (listing_id, author_id, body)
+    values ('b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2',
+            '22222222-2222-2222-2222-222222222222', 'let me in');
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  select count(*) into n from public.service_comments
+   where listing_id = 'b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2';
+  perform pg_temp.ok(
+    'a vote on one listing does not unlock another listing''s thread',
+    not v_got_in and n = 0);
+end $$;
+
+-- The positive control, so the assertion above cannot pass on a policy that
+-- simply refuses everybody.
+do $$
+declare v_ok boolean := false;
+begin
+  begin
+    insert into public.service_comments (listing_id, author_id, body)
+    values ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+            '22222222-2222-2222-2222-222222222222', 'i am in for this one');
+    v_ok := true;
+  exception when others then v_ok := false;
+  end;
+  perform pg_temp.ok('but a vote on THIS listing does open its thread', v_ok);
+end $$;
+
+-- Being picked for one listing must not freeze a vote on a different one.
+-- Before the fix it froze every vote the player would ever cast, for the life
+-- of the account, with no message and nothing in the logs.
+do $$
+declare v_left int;
+begin
+  set local role postgres;
+  insert into public.service_picks (listing_id, user_id)
+  values ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+          '22222222-2222-2222-2222-222222222222');
+  insert into public.service_votes (listing_id, user_id)
+  values ('b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2',
+          '22222222-2222-2222-2222-222222222222');
+  set local role authenticated;
+
+  delete from public.service_votes
+   where listing_id = 'b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2'
+     and user_id = '22222222-2222-2222-2222-222222222222';
+  select count(*) into v_left from public.service_votes
+   where listing_id = 'b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2'
+     and user_id = '22222222-2222-2222-2222-222222222222';
+  perform pg_temp.ok(
+    'being picked for one listing does not freeze a vote on another',
+    v_left = 0);
+end $$;
+
+-- And the rule it was meant to enforce still holds: the pick on THIS listing
+-- does stop the withdrawal, because the other side is counting on her.
+do $$
+declare v_left int;
+begin
+  delete from public.service_votes
+   where listing_id = 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'
+     and user_id = '22222222-2222-2222-2222-222222222222';
+  select count(*) into v_left from public.service_votes
+   where listing_id = 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'
+     and user_id = '22222222-2222-2222-2222-222222222222';
+  perform pg_temp.ok(
+    'but a pick on this one still holds the vote in place', v_left = 1);
+end $$;
+
+reset role;
+
+
+-- ===========================================================================
+-- A row policy is not a column policy
+--
+-- Every assertion here is an attack that WORKED against a real Postgres, as an
+-- ordinary signed-in player, using nothing but the key that ships in the
+-- browser. They all went through `using (user_id = '44444444-4444-4444-4444-444444444444')` policies that
+-- read as "you may only change your own things" and mean "you may change
+-- anything about your own things".
+--
+-- The fix is table and column privileges, at the tail of supabase/schema.sql.
+-- These run as a real `authenticated` session because a superuser has every
+-- privilege and would prove nothing.
+-- ===========================================================================
+
+reset role;
+reset request.jwt.claim.sub;
+
+insert into auth.users (id, email)
+values ('44444444-4444-4444-4444-444444444444', 'trudy@x.test');
+update public.profiles set username = 'trudy', status = 'active', roblox_user_id = '4444'
+ where id = '44444444-4444-4444-4444-444444444444';
+insert into public.terms_acceptance (user_id, version)
+values ('44444444-4444-4444-4444-444444444444', '2026-09-18');
+
+set role authenticated;
+set request.jwt.claim.sub = '44444444-4444-4444-4444-444444444444';
+
+-- The legitimate path first, so everything below is measured against a
+-- listing that really exists and a limit that really counted it.
+do $$
+declare r record;
+begin
+  perform public.post_trade_listing('blox-fruits',
+    '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok('posting through the RPC still works and is counted',
+    r.used = 1);
+end $$;
+
+-- The posting limit, switched off by editing the timestamp it counts.
+do $$
+declare v_blocked boolean := false; r record;
+begin
+  begin
+    update public.trade_listings set created_at = now() - interval '48 hours'
+     where user_id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok(
+    'a player cannot backdate a listing to hand themselves the slot back',
+    v_blocked and r.used = 1);
+end $$;
+
+-- A listing that never expires.
+do $$
+declare v_blocked boolean := false; v_life interval;
+begin
+  begin
+    update public.trade_listings set expires_at = now() + interval '10 years'
+     where user_id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select expires_at - created_at into v_life from public.trade_listings
+   where user_id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('nor make a listing immortal',
+    v_blocked and v_life < interval '2 days');
+end $$;
+
+-- Permanent top of the board, with the six-hour cooldown never consulted.
+do $$
+declare v_blocked boolean := false; v_future boolean;
+begin
+  begin
+    update public.trade_listings set bumped_at = now() + interval '1 hour'
+     where user_id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select bumped_at > now() into v_future from public.trade_listings
+   where user_id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('nor bump past the cooldown by writing the column',
+    v_blocked and not v_future);
+end $$;
+
+-- A ban the banned player lifts themselves. status='active' is exactly what
+-- the posting policies check, so this one undoes moderation entirely.
+do $$
+declare v_blocked boolean := false; v text;
+begin
+  begin
+    update public.profiles set status = 'suspended' where id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select status into v from public.profiles where id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('a player cannot write their own moderation status',
+    v_blocked and v = 'active');
+end $$;
+
+-- Wearing a known trader's name on a site where strangers hand each other
+-- valuable items.
+do $$
+declare v_blocked boolean := false; v text;
+begin
+  begin
+    update public.profiles set username = 'alice' where id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select username into v from public.profiles where id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('nor take somebody else''s username',
+    v_blocked and v = 'trudy');
+end $$;
+
+-- "Immutable, and unique: one Roblox account is one MintPlaza account."
+do $$
+declare v_blocked boolean := false; v text;
+begin
+  begin
+    update public.profiles set roblox_user_id = '9999' where id = '44444444-4444-4444-4444-444444444444';
+  exception when insufficient_privilege then v_blocked := true;
+  end;
+  select roblox_user_id into v from public.profiles where id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('nor edit the Roblox id the whole identity rests on',
+    v_blocked and v = '4444');
+end $$;
+
+-- The positive controls. Locking the tables must not have locked the player
+-- out of their own account, which is the way this fix could quietly go wrong.
+do $$
+declare v text;
+begin
+  perform public.save_profile('trading kitsune today', '{blox-fruits}', '{}');
+  select bio into v from public.profiles where id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('but save_profile still writes the bio',
+    v = 'trading kitsune today');
+end $$;
+
+do $$
+declare v boolean;
+begin
+  perform public.set_hide_presence(true);
+  select hide_presence into v from public.profiles where id = '44444444-4444-4444-4444-444444444444';
+  perform pg_temp.ok('and set_hide_presence still works', v);
+end $$;
+
+do $$
+declare n int;
+begin
+  perform public.cancel_trade_listing(
+    (select id from public.trade_listings where user_id = '44444444-4444-4444-4444-444444444444' limit 1));
+  select count(*) into n from public.trade_listings
+   where user_id = '44444444-4444-4444-4444-444444444444' and status = 'cancelled';
+  perform pg_temp.ok('and a player can still cancel their own listing', n = 1);
 end $$;
 
 reset role;

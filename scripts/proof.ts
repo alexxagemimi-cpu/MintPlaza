@@ -3012,6 +3012,75 @@ line("44. A GAME WITH NO ARTWORK DOES NOT BREAK THE PAGE IT IS DRAWN ON");
   }
 }
 
+line("45. A ROW POLICY IS NOT A COLUMN POLICY");
+{
+  /* ------------------------------------------------------------------------
+   * Table privileges are part of the defence now, and there are two copies of
+   * them.
+   *
+   * An RLS policy chooses which ROWS you may write. It never chooses which
+   * COLUMNS. Every `using (user_id = auth.uid())` in this schema reads as
+   * "you may only change your own things" and means "you may change anything
+   * about your own things" — which, proved against a real Postgres as an
+   * ordinary signed-in player, meant:
+   *
+   *   update trade_listings set created_at = now() - interval '48 hours'
+   *     -> listing_allowance() went from used=1 back to used=0. The posting
+   *        limit, off, in one request.
+   *   update profiles set status = 'active'
+   *     -> a suspended account un-bans itself, and status='active' is exactly
+   *        what the posting policies check.
+   *   update profiles set username = '<somebody else>'
+   *     -> wear a known trader's name.
+   *
+   * The fix is at the tail of supabase/schema.sql. But pg-rls-test.sql opens
+   * by granting `authenticated` everything Supabase grants by default — which
+   * would undo it — so it re-applies the same statements. Two copies of a
+   * security control is a thing that drifts, and the copy that drifts is the
+   * one in the test, which then proves the opposite of what production does.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const squash = (t: string) => t.replace(/\s+/g, " ").trim();
+
+  const HARDENING = "-- Table privileges — the layer underneath RLS";
+  const sql = read("../supabase/schema.sql");
+  assert("schema.sql still carries the table-privilege section",
+    sql.includes(HARDENING), HARDENING);
+
+  const tail = sql.slice(sql.indexOf(HARDENING));
+  const statements = (tail.match(/^(?:revoke|grant)[\s\S]*?;/gm) ?? []).map(squash);
+
+  assert("and it is not empty", statements.length >= 4,
+    `${statements.length} grant/revoke statements`);
+
+  // The three tables the application only ever writes through a function.
+  for (const t of ["public.profiles", "public.trade_listings", "public.listing_sides"]) {
+    assert(`${t} has its write privileges taken away`,
+      statements.some((st) =>
+        st.startsWith("revoke insert, update, delete, truncate on")
+        && st.includes(t) && st.endsWith("from authenticated;")),
+      "an RLS policy alone cannot stop a column being rewritten");
+  }
+
+  assert("and a signed-out visitor may not write anything at all",
+    statements.some((st) =>
+      /^revoke insert, update, delete, truncate on all tables in schema public from anon;$/.test(st)));
+
+  // The one column the recruitment board is allowed to change directly.
+  assert("service_listings may only have its stage changed directly",
+    statements.some((st) => /^revoke update on public\.service_listings from authenticated;$/.test(st))
+      && statements.some((st) => /^grant update \(stage\) on public\.service_listings to authenticated;$/.test(st)),
+    "expires_at and vote_cap are set when the post is made, not afterwards");
+
+  // And the test harness must hold the identical set, or it is testing a
+  // database that does not exist.
+  const rls = squash(read("../scripts/pg-rls-test.sql"));
+  const missing = statements.filter((st) => !rls.includes(st));
+  assert("pg-rls-test.sql re-applies every one of them after its blanket grant",
+    missing.length === 0,
+    missing.length ? missing[0] : `${statements.length} statements, both copies agree`);
+}
+
 // Nothing may be appended below the summary. This was not a hypothetical: the
 // summary was moved here to fix exactly that bug, and section 33 was appended
 // underneath it less than an hour later, by the same person, in the same

@@ -3171,12 +3171,25 @@ create policy service_votes_insert_own on public.service_votes for insert
 
 -- You may take your hand back, but not once you have been picked — the other
 -- side has already started counting on you.
+--
+-- service_votes.listing_id is written out in full, and that is the whole
+-- correctness of this policy rather than a style choice. Postgres resolves an
+-- unqualified column name to the INNERMOST scope that has one, and
+-- service_picks has a listing_id too — so the obvious `p.listing_id =
+-- listing_id` silently means `p.listing_id = p.listing_id`, which is true for
+-- every row.
+--
+-- That turned this into "not exists any pick by me anywhere", so the first
+-- time a player was picked for anything they lost the ability to withdraw a
+-- vote on ANY listing, permanently, with no error and nothing in the logs.
+-- The policy read correctly and did something else.
 drop policy if exists service_votes_delete_own on public.service_votes;
 create policy service_votes_delete_own on public.service_votes for delete
   using (
     user_id = auth.uid()
     and not exists (select 1 from public.service_picks p
-                     where p.listing_id = listing_id and p.user_id = auth.uid())
+                     where p.listing_id = public.service_votes.listing_id
+                       and p.user_id = auth.uid())
   );
 
 drop policy if exists service_picks_read on public.service_picks;
@@ -3205,13 +3218,23 @@ create policy service_comments_read on public.service_comments for select using 
 
 -- The thread is for people going. Voting is the price of posting in it, and the
 -- author is in it by definition.
+--
+-- service_comments.listing_id in full, for the same reason as
+-- service_votes_delete_own above: service_votes also has a listing_id, so an
+-- unqualified `listing_id` here binds to the inner table and the test becomes
+-- `v.listing_id = v.listing_id` — true for every row.
+--
+-- The effect was that voting ONCE, on anything, bought the right to post in
+-- every thread on the site forever, which is exactly the drive-by commenting
+-- this policy exists to prevent.
 drop policy if exists service_comments_insert_voter on public.service_comments;
 create policy service_comments_insert_voter on public.service_comments for insert
   with check (
     author_id = auth.uid()
     and (
       exists (select 1 from public.service_votes v
-               where v.listing_id = listing_id and v.user_id = auth.uid())
+               where v.listing_id = public.service_comments.listing_id
+                 and v.user_id = auth.uid())
       or exists (select 1 from public.service_listings l
                   where l.id = listing_id and l.author_id = auth.uid())
     )
@@ -4891,3 +4914,86 @@ end $$;
 
 revoke all on function public.admin_announcements() from public, anon;
 grant execute on function public.admin_announcements() to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Table privileges — the layer underneath RLS
+--
+-- ---------------------------------------------------------------------------
+-- Why RLS on its own was not enough
+-- ---------------------------------------------------------------------------
+--
+-- Supabase grants `anon` and `authenticated` full table privileges on
+-- everything in `public` by default, and exposes the whole schema over
+-- PostgREST with a key that ships inside the browser. Row-level security is
+-- therefore the only thing standing between a player and a direct write — and
+-- an RLS policy decides WHICH ROWS you may touch, never WHICH COLUMNS.
+--
+-- Every policy in this file that says `using (user_id = auth.uid())` was read,
+-- correctly, as "you may only change your own things". What it actually says
+-- is "you may change ANYTHING ABOUT your own things", and the difference is
+-- the whole site's rules. Demonstrated against a real Postgres, as an ordinary
+-- signed-in player, with nothing but the public key:
+--
+--   update trade_listings set created_at = now() - interval '48 hours'
+--   -> listing_allowance() went from used=1 back to used=0.
+--
+-- That is the posting limit — four a day, the rule the board depends on —
+-- switched off with one request. The same row also took expires_at =
+-- now() + 10 years (a listing that never dies) and bumped_at in the future
+-- (permanent top of the board, with the six-hour cooldown never consulted).
+--
+--   update profiles set status = 'active'   -> a suspended account un-bans itself,
+--                                              and status='active' is exactly what
+--                                              the posting policies check.
+--   update profiles set username = 'alice'  -> wear a trusted trader's name on a
+--                                              site where strangers hand each other
+--                                              valuable items.
+--   update profiles set roblox_user_id = …  -> the "immutable, one Roblox account is
+--                                              one MintPlaza account" identity, edited.
+--
+-- None of that goes near the application. post_trade_listing(), save_profile()
+-- and set_display_name() validate carefully and were never the way in.
+--
+-- ---------------------------------------------------------------------------
+-- The rule from here
+-- ---------------------------------------------------------------------------
+--
+-- A table the application only ever writes through a SECURITY DEFINER function
+-- gets no write privilege at all. The functions are unaffected — they run as
+-- their owner — and the triggers still fire, because a trigger fires for
+-- whoever writes. Reads are untouched: SELECT stays where it was and RLS keeps
+-- deciding them, which is tested at length in scripts/pg-rls-test.sql.
+--
+-- Column privileges rather than row policies are the right tool here, and they
+-- are checked against the columns named in the statement, so a BEFORE trigger
+-- may still stamp a column the writer may not name.
+-- ===========================================================================
+-- ===========================================================================
+
+-- A signed-out visitor writes nothing, anywhere. SELECT is left alone, so the
+-- public board, profiles and the live announcement still read exactly as
+-- before.
+revoke insert, update, delete, truncate on all tables in schema public from anon;
+
+-- Written only from inside post_trade_listing(), bump_listing(),
+-- cancel_trade_listing(), save_profile(), set_display_name(),
+-- set_hide_presence(), ensure_profile() and delete_my_account(). Verified
+-- against the application: no .from("profiles"), .from("trade_listings") or
+-- .from("listing_sides") anywhere in src/ performs an insert, update or
+-- delete.
+revoke insert, update, delete, truncate on
+  public.profiles,
+  public.trade_listings,
+  public.listing_sides
+from authenticated;
+
+-- The recruitment board is different: the app does write it directly, and
+-- should — posting and deleting a post are ordinary row operations the
+-- policies already judge correctly. The only UPDATE it performs is moving the
+-- post through its stages, so that is the only column it may name. expires_at,
+-- vote_cap and slots are the author's to set when the row is created and not
+-- afterwards.
+revoke update on public.service_listings from authenticated;
+grant update (stage) on public.service_listings to authenticated;
