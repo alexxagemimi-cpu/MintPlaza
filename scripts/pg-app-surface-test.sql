@@ -689,3 +689,90 @@ begin
     (select status from public.support_messages
       where id = (q->0->>'id')::uuid) = 'answered');
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- ANNOUNCEMENTS
+--
+-- Applying the schema is not enough to know this works. A CHECK constraint's
+-- expression is not evaluated until a row is written, so the first version of
+-- this table created perfectly and then threw on every single insert: the
+-- media URL check used '{1,2000}' and Postgres caps regex repetition at 255.
+-- Nothing in the apply step could have caught it. Writing a row can, so these
+-- write rows.
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo 'ANNOUNCEMENTS'
+do $$
+declare v_id uuid; v_admin uuid; v_other uuid;
+begin
+  select id into v_admin from public.profiles order by joined_at limit 1;
+  select id into v_other from public.profiles where id <> v_admin limit 1;
+
+  -- A plain insert with a picture. This is the one the regex broke.
+  insert into public.announcements (title, body, media_url, media_kind, expires_at)
+  values ('Live', 'Body text', 'https://cdn.example.com/a/very/long/path.png', 'image',
+          now() + interval '5 days')
+  returning id into v_id;
+  perform pg_temp.ok('an announcement with a picture can actually be written', v_id is not null);
+
+  -- And one without, which must also be allowed.
+  insert into public.announcements (title, body, expires_at)
+  values ('Plain', 'No picture', now() + interval '1 day');
+  perform pg_temp.ok('and one without a picture', true);
+
+  begin
+    insert into public.announcements (title, body, media_url, media_kind, expires_at)
+    values ('Bad', 'x', 'javascript:alert(1)', 'image', now() + interval '1 day');
+    perform pg_temp.ok('a javascript: attachment is refused', false);
+  exception when check_violation then
+    perform pg_temp.ok('a javascript: attachment is refused', true);
+  end;
+
+  begin
+    insert into public.announcements (title, body, media_url, media_kind, expires_at)
+    values ('Bad', 'x', 'http://plain.example/p.png', 'image', now() + interval '1 day');
+    perform pg_temp.ok('a plain http attachment is refused', false);
+  exception when check_violation then
+    perform pg_temp.ok('a plain http attachment is refused', true);
+  end;
+
+  begin
+    insert into public.announcements (title, body, media_url, expires_at)
+    values ('Bad', 'x', 'https://ok.example/p.png', now() + interval '1 day');
+    perform pg_temp.ok('an attachment with no kind beside it is refused', false);
+  exception when check_violation then
+    perform pg_temp.ok('an attachment with no kind beside it is refused', true);
+  end;
+
+  begin
+    insert into public.announcements (title, body, starts_at, expires_at)
+    values ('Bad', 'x', now(), now() - interval '1 second');
+    perform pg_temp.ok('one that ends before it starts is refused', false);
+  exception when check_violation then
+    perform pg_temp.ok('one that ends before it starts is refused', true);
+  end;
+
+  -- live_announcement() picks the newest running one and skips a dismissal.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_other, 'role', 'authenticated')::text, true);
+  perform pg_temp.ok('a player is shown one',
+    (select count(*) from public.live_announcement()) = 1);
+  perform pg_temp.ok('and only ever one at a time',
+    (select count(*) from public.live_announcement()) <= 1);
+
+  perform public.dismiss_announcement((select id from public.live_announcement()));
+  perform pg_temp.ok('dont-show-again hides that one',
+    not exists (select 1 from public.live_announcement() a
+                 join public.announcement_dismissals d
+                   on d.announcement_id = a.id and d.user_id = v_other));
+
+  -- Expiring one takes it away without deleting anything.
+  update public.announcements
+     set starts_at = now() - interval '9 days', expires_at = now() - interval '8 days';
+  perform pg_temp.ok('an expired announcement is shown to nobody',
+    (select count(*) from public.live_announcement()) = 0);
+  perform pg_temp.ok('but it is still on record',
+    (select count(*) from public.announcements) >= 2);
+
+  perform set_config('request.jwt.claims', '', true);
+end $$;

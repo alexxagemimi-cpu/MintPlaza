@@ -8,6 +8,8 @@ import {
 import { ReportsPanel } from "./ReportsPanel";
 import { SupportPanel } from "./SupportPanel";
 import { LevelUpPanel } from "./LevelUpPanel";
+import { AnnouncementPanel } from "./AnnouncementPanel";
+import type { AnnouncementRow } from "@/lib/admin/actions";
 import { Studio } from "./Studio";
 import type { StudioTemplate, MediaRow } from "@/lib/data/templates";
 import type { LevelUpRow } from "@/lib/admin/actions";
@@ -334,7 +336,7 @@ function ItemEditor({
 
 export function ConsolePanel({
   who, games, items, reports = [], support = [], templates = [], library = [],
-  levelUps = [],
+  levelUps = [], announcements = [],
 }: {
   who: string;
   games: ConsoleGame[];
@@ -344,6 +346,7 @@ export function ConsolePanel({
   templates?: readonly StudioTemplate[];
   library?: readonly MediaRow[];
   levelUps?: readonly LevelUpRow[];
+  announcements?: AnnouncementRow[];
 }) {
   const [rows, setRows] = useState(items);
   const [game, setGame] = useState(games[0]?.slug ?? "");
@@ -582,6 +585,8 @@ export function ConsolePanel({
       <SupportPanel messages={support} />
 
       <LevelUpPanel rows={levelUps} />
+
+      <AnnouncementPanel rows={announcements} />
     </div>
   );
 }

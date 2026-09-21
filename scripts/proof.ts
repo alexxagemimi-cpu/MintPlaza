@@ -2583,6 +2583,289 @@ line("40. A PARTLY-SEEDED ITEM TABLE DOES NOT DELETE THE CATALOGUE");
     "filtering there makes deactivation a no-op — see the note on applyCatalogOverrides");
 }
 
+line("41. THE ANNOUNCEMENT IS THE ONE THING EVERY VISITOR SEES");
+{
+  // One person's words, in front of everybody, on every screen. That makes it
+  // the highest-blast-radius surface on the site and the one most worth
+  // holding still.
+  const gate = readFileSync("src/components/AnnouncementGate.tsx", "utf8");
+  const action = readFileSync("src/lib/actions/announcement.ts", "utf8");
+  const admin = readFileSync("src/lib/admin/actions.ts", "utf8");
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+  const sql = readFileSync("supabase/schema.sql", "utf8");
+
+  // ---- it is actually mounted, everywhere ------------------------------
+  assert("the gate is mounted site-wide",
+    /<AnnouncementGate\s*\/>/.test(layout));
+
+  // ---- the two buttons mean two different things ------------------------
+  //
+  // If both wrote to the same place there would be one button, and the one
+  // that survives a restart would be whichever was written last.
+  assert("Okay keeps its answer for the session only",
+    /remember\("session", seenKey/.test(gate));
+  assert("and don't-show-again keeps its answer for good",
+    /remember\("local", hiddenKey/.test(gate));
+  assert("don't-show-again also records it against the account",
+    /dismissAnnouncement\(/.test(gate) && /rpc\("dismiss_announcement"/.test(action),
+    "localStorage alone does not follow a player to their phone");
+
+  // ---- a browser that refuses storage must not take the page with it ----
+  const storageCalls = [...gate.matchAll(/(localStorage|sessionStorage)/g)].length;
+  assert("the gate really does touch storage — this rule has something to guard",
+    storageCalls > 0);
+  assert("and every storage call is wrapped",
+    /try\s*\{[\s\S]{0,400}(localStorage|sessionStorage)[\s\S]{0,400}\}\s*catch/.test(gate),
+    "these throw rather than return empty in a private window");
+
+  // ---- the home page must stay prerendered ------------------------------
+  assert("the announcement is fetched by the client, not read while a page renders",
+    /"use client"/.test(gate) && /await readAnnouncement\(\)/.test(gate),
+    "a read in the layout would make the prerendered home page dynamic for every visitor");
+  assert("and storage is checked before the server is asked",
+    gate.indexOf('stored("local"') > 0 &&
+    gate.indexOf("readAnnouncement()") < gate.indexOf('stored("local"'),
+    "somebody who already closed it should cost no request");
+
+  // ---- one person's text reaches everybody, so it stays text ------------
+  assert("the body is rendered as text and never as markup",
+    !/dangerouslySetInnerHTML/.test(gate));
+  assert("an attachment must be https, checked in the app as well as the database",
+    /startsWith\("https:\/\/"\)/.test(action) &&
+    /\^https:\\\/\\\/\\S\+\$/.test(admin),
+    "this value becomes the src of a tag every visitor loads");
+  assert("and the database refuses anything else too",
+    /media_url ~ '\^https:\/\/\[\^\\s\]\+\$'/.test(sql));
+
+  // The first version of that constraint used a regex repetition count of
+  // {1,2000}. Postgres caps those at 255, so the table created cleanly and
+  // then threw on every insert — invisible to a schema that is only applied.
+  assert("the media URL length is not a regex repetition count",
+    !/media_url ~ '[^']*\{\d+,\d{3,}\}/.test(sql),
+    "Postgres caps repetition at 255; this parses at create time and throws on every write");
+
+  // ---- writing is the owner's alone -------------------------------------
+  assert("announcements are readable only while they are running",
+    /create policy announcements_read_live[\s\S]{0,200}using \(is_active/.test(sql));
+  assert("and no policy lets anyone but the owner write one",
+    !/create policy[^\n]*on public\.announcements for (insert|update|delete)/.test(sql),
+    "writes go through the SECURITY DEFINER functions, which check is_admin()");
+  for (const fn of [
+    "admin_save_announcement", "admin_set_announcement_active", "admin_announcements",
+  ]) {
+    const body = sql.slice(sql.indexOf(`function public.${fn}(`), sql.indexOf(`function public.${fn}(`) + 900);
+    assert(`${fn} guards itself with require_admin(), like every other admin_ function`,
+      /perform mintplaza\.require_admin\(\);/.test(body),
+      "an inline is_admin() check works but drifts — one shared guard is the convention here");
+  }
+
+  // ---- the panel cannot delete one --------------------------------------
+  //
+  // A deleted announcement takes every dismissal with it.
+  assert("nothing in the panel deletes an announcement",
+    !/from public\.announcements|delete\(\)/.test(admin.slice(admin.indexOf("Announcements"))),
+    "ending one early sets is_active false instead");
+
+  // ---- the look the owner asked for -------------------------------------
+  assert("the title is the green one",
+    /id="announcement-title"[\s\S]{0,300}text-mint/.test(gate));
+  assert("and the description is ordinary black",
+    /whitespace-pre-wrap[\s\S]{0,80}text-ink[^-]/.test(gate));
+  assert("both buttons are there",
+    /Don&rsquo;t show again/.test(gate) && />\s*Okay\s*</.test(gate));
+
+  // ---- it never covers a screen it should not ---------------------------
+  for (const p of ["/admin", "/terms", "/privacy", "/refunds"]) {
+    assert(`it stays off ${p}`, new RegExp(`"${p}"`).test(gate));
+  }
+}
+
+line("42. EVERY BOARD READER REACHES A SCREEN");
+{
+  // -----------------------------------------------------------------------
+  // The bug this section exists for
+  // -----------------------------------------------------------------------
+  //
+  // trade_feed() was written, granted to anon, indexed, covered by the database
+  // suite and correct in every particular — and no page called it. The Explore
+  // tab that was supposed to show it rendered demoListings() instead, which is
+  // off in a production build by construction, so the board read "No listings
+  // yet" forever however many real trades had been posted. A player posted a
+  // listing and it appeared nowhere on the site but their own My Lists.
+  //
+  // Nothing caught it, because every individual piece was right. The only check
+  // that could have is this one: a reader nobody calls is a feature nobody has.
+
+  const read = (f: string) => readFileSync(f, "utf8");
+  const trades = read("src/lib/data/trades.ts");
+  const explore = read("src/app/app/[game]/explore/page.tsx");
+  const card = read("src/components/TradeListingCard.tsx");
+  const match = read("src/lib/match.ts");
+  const sql = read("supabase/schema.sql");
+
+  // ---- every exported reader has a caller somewhere else ----------------
+  const sources: string[] = [];
+  (function walk(dir: string) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name)) sources.push(p);
+    }
+  })("src");
+
+  const exported = [...trades.matchAll(/export async function (\w+)/g)].map((m) => m[1]);
+  assert("the board module exports the readers this check is about",
+    exported.length >= 4, `found ${exported.length}`);
+
+  const callersOf = (name: string) =>
+    sources.filter((f) => f !== "src/lib/data/trades.ts" && read(f).includes(name));
+
+  for (const fn of exported) {
+    const callers = callersOf(fn);
+    assert(`${fn}() is called by a screen`, callers.length > 0,
+      "a reader with no caller is a database function pretending to be a feature");
+  }
+
+  // Negative control. If the caller search matched anything at all, the loop
+  // above would pass whether or not it works.
+  assert("and the caller search can actually come up empty",
+    callersOf("readTradeBoardThatDoesNotExist").length === 0);
+
+  // ---- Explore shows the real board, not the generated one --------------
+  assert("Explore reads the real trade board",
+    /readTradeBoard\(/.test(explore));
+  assert("the real board is what the cards are built from",
+    /board\.map\(\(l\) => toBoardCard\(l\)\)/.test(explore));
+  assert("and the examples only fill in when the real board is empty",
+    /board\.length > 0\s*\?[\s\S]{0,120}:\s*demoListings/.test(explore),
+    "a board that mixes real listings with generated ones is the worst of both");
+
+  // ---- signed-out visitors can see it -----------------------------------
+  //
+  // The whole point of a public board is the person who has not signed up yet.
+  assert("trade_feed is granted to anon",
+    /grant execute on function public\.trade_feed\([^)]*\) to authenticated, anon/.test(sql),
+    "a board only signed-in players can read is not discovery, it is a members' area");
+
+  // ---- the board makes no claim about the viewer ------------------------
+  assert("a board card carries no reason",
+    /export function toBoardCard/.test(match) && /reason: _omitted/.test(match));
+  assert("and the card only draws the reason line when there is one",
+    /\{listing\.reason \?/.test(card),
+    "REASON_LABEL[listing.reason] on a card with no reason is a claim about somebody's lists that nobody made");
+
+  // ---- paging cannot be turned into an attack ---------------------------
+  assert("the cursor from the query string is validated before it reaches the RPC",
+    /Number\.isNaN\(Date\.parse\(before\)\)/.test(trades));
+  assert("and the database caps the page size whatever is asked for",
+    /limit least\(coalesce\(p_limit, 30\), 100\)/.test(sql));
+}
+
+line("43. AN ITEM THE CATALOGUE CANNOT READ IS NEVER SILENTLY DROPPED");
+{
+  // -----------------------------------------------------------------------
+  // What this protects
+  // -----------------------------------------------------------------------
+  //
+  // toBoardListing() has always collected the names on a listing it could not
+  // resolve, and until now nothing rendered them. A listing whose item had
+  // been renamed or retired since it was posted therefore drew as a two-item
+  // offer when it was a three-item offer, on every surface, with no warning.
+  //
+  // On a site whose entire job is two people agreeing what changes hands, that
+  // is the most expensive bug available: both sides read the same screen and
+  // agree to different trades. Worse, suggestTrades() compared your have list
+  // against only the entries it could see, so it would call such a listing
+  // RECIPROCAL_MATCH — "You can close this today" — while it asked for
+  // something the card never mentioned.
+
+  const read = (f: string) => readFileSync(f, "utf8");
+  const NOW_ISO = "2026-09-13T12:00:00Z";
+  const NOW = Date.parse(NOW_ISO);
+
+  // ---- the verdict cannot be reached with an entry unread ---------------
+  //
+  // 'bf-not-a-real-item' resolves to nothing, exactly as a retired slug would.
+  const withGhost = toBoardListing({
+    listing_id: "ghost", game_slug: "blox-fruits",
+    user_id: "u", username: "ghosty", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-kitsune", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-not-a-real-item", customName: "Retired Fruit", quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+
+  assert("an unreadable entry is kept, not discarded",
+    withGhost.unresolved.length === 1 && withGhost.unresolved[0] === "Retired Fruit",
+    JSON.stringify(withGhost.unresolved));
+
+  const ghostly = suggestTrades(
+    [withGhost], [{ itemId: "bf-kitsune", quantity: 1 }], [{ itemId: "bf-magnet", quantity: 1 }],
+    { now: NOW },
+  )[0];
+
+  assert("the listing still surfaces — it is not hidden either",
+    ghostly !== undefined,
+    "dropping it would lose a real listing over a catalogue change");
+  assert("but it is never called closeable",
+    ghostly?.canClose === false,
+    "'You can close this today' on a listing asking for something it never showed you");
+  assert("and it is not called a reciprocal match",
+    ghostly?.reason !== "RECIPROCAL_MATCH");
+
+  // Positive control: the identical listing WITHOUT the unreadable entry must
+  // close, or the two assertions above would pass on a matcher that simply
+  // never closes anything.
+  const clean = toBoardListing({
+    listing_id: "clean", game_slug: "blox-fruits",
+    user_id: "u", username: "cleany", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-kitsune", customName: null, quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+  const good = suggestTrades(
+    [clean], [{ itemId: "bf-kitsune", quantity: 1 }], [{ itemId: "bf-magnet", quantity: 1 }],
+    { now: NOW },
+  )[0];
+  assert("and the same listing without it does close",
+    good?.canClose === true && good?.reason === "RECIPROCAL_MATCH",
+    `${good?.reason} / canClose=${good?.canClose}`);
+
+  // ---- "open to offers" means they named nothing, not that nothing loaded --
+  const allGhosts = toBoardListing({
+    listing_id: "allghost", game_slug: "blox-fruits",
+    user_id: "u", username: "g", display_name: null, avatar_url: null,
+    online: false, deals: 0, note: null,
+    created_at: NOW_ISO, bumped_at: NOW_ISO, expires_at: NOW_ISO, bumpable: false,
+    sides: [
+      { side: "offer", itemId: "bf-magnet", customName: null, quantity: 1, attributes: {} },
+      { side: "want", itemId: "bf-gone", customName: "Gone", quantity: 1, attributes: {} },
+    ],
+  } as ListingRow);
+  const g = suggestTrades(
+    [allGhosts], [], [{ itemId: "bf-magnet", quantity: 1 }], { now: NOW },
+  )[0];
+  assert("a listing whose whole want side failed to load is not 'open to offers'",
+    g?.reason !== "OPEN_TO_OFFERS",
+    "that would invite somebody to send anything they liked for it");
+
+  // ---- and every surface that draws a listing says so --------------------
+  for (const [what, file, needle] of [
+    ["the board card", "src/components/TradeListingCard.tsx", "listing.unresolved"],
+    ["the suggestion card", "src/components/SuggestionCard.tsx", "listing.unresolved"],
+    ["your own lists", "src/components/MyTradeListings.tsx", "l.unresolved"],
+  ] as const) {
+    assert(`${what} names what it could not show`, read(file).includes(needle),
+      "a card that draws fewer items than the listing holds is how two people agree to different trades");
+  }
+}
+
 // Nothing may be appended below the summary. This was not a hypothetical: the
 // summary was moved here to fix exactly that bug, and section 33 was appended
 // underneath it less than an hour later, by the same person, in the same

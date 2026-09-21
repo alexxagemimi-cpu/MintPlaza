@@ -33,9 +33,24 @@ async function rpc(name: string, args: Record<string, unknown>): Promise<BoardLi
   return (data as ListingRow[]).map(toBoardListing);
 }
 
-/** The whole active board for one game, newest bump first. */
-export async function readTradeBoard(gameSlug: string, limit = 30): Promise<BoardListing[]> {
-  return rpc("trade_feed", { p_game: gameSlug, p_limit: limit });
+/**
+ * The public board for one game, newest bump first.
+ *
+ * `before` is a bump timestamp from the last row of the previous page, which
+ * is how the board pages without an offset. An offset would skip or repeat
+ * rows every time somebody bumped a listing between two page loads — and on a
+ * board ordered by exactly that, somebody does.
+ */
+export async function readTradeBoard(
+  gameSlug: string,
+  limit = 30,
+  before?: string,
+): Promise<BoardListing[]> {
+  // Only a real timestamp is passed on. The value arrives from the query
+  // string, so it is a stranger's input reaching an RPC argument: a bad one
+  // becomes no cursor, never an error page on the busiest tab of the site.
+  const cursor = before && !Number.isNaN(Date.parse(before)) ? before : null;
+  return rpc("trade_feed", { p_game: gameSlug, p_limit: limit, p_cursor: cursor });
 }
 
 /** Your own active listings. */

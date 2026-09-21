@@ -71,6 +71,18 @@ export function MyTradeListings({
               </span>
             </p>
 
+            {/* Your own listing, with an entry this build of the catalogue
+                cannot read — an item renamed or retired since you posted it.
+                Worth telling you here above anywhere else: it is your listing,
+                everybody else sees the same gap, and you are the only person
+                who can repost it. */}
+            {l.unresolved.length > 0 && (
+              <p className="mt-1.5 text-[0.75rem] leading-relaxed text-warn">
+                Also names {l.unresolved.join(", ")}, which MintPlaza can no
+                longer show. Repost this one so traders see the full deal.
+              </p>
+            )}
+
             <div className="mt-2.5 flex items-center gap-2">
               <span className="font-mono text-[0.625rem] tracking-[0.07em] text-ink-faint">
                 {daysLeft(l.expiresAt)}

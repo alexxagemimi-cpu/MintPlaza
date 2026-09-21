@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { AnnouncementGate } from "@/components/AnnouncementGate";
+import { SITE_URL } from "@/lib/site";
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -17,6 +19,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Without this, the icon and Open Graph image in every link preview resolve
+  // against localhost:3000 — see src/lib/site.ts.
+  metadataBase: SITE_URL,
   title: {
     default: "MintPlaza — find the trade, the team, or the help you need",
     template: "%s · MintPlaza",
@@ -36,7 +41,14 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${manrope.variable} ${jetbrains.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Site-wide, and a client component on purpose: it checks storage
+            before it asks the server, so a visitor who has already closed it
+            costs no request and no page stops being prerendered. It renders
+            nothing on the panel or the legal documents. */}
+        <AnnouncementGate />
+      </body>
     </html>
   );
 }

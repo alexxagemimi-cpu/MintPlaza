@@ -4605,3 +4605,217 @@ grant execute on function public.webhook_grant_level_up(text, text, int, text, n
 
 
 
+
+/* ===========================================================================
+ * ANNOUNCEMENTS
+ * ===========================================================================
+ *
+ * One message from the owner, shown to everybody who opens the site, until it
+ * expires or they dismiss it.
+ *
+ * Two dismissal states, because they mean different things to a player:
+ *
+ *   "Okay"            — read it, close it, show it again next visit. Held in
+ *                       the browser's sessionStorage, so it never reaches here.
+ *   "Don't show again" — never show me this one. That is a decision worth
+ *                       keeping, so it is a row, and it follows the player to
+ *                       their other devices.
+ *
+ * A signed-out visitor has no row to write, so the client also records the
+ * dismissal in localStorage. That is the fallback, not the mechanism: for
+ * anybody signed in, the row is what decides.
+ * ------------------------------------------------------------------------- */
+
+create table if not exists public.announcements (
+  id          uuid primary key default gen_random_uuid(),
+  title       text not null check (char_length(btrim(title)) between 1 and 120),
+  body        text not null check (char_length(btrim(body)) between 1 and 4000),
+  -- Optional picture or clip. A URL rather than an upload: the owner already
+  -- has somewhere to put a file, and a bucket to administer is a bucket to pay
+  -- for, secure and clean up.
+  -- Length is checked separately rather than as a regex repetition: Postgres
+  -- caps those at 255, so {1,2000} is not a long URL, it is a constraint that
+  -- parses at create time and throws on every insert.
+  media_url   text check (
+                media_url is null
+                or (media_url ~ '^https://[^\s]+$' and char_length(media_url) <= 2000)),
+  media_kind  text check (media_kind is null or media_kind in ('image', 'video')),
+  -- An announcement with a picture must say which kind it is, or the client
+  -- has to guess from the extension and guesses wrong on a CDN URL.
+  constraint announcement_media_is_described
+    check ((media_url is null) = (media_kind is null)),
+  starts_at   timestamptz not null default now(),
+  expires_at  timestamptz not null,
+  constraint announcement_ends_after_it_starts check (expires_at > starts_at),
+  -- Ending one early is what the panel does instead of deleting: a deleted
+  -- announcement takes its dismissals with it, and anybody mid-read loses it
+  -- under them.
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  created_by  uuid references public.profiles(id) on delete set null
+);
+
+create index if not exists announcements_live_idx
+  on public.announcements (is_active, starts_at desc, expires_at);
+
+alter table public.announcements enable row level security;
+
+-- Readable by everyone, including signed-out visitors, but only while it is
+-- actually running. An announcement that has expired or been pulled is not
+-- "hidden by the interface" — it is not served at all, so there is nothing to
+-- read out of a network tab.
+drop policy if exists announcements_read_live on public.announcements;
+create policy announcements_read_live on public.announcements for select
+  using (is_active and now() >= starts_at and now() < expires_at);
+
+-- No insert, update or delete policy of any kind. Writing is the owner's,
+-- through the SECURITY DEFINER functions below, which check is_admin()
+-- themselves. A table with no write policy refuses every write from anon and
+-- authenticated regardless of what the application sends.
+
+create table if not exists public.announcement_dismissals (
+  announcement_id uuid not null references public.announcements(id) on delete cascade,
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  dismissed_at    timestamptz not null default now(),
+  primary key (announcement_id, user_id)
+);
+
+alter table public.announcement_dismissals enable row level security;
+
+drop policy if exists dismissals_own on public.announcement_dismissals;
+create policy dismissals_own on public.announcement_dismissals for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+/**
+ * The one announcement to show this viewer, or nothing.
+ *
+ * SECURITY DEFINER so a signed-out visitor gets an answer too: the policy above
+ * already limits this to a live announcement, and the dismissal check is a
+ * no-op when there is nobody to have dismissed it.
+ *
+ * Newest first, and exactly one. Two announcements stacked on top of each other
+ * is not a feature, it is a thing nobody closes.
+ */
+create or replace function public.live_announcement()
+returns table (
+  id uuid, title text, body text,
+  media_url text, media_kind text, expires_at timestamptz
+)
+language sql stable security definer set search_path = public, pg_catalog as $$
+  select a.id, a.title, a.body, a.media_url, a.media_kind, a.expires_at
+    from public.announcements a
+   where a.is_active
+     and now() >= a.starts_at
+     and now() <  a.expires_at
+     and not exists (
+       select 1 from public.announcement_dismissals d
+        where d.announcement_id = a.id
+          and d.user_id = auth.uid())
+   order by a.starts_at desc
+   limit 1;
+$$;
+
+revoke all on function public.live_announcement() from public;
+grant execute on function public.live_announcement() to anon, authenticated;
+
+/** "Don't show again", for somebody who is signed in. */
+create or replace function public.dismiss_announcement(p_announcement uuid)
+returns void
+language sql security definer set search_path = public, pg_catalog as $$
+  insert into public.announcement_dismissals (announcement_id, user_id)
+  select p_announcement, auth.uid()
+   where auth.uid() is not null
+  on conflict do nothing;
+$$;
+
+revoke all on function public.dismiss_announcement(uuid) from public, anon;
+grant execute on function public.dismiss_announcement(uuid) to authenticated;
+
+/**
+ * Post an announcement, or edit one.
+ *
+ * Days rather than a date, because that is the question the owner is actually
+ * answering — "how long should this be up" — and a date picker on a phone at
+ * midnight is how an announcement ends up expiring yesterday.
+ */
+create or replace function public.admin_save_announcement(
+  p_id uuid, p_title text, p_body text,
+  p_media_url text, p_media_kind text, p_days int
+)
+returns uuid
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_id uuid; v_days int;
+begin
+  perform mintplaza.require_admin();
+
+  -- One day to a year. Zero would post something already expired; the cap is
+  -- there because "3650" is a typo, not a plan.
+  v_days := greatest(1, least(365, coalesce(p_days, 7)));
+
+  if p_id is null then
+    insert into public.announcements (title, body, media_url, media_kind, expires_at, created_by)
+    values (btrim(p_title), btrim(p_body),
+            nullif(btrim(coalesce(p_media_url, '')), ''),
+            nullif(btrim(coalesce(p_media_kind, '')), ''),
+            now() + make_interval(days => v_days), auth.uid())
+    returning id into v_id;
+  else
+    update public.announcements set
+      title      = btrim(p_title),
+      body       = btrim(p_body),
+      media_url  = nullif(btrim(coalesce(p_media_url, '')), ''),
+      media_kind = nullif(btrim(coalesce(p_media_kind, '')), ''),
+      -- Editing restarts the clock from now, which is what "make it run for
+      -- five days" means when you are looking at it on day three.
+      starts_at  = least(starts_at, now()),
+      expires_at = now() + make_interval(days => v_days)
+     where id = p_id
+    returning id into v_id;
+  end if;
+
+  return v_id;
+end $$;
+
+revoke all on function public.admin_save_announcement(uuid, text, text, text, text, int)
+  from public, anon;
+grant execute on function public.admin_save_announcement(uuid, text, text, text, text, int)
+  to authenticated;
+
+/** Pull one down early, or put it back up. */
+create or replace function public.admin_set_announcement_active(p_id uuid, p_active boolean)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  update public.announcements set is_active = coalesce(p_active, false) where id = p_id;
+end $$;
+
+revoke all on function public.admin_set_announcement_active(uuid, boolean) from public, anon;
+grant execute on function public.admin_set_announcement_active(uuid, boolean) to authenticated;
+
+/**
+ * Every announcement, for the panel — including expired and pulled ones, which
+ * the read policy above deliberately hides from everybody else.
+ */
+create or replace function public.admin_announcements()
+returns table (
+  id uuid, title text, body text, media_url text, media_kind text,
+  starts_at timestamptz, expires_at timestamptz, is_active boolean,
+  created_at timestamptz, dismissals bigint, live boolean
+)
+language plpgsql stable security definer set search_path = public, pg_catalog as $$
+begin
+  perform mintplaza.require_admin();
+  return query
+  select a.id, a.title, a.body, a.media_url, a.media_kind,
+         a.starts_at, a.expires_at, a.is_active, a.created_at,
+         (select count(*) from public.announcement_dismissals d
+           where d.announcement_id = a.id) as dismissals,
+         (a.is_active and now() >= a.starts_at and now() < a.expires_at) as live
+    from public.announcements a
+   order by a.created_at desc
+   limit 50;
+end $$;
+
+revoke all on function public.admin_announcements() from public, anon;
+grant execute on function public.admin_announcements() to authenticated;

@@ -669,3 +669,107 @@ export async function revokeLevelUp(username: string): Promise<ActionResult> {
   revalidatePath("/app", "layout");
   return { ok: true };
 }
+
+/* ---------------------------------------------------------------------------
+ * Announcements
+ * ------------------------------------------------------------------------- */
+
+export interface AnnouncementRow {
+  id: string;
+  title: string;
+  body: string;
+  media_url: string | null;
+  media_kind: "image" | "video" | null;
+  starts_at: string;
+  expires_at: string;
+  is_active: boolean;
+  created_at: string;
+  dismissals: number;
+  live: boolean;
+}
+
+/** Everything ever posted, including expired and pulled. Newest first. */
+export async function listAnnouncements(): Promise<AnnouncementRow[]> {
+  if (!(await isAdmin())) return [];
+  const supabase = await serverSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase.rpc("admin_announcements");
+  if (error || !data) return [];
+  return data as AnnouncementRow[];
+}
+
+/**
+ * Post a new announcement, or edit one that is already up.
+ *
+ * Days rather than a date, because that is the question being answered — "how
+ * long should this stay up" — and editing restarts the clock, which is what
+ * "make it run another week" means when you are looking at it on day three.
+ *
+ * The URL is checked here as well as by the database. Two checks on the one
+ * value that becomes the `src` of a tag every visitor loads is not redundancy
+ * worth trimming.
+ */
+export async function saveAnnouncement(input: {
+  id?: string;
+  title: string;
+  body: string;
+  mediaUrl?: string;
+  mediaKind?: "image" | "video" | "";
+  days: number;
+}): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const title = input.title.trim();
+  const body = input.body.trim();
+  if (!title) return { ok: false, error: "Give it a title." };
+  if (title.length > 120) return { ok: false, error: "Title is over 120 characters." };
+  if (!body) return { ok: false, error: "Say something in the description." };
+  if (body.length > 4000) return { ok: false, error: "Description is over 4000 characters." };
+
+  const url = (input.mediaUrl ?? "").trim();
+  const kind = input.mediaKind || "";
+  if (url && !/^https:\/\/\S+$/.test(url)) {
+    return { ok: false, error: "The attachment link must start with https:// and have no spaces." };
+  }
+  if (url && !kind) return { ok: false, error: "Say whether the attachment is a photo or a video." };
+  if (kind && !url) return { ok: false, error: "Paste the link to the photo or video, or clear the type." };
+
+  const days = Math.round(Number(input.days));
+  if (!Number.isFinite(days) || days < 1) return { ok: false, error: "How many days? One or more." };
+  if (days > 365) return { ok: false, error: "A year is the longest an announcement can run." };
+
+  const { data, error } = await supabase.rpc("admin_save_announcement", {
+    p_id: input.id ?? null,
+    p_title: title,
+    p_body: body,
+    p_media_url: url || null,
+    p_media_kind: url ? kind : null,
+    p_days: days,
+  });
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  return { ok: true, id: data as string };
+}
+
+/** Pull one down early, or put it back up. Never deletes: a deleted
+ *  announcement takes every "don't show again" with it, so everybody who had
+ *  already put it away would be shown it again by a later one reusing the id. */
+export async function setAnnouncementActive(
+  id: string,
+  active: boolean,
+): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Not found." };
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "No database configured." };
+
+  const { error } = await supabase.rpc("admin_set_announcement_active", {
+    p_id: id, p_active: active,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  return { ok: true, id };
+}
