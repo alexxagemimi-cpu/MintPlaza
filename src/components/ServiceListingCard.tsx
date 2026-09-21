@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { findItem } from "@/lib/items";
 import {
   findRef, listingState, timeLeftCopy, expiresAt,
@@ -15,7 +16,8 @@ import { CommentThread } from "./CommentThread";
 import { ReportButton } from "./ReportButton";
 import { RefTile } from "./RefTile";
 import { ServiceArt } from "./ServiceArt";
-import { toggleVote, sendRequest, lockIn, deleteListing } from "@/lib/actions/board";
+import { toggleVote, sendRequest, finalizeDeal, deleteListing } from "@/lib/actions/board";
+import { showRewardedAd, REWARDED_ADS_ON } from "@/lib/ads";
 
 /**
  * One listing on the Raids & Services board.
@@ -34,6 +36,38 @@ import { toggleVote, sendRequest, lockIn, deleteListing } from "@/lib/actions/bo
  * board of strangers, seeing three people already interested and thirty-eight
  * more behind them is faster than any number.
  */
+
+/**
+ * What the host sees the moment a deal finalises.
+ *
+ * It replaces "Locked in with 3" rather than sitting beside it, because the
+ * only thing that matters now is that a party exists and where it is. A player
+ * who finalises and is told nothing goes looking for the people they just
+ * recruited, by username, one at a time — which is the gap this whole flow was
+ * built to close.
+ */
+function DealDone({ party }: {
+  party: { id: string; title: string; memberCount: number };
+}) {
+  return (
+    <div className="w-full rounded-[var(--radius-inner)] border border-mint/30 bg-mint-wash p-4">
+      <p className="text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
+        Deal finalised
+      </p>
+      <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-ink-mute">
+        {party.title} is open with {party.memberCount}{" "}
+        {party.memberCount === 1 ? "player" : "players"} in it. Everyone who
+        said yes is already there.
+      </p>
+      <Link
+        href={`/messages/${party.id}`}
+        className="pill pill-mint mt-3 inline-flex py-1.5 text-[0.8125rem]"
+      >
+        Open the party
+      </Link>
+    </div>
+  );
+}
 
 function Avatar({ name, url }: { name: string; url?: string }) {
   let h = 0;
@@ -76,6 +110,9 @@ export function ServiceListingCard({
   const [stage, setStage] = useState(listing.stage);
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
+  const [adPlaying, setAdPlaying] = useState(false);
+  /** Set once the deal is finalised, so the card can show where the party is. */
+  const [party, setParty] = useState<{ id: string; title: string; memberCount: number } | null>(null);
 
   const findTemplate = useFindTemplate();
   const reference = findRef(listing.serviceIds, listing.refId);
@@ -156,14 +193,30 @@ export function ServiceListingCard({
     });
   }
 
-  function onLockIn() {
+  /**
+   * Finalise: watch the ad if there is one, then lock it in and open the party.
+   *
+   * The stage is NOT moved optimistically here, unlike every other action on
+   * this card. Finalising is the one irreversible step — it opens a group chat
+   * and tells several people the deal is on — so the card waits for the server
+   * to say it happened rather than showing "locked" and rolling back.
+   *
+   * The ad cannot block it. See src/lib/ads.ts: by this point five people are
+   * waiting on one tap, and a blocked ad script must not be what strands them.
+   */
+  function onFinalize() {
     setError(null);
-    const before = stage;
-    setStage("locked");
-    if (listing.isDemo) return;
+    if (listing.isDemo) { setStage("locked"); return; }
+
     start(async () => {
-      const result = await lockIn(listing.id);
-      if (!result.ok) { setStage(before); setError(result.error); }
+      if (REWARDED_ADS_ON) setAdPlaying(true);
+      const outcome = REWARDED_ADS_ON ? await showRewardedAd() : "unavailable";
+      setAdPlaying(false);
+
+      const result = await finalizeDeal(listing.id, outcome === "shown");
+      if (!result.ok) { setError(result.error); return; }
+      setStage("locked");
+      if (result.party) setParty(result.party);
     });
   }
 
@@ -490,23 +543,29 @@ export function ServiceListingCard({
                 </button>
                 <button
                   type="button"
-                  onClick={onLockIn}
-                  disabled={agreed.length === 0}
+                  onClick={onFinalize}
+                  disabled={agreed.length === 0 || busy}
                   className="pill pill-mint py-2 text-[0.8125rem] disabled:opacity-40"
                   title={
                     agreed.length === 0
                       ? "Nobody has said yes yet"
-                      : `Lock it in with ${agreed.length}`
+                      : `Finalise with ${agreed.length}`
                   }
                 >
-                  Lock it in{agreed.length > 0 && ` · ${agreed.length}`}
+                  {adPlaying
+                    ? "Advert\u2026"
+                    : busy
+                      ? "Finalising\u2026"
+                      : `Finalise deal${agreed.length > 0 ? ` \u00b7 ${agreed.length}` : ""}`}
                 </button>
               </>
             )}
             {stage === "locked" && (
-              <p className="text-[0.8125rem] font-semibold text-mint">
-                Locked in with {agreed.length}. This closes when the two hours are up.
-              </p>
+              party ? <DealDone party={party} /> : (
+                <p className="text-[0.8125rem] font-semibold text-mint">
+                  Locked in with {agreed.length}. This closes when the two hours are up.
+                </p>
+              )
             )}
             <button
               type="button"

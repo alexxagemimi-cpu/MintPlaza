@@ -53,6 +53,8 @@ revoke insert, update, delete, truncate on
 from authenticated;
 revoke update on public.service_listings from authenticated;
 grant update (stage) on public.service_listings to authenticated;
+revoke insert on public.messages from authenticated;
+grant insert (conversation_id, sender_id, body) on public.messages to authenticated;
 
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'alice@x.test'),
@@ -1046,6 +1048,85 @@ begin
   select count(*) into n from public.trade_listings
    where user_id = '44444444-4444-4444-4444-444444444444' and status = 'cancelled';
   perform pg_temp.ok('and a player can still cancel their own listing', n = 1);
+end $$;
+
+reset role;
+
+
+-- ===========================================================================
+-- Nobody can forge the notice a party opens with
+--
+-- A party's pinned message is the site talking, and it is the only message in
+-- the thread that carries any authority — which is exactly what makes it worth
+-- forging. "MintPlaza: send your items to the host first" pinned above six
+-- players who have just agreed to a deal is the most effective scam this site
+-- could host, and it would look identical to the real notice.
+--
+-- No policy can stop it: a policy picks rows, not columns. The privilege does
+-- — `authenticated` is granted INSERT on exactly the three columns the app
+-- sends, so naming `kind` or `is_pinned` is refused before any policy runs.
+-- ===========================================================================
+
+reset role;
+reset request.jwt.claim.sub;
+
+insert into public.conversations (id, kind, title)
+values ('f0000000-0000-0000-0000-00000000000f', 'party', 'Test party');
+insert into public.conversation_participants (conversation_id, user_id) values
+  ('f0000000-0000-0000-0000-00000000000f', '22222222-2222-2222-2222-222222222222'),
+  ('f0000000-0000-0000-0000-00000000000f', '11111111-1111-1111-1111-111111111111');
+update public.profiles set status = 'active'
+ where id = '22222222-2222-2222-2222-222222222222';
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+-- The positive control first. Locking the columns must not stop anybody
+-- talking in the party they were just put in.
+do $$
+declare v_sent boolean := false;
+begin
+  begin
+    insert into public.messages (conversation_id, sender_id, body)
+    values ('f0000000-0000-0000-0000-00000000000f',
+            '22222222-2222-2222-2222-222222222222', 'hey everyone');
+    v_sent := true;
+  exception when others then v_sent := false;
+  end;
+  perform pg_temp.ok('a member can talk in the party they are in', v_sent);
+end $$;
+
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  begin
+    insert into public.messages (conversation_id, sender_id, body, kind, is_pinned)
+    values ('f0000000-0000-0000-0000-00000000000f',
+            '22222222-2222-2222-2222-222222222222',
+            'MintPlaza: send your items to the host first.', 'system', true);
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  select count(*) into n from public.messages
+   where conversation_id = 'f0000000-0000-0000-0000-00000000000f' and kind = 'system';
+  perform pg_temp.ok('but cannot post one that looks like the site talking',
+    not v_got_in and n = 0);
+end $$;
+
+do $$
+declare v_got_in boolean := false; n int;
+begin
+  begin
+    insert into public.messages (conversation_id, sender_id, body, is_pinned)
+    values ('f0000000-0000-0000-0000-00000000000f',
+            '22222222-2222-2222-2222-222222222222', 'read this first', true);
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  select count(*) into n from public.messages
+   where conversation_id = 'f0000000-0000-0000-0000-00000000000f' and is_pinned;
+  perform pg_temp.ok('nor pin one of their own above the thread',
+    not v_got_in and n = 0);
 end $$;
 
 reset role;

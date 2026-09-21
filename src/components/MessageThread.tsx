@@ -60,7 +60,12 @@ export function MessageThread({
   const [busy, start] = useTransition();
   const foot = useRef<HTMLDivElement>(null);
 
+  const isParty = thread.kind === "party";
   const them = thread.other.username ?? "this player";
+  // A party names itself; a direct message is named after the other person.
+  const heading = isParty
+    ? (thread.title ?? "Party")
+    : (thread.other.display_name || them);
 
   // Mark read on open. Deliberately not on every keystroke or scroll: the
   // question "have they seen it" is answered by the thread being opened, and
@@ -117,9 +122,13 @@ export function MessageThread({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-[0.9375rem] font-bold tracking-[-0.02em] text-ink">
-            {thread.other.display_name || them}
+            {heading}
           </p>
-          {thread.other.online && (
+          {isParty ? (
+            <p className="truncate text-[0.6875rem] font-semibold text-ink-mute">
+              {thread.members.map((m) => (m.is_me ? "You" : m.username)).join(", ")}
+            </p>
+          ) : thread.other.online && (
             <p className="flex items-center gap-1.5 text-[0.6875rem] font-semibold text-mint">
               <span className="h-1.5 w-1.5 rounded-full bg-mint-vivid" />
               Online
@@ -132,6 +141,19 @@ export function MessageThread({
             where it can name the thing being reported. */}
       </header>
 
+      {/* ---- what the party opened with ----
+          Kept out of the scroll rather than sitting as the first message,
+          because it is the one thing in here that should still be readable on
+          day three when the chat is two hundred lines long. */}
+      {thread.pinned && (
+        <div className="mt-3 rounded-[var(--radius-inner)] border border-mint/30 bg-mint-wash p-3.5">
+          <p className="label mb-1.5 text-mint">Pinned</p>
+          <p className="whitespace-pre-line text-[0.8125rem] leading-relaxed text-ink-soft">
+            {thread.pinned.body}
+          </p>
+        </div>
+      )}
+
       {/* ---- the conversation ---- */}
       <div className="flex-1 py-4">
         {thread.messages.length === 0 ? (
@@ -141,7 +163,7 @@ export function MessageThread({
         ) : (
           <ul className="grid gap-2">
             {thread.messages.map((m) => (
-              <Bubble key={m.id} message={m} />
+              <Bubble key={m.id} message={m} showSender={isParty} />
             ))}
           </ul>
         )}
@@ -204,9 +226,31 @@ export function MessageThread({
  * renders as the characters somebody typed. This is the whole XSS story for
  * this screen, and it is one line because that is the correct size for it.
  */
-function Bubble({ message }: { message: ThreadMessage }) {
+function Bubble({ message, showSender }: {
+  message: ThreadMessage;
+  /**
+   * True in a party. A direct message has one other person, named in the
+   * header, so repeating it over every bubble is noise — but in a group of six
+   * an unattributed line is the shape every impersonation takes.
+   */
+  showSender?: boolean;
+}) {
   const [reported, setReported] = useState(false);
   const [busy, start] = useTransition();
+
+  // The notice a party opened with. It is the site talking, so it is not drawn
+  // as a bubble from whoever's id happens to be on the row — that would put
+  // words in the host's mouth, and they are the person everybody here is
+  // deciding whether to trust.
+  if (message.kind === "system") {
+    return (
+      <li className="my-1 px-2">
+        <p className="whitespace-pre-line text-center text-[0.75rem] leading-relaxed text-ink-faint">
+          {message.body}
+        </p>
+      </li>
+    );
+  }
 
   return (
     <li
@@ -222,6 +266,11 @@ function Bubble({ message }: { message: ThreadMessage }) {
               : "rounded-bl-[5px] bg-fill text-ink"
           }`}
         >
+          {showSender && !message.mine && message.sender_username && (
+            <p className="mb-0.5 text-[0.6875rem] font-bold text-mint">
+              {message.sender_display_name || message.sender_username}
+            </p>
+          )}
           <p className="whitespace-pre-wrap break-words text-[0.9375rem] leading-relaxed">
             {message.body}
           </p>

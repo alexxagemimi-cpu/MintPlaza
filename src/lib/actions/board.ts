@@ -256,23 +256,44 @@ export async function answerRequest(
  * deal hostage to the one person who wandered off while the people who did say
  * yes sit there ready to go.
  */
-export async function lockIn(listingId: string): Promise<Result> {
+/**
+ * Finalise the deal: lock the post, and open the party.
+ *
+ * One call, because these are one event. The old version only moved the stage
+ * and left everybody who had just agreed with no way to reach each other —
+ * they had said yes to a raid and then had to go and find each other by name.
+ *
+ * `adShown` is reported by the page, not trusted for anything. It decides
+ * nothing: the deal finalises either way, and this is recorded so the number
+ * of ads actually shown can be counted separately from the number of deals.
+ * See src/lib/ads.ts for why it cannot be a requirement.
+ */
+export async function finalizeDeal(
+  listingId: string,
+  adShown: boolean,
+): Promise<Result & { party?: { id: string; title: string; memberCount: number } }> {
   const a = await actor();
   if (!a) return fail("Sign in first.");
 
-  const { count } = await a.supabase
-    .from("service_picks")
-    .select("user_id", { count: "exact", head: true })
-    .eq("listing_id", listingId)
-    .eq("reply", "agreed");
+  const { data, error } = await a.supabase.rpc("finalize_deal", {
+    p_listing: listingId,
+    p_ad_shown: adShown,
+  });
+  // finalize_deal raises P0001 with messages written to be read by a player
+  // ("Nobody has said yes yet."), so those pass through. The prefix Postgres
+  // puts in front of them does not.
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
 
-  if (!count) return fail("Nobody has said yes yet.");
+  const row = data as {
+    conversation_id: string; title: string; member_count: number;
+  } | null;
+  if (!row) return fail("That did not finalise. Try again.");
 
-  const { error } = await a.supabase
-    .from("service_listings").update({ stage: "locked" }).eq("id", listingId);
-  if (error) return fail(error.message);
   refresh();
-  return { ok: true };
+  return {
+    ok: true,
+    party: { id: row.conversation_id, title: row.title, memberCount: row.member_count },
+  };
 }
 
 /**

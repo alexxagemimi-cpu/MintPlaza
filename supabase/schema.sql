@@ -4497,10 +4497,24 @@ declare v jsonb; v_me uuid := auth.uid();
 begin
   if v_me is null then return '[]'::jsonb; end if;
 
+  -- One row per CONVERSATION.
+  --
+  -- This used to join conversation_participants a second time on
+  -- `user_id <> me` and read the name off it, which is only ever one row while
+  -- every conversation holds exactly two people. A party of five produced four
+  -- rows — the same chat listed four times in the inbox, under a different
+  -- member's name each time, with the same unread badge on all of them.
+  --
+  -- So the other person is now a lateral lookup that cannot multiply the outer
+  -- row, and it is only consulted for a direct message. A party titles itself.
   select coalesce(jsonb_agg(x order by x->>'last_message_at' desc), '[]'::jsonb) into v
   from (
     select jsonb_build_object(
       'id', c.id,
+      'kind', c.kind,
+      'title', c.title,
+      'member_count', (select count(*) from public.conversation_participants p
+                        where p.conversation_id = c.id),
       'last_message_at', c.last_message_at,
       'listing_id', c.listing_id,
       'other_username', o.username,
@@ -4526,9 +4540,14 @@ begin
     from public.conversations c
     join public.conversation_participants me
       on me.conversation_id = c.id and me.user_id = v_me
-    join public.conversation_participants them
-      on them.conversation_id = c.id and them.user_id <> v_me
-    join public.profiles o on o.id = them.user_id
+    left join lateral (
+      select pr.username, pr.display_name, pr.avatar_url,
+             pr.hide_presence, pr.last_seen_at
+      from public.conversation_participants them
+      join public.profiles pr on pr.id = them.user_id
+      where them.conversation_id = c.id and them.user_id <> v_me
+      limit 1
+    ) o on c.kind = 'direct'
     order by c.last_message_at desc
     limit 200
   ) q;
@@ -4541,7 +4560,8 @@ end $$;
 create or replace function public.conversation_thread(p_conversation uuid)
 returns jsonb language plpgsql stable security definer
 set search_path = public, pg_catalog as $$
-declare v jsonb; v_other jsonb; v_me uuid := auth.uid();
+declare v jsonb; v_other jsonb; v_members jsonb; v_pinned jsonb;
+        v_kind text; v_title text; v_me uuid := auth.uid();
 begin
   if v_me is null then
     raise exception 'Sign in first.' using errcode = 'P0001';
@@ -4554,33 +4574,78 @@ begin
     raise exception 'No such conversation.' using errcode = 'P0001';
   end if;
 
-  select jsonb_build_object(
-    'username', o.username,
-    'display_name', o.display_name,
-    'avatar_url', o.avatar_url,
-    'online', (not coalesce(o.hide_presence, false))
-              and o.last_seen_at > now() - interval '5 minutes'
-  ) into v_other
+  -- Who else is here.
+  --
+  -- A direct message has exactly one other person and the screen titles itself
+  -- with their name. A party has several and titles itself with its own, so
+  -- `other` is left empty rather than picking one of five arbitrarily and
+  -- labelling the whole chat with them.
+  select kind, title into v_kind, v_title
+    from public.conversations where id = p_conversation;
+
+  if v_kind = 'direct' then
+    select jsonb_build_object(
+      'username', o.username,
+      'display_name', o.display_name,
+      'avatar_url', o.avatar_url,
+      'online', (not coalesce(o.hide_presence, false))
+                and o.last_seen_at > now() - interval '5 minutes'
+    ) into v_other
+    from public.conversation_participants p
+    join public.profiles o on o.id = p.user_id
+    where p.conversation_id = p_conversation and p.user_id <> v_me
+    limit 1;
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'username', o.username,
+           'display_name', o.display_name,
+           'avatar_url', o.avatar_url,
+           'is_me', o.id = v_me
+         ) order by (o.id = v_me) desc, o.username), '[]'::jsonb)
+    into v_members
   from public.conversation_participants p
   join public.profiles o on o.id = p.user_id
-  where p.conversation_id = p_conversation and p.user_id <> v_me
-  limit 1;
+  where p.conversation_id = p_conversation;
 
+  -- The notice the party opened with, read separately so it can stay at the
+  -- top of the screen once the chat has scrolled past it.
+  select jsonb_build_object('id', m.id, 'body', m.body, 'created_at', m.created_at)
+    into v_pinned
+  from public.messages m
+  where m.conversation_id = p_conversation and m.is_pinned and m.status = 'visible'
+  order by m.created_at limit 1;
+
+  -- Every message carries its sender. In a direct message the screen knows who
+  -- "not me" is; in a party it does not, and an unattributed line in a group of
+  -- six is the shape every impersonation takes.
   select coalesce(jsonb_agg(x order by x->>'created_at'), '[]'::jsonb) into v
   from (
     select jsonb_build_object(
       'id', m.id,
       'body', m.body,
       'created_at', m.created_at,
-      'mine', m.sender_id = v_me
+      'mine', m.sender_id = v_me,
+      'kind', m.kind,
+      'pinned', m.is_pinned,
+      'sender_username', s.username,
+      'sender_display_name', s.display_name,
+      'sender_avatar_url', s.avatar_url
     ) x
     from public.messages m
+    join public.profiles s on s.id = m.sender_id
     where m.conversation_id = p_conversation and m.status = 'visible'
     order by m.created_at desc
     limit 200
   ) q;
 
-  return jsonb_build_object('other', coalesce(v_other, '{}'::jsonb), 'messages', v);
+  return jsonb_build_object(
+    'kind', coalesce(v_kind, 'direct'),
+    'title', v_title,
+    'other', coalesce(v_other, '{}'::jsonb),
+    'members', coalesce(v_members, '[]'::jsonb),
+    'pinned', v_pinned,
+    'messages', v);
 end $$;
 
 
@@ -4936,6 +5001,246 @@ grant execute on function public.admin_announcements() to authenticated;
 
 -- ===========================================================================
 -- ===========================================================================
+-- Parties — the group chat a finalised deal opens
+--
+-- ---------------------------------------------------------------------------
+-- Why this is the same table as a direct message
+-- ---------------------------------------------------------------------------
+--
+-- `conversations` + `conversation_participants` was already an N-party model:
+-- a conversation is a row, and everybody in it is a row in the join table.
+-- Nothing about it assumed two people except the functions that READ it, and
+-- those assumed it hard — see my_conversations() below, which joined one row
+-- per other participant and would have listed a party of five in the inbox
+-- four times, each under a different member's name.
+--
+-- So a party is not a new kind of object. It is a conversation with a name, a
+-- known size, and the listing it came out of.
+-- ===========================================================================
+-- ===========================================================================
+
+alter table public.conversations
+  add column if not exists kind  text not null default 'direct',
+  add column if not exists title text,
+  -- Which recruitment post opened it. `listing_id` above is a TRADE listing
+  -- and means something else; a party comes from the service board. Separate
+  -- columns because they point at different tables and a single nullable one
+  -- would have to be read with a second field saying which it meant.
+  add column if not exists service_listing_id uuid;
+
+do $$ begin
+  alter table public.conversations
+    add constraint conversations_party_listing_fk
+    foreign key (service_listing_id) references public.service_listings(id)
+    on delete set null;
+exception when duplicate_object then null; end $$;
+
+select mintplaza.add_check('public.conversations', 'conversations_kind_known',
+  $c$kind in ('direct','party')$c$);
+select mintplaza.add_check('public.conversations', 'conversations_title_length',
+  $c$title is null or char_length(title) between 1 and 120$c$);
+
+-- A party has exactly one of these open at a time, so finalising twice cannot
+-- leave two chats with the same people in them wondering which is live.
+create unique index if not exists conversations_one_party_per_listing
+  on public.conversations (service_listing_id) where kind = 'party';
+
+-- ---------------------------------------------------------------------------
+-- The pinned notice, and why a player must not be able to write one
+-- ---------------------------------------------------------------------------
+--
+-- A party opens with a pinned message at the top. It is posted by the site,
+-- not by a person, and it is the one message in the thread that carries any
+-- authority — which is exactly what makes it worth forging. "MintPlaza says:
+-- send your items first and the host will send back" pinned above a group of
+-- six is the most effective scam this site could host.
+--
+-- The trigger below cannot tell the difference: auth.uid() is the same inside
+-- a SECURITY DEFINER function as outside it. Column privileges can. The
+-- application only ever inserts conversation_id, sender_id and body, so
+-- `authenticated` is granted those three columns and no others — a player
+-- naming `kind` or `is_pinned` in an INSERT is refused by Postgres before any
+-- policy runs, and the defaults stand.
+alter table public.messages
+  add column if not exists kind      text not null default 'chat',
+  add column if not exists is_pinned boolean not null default false;
+
+select mintplaza.add_check('public.messages', 'messages_kind_known',
+  $c$kind in ('chat','system')$c$);
+
+create index if not exists messages_pinned_idx
+  on public.messages (conversation_id) where is_pinned;
+
+-- A system message is the site talking, so it does not spend the poster's
+-- daily allowance. Without this, opening a party would charge the host for a
+-- message they did not write — and a host who had been chatting all day would
+-- have the party open with no notice in it at all.
+create or replace function public.enforce_message_rate()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_minute int; v_day int;
+begin
+  if new.kind = 'system' then
+    new.created_at := now();
+    new.status     := 'visible';
+    new.edited_at  := null;
+    return new;
+  end if;
+
+  select count(*) into v_minute from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '1 minute';
+  if v_minute >= mintplaza.messages_per_minute() then
+    raise exception 'You are sending messages too quickly.'
+      using errcode = 'P0001', hint = 'Wait a moment and try again.';
+  end if;
+
+  select count(*) into v_day from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '24 hours';
+  if v_day >= mintplaza.messages_per_day() then
+    raise exception 'You have sent as many messages as one day allows.'
+      using errcode = 'P0001';
+  end if;
+
+  -- The server owns the clock and the status. A client that set created_at
+  -- could sit outside its own rate window forever, and one that set status
+  -- could post a message already marked hidden from moderation.
+  new.created_at := now();
+  new.status     := 'visible';
+  new.edited_at  := null;
+  return new;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- What the pinned notice says
+-- ---------------------------------------------------------------------------
+--
+-- In a function rather than written into finalize_deal, so there is one place
+-- to change it and no chance of two parties opening with different text.
+--
+-- It is not a parameter. If the caller passed the text, a player calling the
+-- RPC directly would choose what the site appears to say to five people who
+-- just agreed to trade with them.
+--
+-- The safety line is not padding. Every one of these deals needs a private
+-- server, "free private server" is the single most common bait in Roblox
+-- scams, and the people reading this are thirteen.
+create or replace function mintplaza.party_pinned_message() returns text
+language sql immutable as $$
+  select
+    'Welcome — this chat opened because the deal was finalised. Everyone here said yes to it.' || E'\n\n' ||
+    'Need a private server? Beebom keeps up-to-date lists of free private server links for most Roblox games — search "Beebom free private server" and your game name.' || E'\n\n' ||
+    'Two rules that keep this fun: nobody pays real money or Robux for a private server link, and nobody sends items, passwords or logins first. If somebody in here asks for any of that, use Report and leave.'
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Finalising a deal
+--
+-- One function, because these five things are one event: the stage moves, the
+-- party opens, everybody who agreed is put in it, the notice is pinned, and
+-- the post records that it happened. Half of that having run is not a state
+-- the site has a screen for.
+--
+-- Idempotent on purpose. The finalise button sits behind an ad, and an ad is
+-- the least reliable thing on any page — it times out, it is blocked, the tab
+-- is backgrounded, the player taps twice. Every one of those ends in a retry,
+-- and a retry must land the player in the party that already exists rather
+-- than opening a second one with the same six people in it.
+-- ---------------------------------------------------------------------------
+
+alter table public.service_listings
+  add column if not exists finalized_at       timestamptz,
+  add column if not exists finalize_ad_shown  boolean not null default false;
+
+create or replace function public.finalize_deal(
+  p_listing   uuid,
+  p_ad_shown  boolean default false
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_me      uuid := auth.uid();
+  v_author  uuid;
+  v_game    text;
+  v_short   text;
+  v_conv    uuid;
+  v_agreed  int;
+  v_members int;
+  v_title   text;
+begin
+  if v_me is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+
+  select author_id, game_slug into v_author, v_game
+    from public.service_listings where id = p_listing;
+  if v_author is null then
+    raise exception 'That post no longer exists.' using errcode = 'P0001';
+  end if;
+  if v_author <> v_me then
+    raise exception 'Only the player who posted this can finalise it.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Already done. Hand back the same party rather than refusing, because the
+  -- caller retrying is the normal case here, not an error.
+  select id, title into v_conv, v_title from public.conversations
+   where service_listing_id = p_listing and kind = 'party';
+  if v_conv is not null then
+    select count(*) into v_members from public.conversation_participants
+     where conversation_id = v_conv;
+    return jsonb_build_object('conversation_id', v_conv, 'title', v_title,
+                              'member_count', v_members, 'already_open', true);
+  end if;
+
+  select count(*) into v_agreed from public.service_picks
+   where listing_id = p_listing and reply = 'agreed';
+  if v_agreed = 0 then
+    raise exception 'Nobody has said yes yet.'
+      using errcode = 'P0001',
+            hint = 'Wait for the players you picked to agree, then finalise.';
+  end if;
+
+  select short_name into v_short from public.games where slug = v_game;
+  v_title := left(coalesce(v_short, 'MintPlaza') || ' · '
+                  || (v_agreed + 1) || ' players', 120);
+
+  insert into public.conversations (kind, title, service_listing_id)
+  values ('party', v_title, p_listing)
+  returning id into v_conv;
+
+  -- The host and everybody who agreed. The host is in it by definition: a
+  -- party they opened and cannot speak in would be a bug with a screen.
+  insert into public.conversation_participants (conversation_id, user_id)
+  select v_conv, v_me
+  union
+  select v_conv, sp.user_id
+    from public.service_picks sp
+   where sp.listing_id = p_listing and sp.reply = 'agreed'
+  on conflict do nothing;
+
+  insert into public.messages (conversation_id, sender_id, body, kind, is_pinned)
+  values (v_conv, v_me, mintplaza.party_pinned_message(), 'system', true);
+
+  update public.service_listings
+     set stage = 'locked',
+         finalized_at = now(),
+         finalize_ad_shown = coalesce(p_ad_shown, false)
+   where id = p_listing;
+
+  select count(*) into v_members from public.conversation_participants
+   where conversation_id = v_conv;
+
+  return jsonb_build_object('conversation_id', v_conv, 'title', v_title,
+                            'member_count', v_members, 'already_open', false);
+end $$;
+
+revoke all on function public.finalize_deal(uuid, boolean) from public, anon;
+grant execute on function public.finalize_deal(uuid, boolean) to authenticated;
+revoke all on function mintplaza.party_pinned_message() from public, anon;
+grant execute on function mintplaza.party_pinned_message() to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
 -- Table privileges — the layer underneath RLS
 --
 -- ---------------------------------------------------------------------------
@@ -5015,3 +5320,14 @@ from authenticated;
 -- afterwards.
 revoke update on public.service_listings from authenticated;
 grant update (stage) on public.service_listings to authenticated;
+
+-- Messages: the three columns the application actually sends, and no others.
+--
+-- `kind` and `is_pinned` decide whether a message renders as somebody talking
+-- or as the site talking, pinned above the thread. A player who could name
+-- those in an INSERT could pin "MintPlaza says: send your items first" over a
+-- party of six who have just agreed to trade with them, and it would look
+-- exactly like the real notice. No policy can stop that — a policy picks rows,
+-- not columns — so the privilege does.
+revoke insert on public.messages from authenticated;
+grant insert (conversation_id, sender_id, body) on public.messages to authenticated;

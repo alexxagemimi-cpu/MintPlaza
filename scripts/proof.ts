@@ -46,6 +46,7 @@ import {
 } from "../src/lib/legal.ts";
 import { internalPath } from "../src/lib/redirect.ts";
 import { robloxHosted } from "../src/lib/roblox-cdn.ts";
+import { REWARDED_ADS_ON, showRewardedAd } from "../src/lib/ads.ts";
 import {
   BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
   FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME,
@@ -3190,6 +3191,113 @@ line("46. A LINK THAT STARTS HERE ENDS HERE");
   ].filter((u) => robloxHosted(u));
   assert("while a lookalike host is not",
     sneaky.length === 0, sneaky[0] ?? "10 impostors rejected");
+}
+
+line("47. FINALISING A DEAL OPENS A PARTY, AND THE AD CANNOT STOP IT");
+{
+  /* ------------------------------------------------------------------------
+   * The end of the recruitment flow, and the one thing in it that must never
+   * be load-bearing.
+   *
+   * Finalising used to move a stage to 'locked' and nothing else. Several
+   * people had just voted, been picked and said yes to a raid, and then had to
+   * go and find each other by username one at a time. finalize_deal() closes
+   * that: it locks the post, opens a party with everybody who agreed, and pins
+   * the notice — as one statement, because half of it having run is not a
+   * state this site has a screen for.
+   *
+   * The ad in front of it is a seam, not a requirement. By the time that
+   * button is pressed five people are waiting on one tap, and an ad script
+   * that is blocked, slow or simply broken must not be what strands them.
+   * These checks are what stop somebody making it mandatory later and
+   * discovering the failure mode in production.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const ads = read("../src/lib/ads.ts");
+  const card = stripComments(read("../src/components/ServiceListingCard.tsx"));
+  const board = read("../src/lib/actions/board.ts");
+  const sql = read("../supabase/schema.sql");
+
+  // ---- the ad is off until somebody configures it -------------------------
+  assert("no ad runs until a provider is actually configured",
+    REWARDED_ADS_ON === false,
+    "nothing is configured, so the finalise button simply finalises");
+
+  assert("and an unconfigured gate reports that, rather than pretending",
+    (await showRewardedAd()) === "unavailable",
+    "no placeholder countdown standing in for an advert that does not exist");
+
+  // ---- it cannot become a requirement by accident -------------------------
+  //
+  // The whole risk is one edit: someone wraps the finalise call in
+  // `if (outcome === "shown")`. Then a blocked ad script becomes a deal that
+  // cannot be completed, for people who have already committed to it.
+  assert("finalising is not conditional on the ad having played",
+    !/if\s*\(\s*outcome\s*===\s*["']shown["']\s*\)/.test(card)
+      && /finalizeDeal\(listing\.id,\s*outcome === "shown"\)/.test(card),
+    "the outcome is reported, never used as a gate");
+
+  assert("and the gate resolves every path rather than throwing",
+    /REWARDED_AD_TIMEOUT_MS/.test(ads) && /catch/.test(ads)
+      && /"failed"/.test(ads) && /"unavailable"/.test(ads),
+    "a provider that never calls back is a provider that failed");
+
+  // ---- the server is the one that decides anything ------------------------
+  assert("the server action passes the ad outcome as data, not as permission",
+    /p_ad_shown: adShown/.test(board),
+    "recorded on the listing so real impressions can be counted separately");
+
+  const fn = sql.slice(sql.indexOf("create or replace function public.finalize_deal"));
+  assert("finalize_deal never reads the ad flag to decide anything",
+    !/if\s+p_ad_shown/.test(fn.slice(0, fn.indexOf("$$;"))),
+    "it is stored and nothing else");
+
+  // ---- and the pieces that make it one event ------------------------------
+  const body = fn.slice(0, fn.indexOf("$$;"));
+  for (const [what, needle] of [
+    ["checks the caller is the host", "Only the player who posted this"],
+    ["refuses when nobody has agreed", "Nobody has said yes yet"],
+    ["locks the post", "stage = 'locked'"],
+    ["opens the party", "insert into public.conversations"],
+    ["adds everybody who agreed", "reply = 'agreed'"],
+    ["pins the notice", "party_pinned_message()"],
+  ] as const) {
+    assert(`finalize_deal ${what}`, body.includes(needle), needle);
+  }
+
+  // Idempotency is not a nicety here. The button sits behind an ad, and an ad
+  // times out, gets blocked, or is tapped twice — every one of those is a
+  // retry, and a retry must not open a second chat with the same people.
+  assert("and hands back the existing party rather than opening a second one",
+    body.includes("already_open") && body.includes("kind = 'party'"),
+    "a unique index backs this up in the schema");
+  assert("with a unique index so two cannot exist even if it did",
+    /create unique index[\s\S]*?conversations_one_party_per_listing/.test(sql));
+
+  // ---- the pinned notice says the safe thing ------------------------------
+  //
+  // It answers the question every one of these deals raises, and carries the
+  // warning that has to travel with that answer.
+  const pinned = sql.slice(sql.indexOf("function mintplaza.party_pinned_message"));
+  const pinnedBody = pinned.slice(0, pinned.indexOf("$$;"));
+  assert("the pinned notice points somewhere for private servers",
+    /private server/i.test(pinnedBody));
+  assert("and tells nobody to pay for one, or to send anything first",
+    /nobody pays/i.test(pinnedBody) && /password/i.test(pinnedBody),
+    "'free private server' is the most common bait in Roblox scams");
+
+  // ---- the inbox counts a party once --------------------------------------
+  //
+  // my_conversations joined one row per OTHER participant, which is one row
+  // while every conversation holds two people and four rows when it holds
+  // five: the same party listed four times, under a different member's name
+  // each time, with the same unread badge on all of them.
+  const inboxFn = sql.slice(sql.indexOf("create or replace function public.my_conversations"));
+  const inboxBody = inboxFn.slice(0, inboxFn.indexOf("$$;"));
+  assert("the inbox reader cannot multiply a conversation by its members",
+    /left join lateral/.test(inboxBody) && /limit 1/.test(inboxBody)
+      && !/join public\.conversation_participants them/.test(inboxBody),
+    "the other person is a lateral lookup that cannot fan the outer row out");
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the
