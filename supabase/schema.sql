@@ -110,20 +110,46 @@ end $$;
 
 revoke all on function mintplaza.add_check(text, text, text) from public, anon, authenticated;
 
+-- How long a used listing slot takes to come back, and how many there are.
+--
+-- ---------------------------------------------------------------------------
+-- Why this window is a day and not three hours
+-- ---------------------------------------------------------------------------
+--
+-- It was three listings every three hours, which sounds like a limit and is
+-- not one. Three hours is shorter than an afternoon, so a free account that
+-- posted, traded and moved on had its slots back before it wanted them: three
+-- an hour of wall-clock patience, twenty-four in a day, and a board that one
+-- determined person could fill on their own for free.
+--
+-- The rate limit has to be slower than the behaviour it is limiting. Posting a
+-- listing, finding a trade and closing it takes well under an hour, so any
+-- window measured in hours refills faster than a player can use it. A day is
+-- the first window that does not: four listings, and the fourth one back
+-- tomorrow.
+--
+-- The window is also what Level Up actually sells now. See
+-- mintplaza.listing_window_for().
 create or replace function mintplaza.listing_window() returns interval
-  language sql immutable as $$ select interval '3 hours' $$;
+  language sql immutable as $$ select interval '24 hours' $$;
 
 create or replace function mintplaza.listings_per_window() returns int
-  language sql immutable as $$ select 3 $$;
+  language sql immutable as $$ select 4 $$;
 
 -- How many listings one account may have LIVE in one game at a time.
 --
 -- This is the number a player actually feels, and the one the upgrade page
--- means by "10 listings instead of 3". The per-window cap above is a rate
+-- means by "10 listings instead of 4". The per-window cap above is a rate
 -- limit — it stops a burst — while this one decides how much of the board any
 -- single person can occupy at once.
+--
+-- It is four rather than three so that it agrees with the window above. A free
+-- listing lives 24 hours and the window is 24 hours, so all four of a free
+-- player's daily listings are live at the same moment by construction. A
+-- per-game cap of three would refuse the fourth one every single time, and the
+-- site would be promising a listing it always refused to take.
 create or replace function mintplaza.max_active_per_game() returns int
-  language sql immutable as $$ select 3 $$;
+  language sql immutable as $$ select 4 $$;
 
 -- A day, and that is deliberately short.
 --
@@ -465,6 +491,21 @@ set search_path = public, pg_catalog as $$
               then 10 else mintplaza.listings_per_window() end;
 $$;
 
+-- How long a slot takes to come back, per player. This is the second half of
+-- the rate limit and it is a perk in its own right: free accounts refill four
+-- slots on a 24-hour window, Level Up refills ten on a 12-hour one.
+--
+-- Both halves have to move together. Ten listings per window against a
+-- 24-hour window would be ten a day, which is a smaller rise than it looks
+-- once a paid listing lives three days; ten against twelve hours is twenty a
+-- day, which is the number the upgrade page sells.
+create or replace function mintplaza.listing_window_for(p_user uuid)
+returns interval language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user)
+              then interval '12 hours' else mintplaza.listing_window() end;
+$$;
+
 create or replace function mintplaza.max_active_per_game_for(p_user uuid)
 returns int language sql stable security definer
 set search_path = public, pg_catalog as $$
@@ -499,10 +540,12 @@ set search_path = public, pg_catalog as $$
 $$;
 
 revoke all on function mintplaza.listings_per_window_for(uuid) from public, anon;
+revoke all on function mintplaza.listing_window_for(uuid)      from public, anon;
 revoke all on function mintplaza.max_active_per_game_for(uuid) from public, anon;
 revoke all on function mintplaza.listing_lifetime_for(uuid)    from public, anon;
 revoke all on function mintplaza.bumps_per_day_for(uuid)       from public, anon;
 grant execute on function mintplaza.listings_per_window_for(uuid) to authenticated;
+grant execute on function mintplaza.listing_window_for(uuid)      to authenticated;
 grant execute on function mintplaza.max_active_per_game_for(uuid) to authenticated;
 grant execute on function mintplaza.listing_lifetime_for(uuid)    to authenticated;
 grant execute on function mintplaza.bumps_per_day_for(uuid)       to authenticated;
@@ -703,36 +746,53 @@ create index if not exists listing_sides_listing_idx on public.listing_sides (li
 -- ---------------------------------------------------------------------------
 -- The listing limit
 --
--- A true rolling window: count listings CREATED in the trailing three hours.
+-- A true rolling window: count listings CREATED in the trailing window.
 -- Counting creations rather than live listings is deliberate — it means
 -- cancelling a listing does not hand back a slot, so create/cancel/create
 -- cannot cycle past the limit.
+--
+-- Rolling rather than a bucket that empties at midnight, and that is the whole
+-- reason it survives contact with somebody trying to beat it. A fixed daily
+-- reset can be straddled: four listings at 23:59 and four more at 00:01 is
+-- eight in two minutes, every night, entirely within the rules. A rolling
+-- window has no edge to stand on — each slot comes back exactly a window after
+-- the listing that spent it, so four a day means four in any day you pick.
 -- ---------------------------------------------------------------------------
 
--- The per-window cap depends on who is asking: Level Up raises it. Both the
--- LIMIT and the arithmetic below have to use the same number, so it is bound
--- once in `cap` rather than called four times — a mismatch there would report
--- a slot free while the trigger refused to use it, which is the most annoying
--- bug this screen could possibly have.
+-- Both the cap and the window depend on who is asking: Level Up raises one and
+-- shortens the other. Each is bound once in `cap` rather than called four
+-- times — a mismatch there would report a slot free while the trigger refused
+-- to use it, which is the most annoying bug this screen could possibly have.
+--
+-- Dropped rather than replaced because the returned row gained a column, and
+-- Postgres will not let `create or replace` change a function's return type.
+drop function if exists public.listing_allowance(text);
+
 create or replace function public.listing_allowance(p_game text)
 returns table (
   used           int,
   remaining      int,
   next_slot_at   timestamptz,
   active_in_game int,
-  active_cap     int
+  active_cap     int,
+  -- The window this player is actually on, so a screen can say "slots free up
+  -- 24 hours after posting" without guessing which tier the reader is. It was
+  -- a constant in the page bundle, and a constant cannot know that the person
+  -- reading it pays for a 12-hour one.
+  window_hours   int
 )
 language sql stable security definer set search_path = public, pg_catalog as $$
   with me as (select auth.uid() as uid),
   cap as (
     select mintplaza.listings_per_window_for((select uid from me)) as per_window,
-           mintplaza.max_active_per_game_for((select uid from me)) as per_game
+           mintplaza.max_active_per_game_for((select uid from me)) as per_game,
+           mintplaza.listing_window_for((select uid from me))      as win
   ),
   recent as (
     select created_at
     from public.trade_listings
     where user_id = (select uid from me)
-      and created_at > now() - mintplaza.listing_window()
+      and created_at > now() - (select win from cap)
     order by created_at desc
     limit (select per_window from cap)
   ),
@@ -747,11 +807,12 @@ language sql stable security definer set search_path = public, pg_catalog as $$
     greatest((select per_window from cap) - (select count(*)::int from recent), 0),
     case
       when (select count(*) from recent) >= (select per_window from cap)
-      then (select min(created_at) from recent) + mintplaza.listing_window()
+      then (select min(created_at) from recent) + (select win from cap)
       else null
     end,
     (select n from live),
-    (select per_game from cap);
+    (select per_game from cap),
+    (select (extract(epoch from win) / 3600)::int from cap);
 $$;
 
 -- Enforced as a BEFORE INSERT trigger so every path hits it: the app, a direct
@@ -776,6 +837,16 @@ declare
   --   check and the message would report one cap while enforcing another.
   v_per_window int := mintplaza.listings_per_window_for(new.user_id);
   v_per_game   int := mintplaza.max_active_per_game_for(new.user_id);
+  -- Read from the same row and held for the same reasons. The window is a
+  -- Level Up perk too, so it must not be re-read between the count and the
+  -- message: a subscription that lapses in between would count against a
+  -- 12-hour window and then quote a 24-hour one.
+  v_window     interval := mintplaza.listing_window_for(new.user_id);
+  -- Derived from v_window rather than by calling the function a second time,
+  -- which is the whole point: one read, one truth, no way for the two to
+  -- disagree. PL/pgSQL initialises declarations in order, so v_window is
+  -- already set here.
+  v_hours      int      := (extract(epoch from v_window) / 3600)::int;
 begin
   perform 1 from public.profiles where id = new.user_id for update;
 
@@ -790,20 +861,21 @@ begin
   select count(*) into v_recent
   from public.trade_listings
   where user_id = new.user_id
-    and created_at > now() - mintplaza.listing_window();
+    and created_at > now() - v_window;
 
   if v_recent >= v_per_window then
-    select min(created_at) + mintplaza.listing_window() into v_next
+    select min(created_at) + v_window into v_next
     from (
       select created_at from public.trade_listings
-      where user_id = new.user_id and created_at > now() - mintplaza.listing_window()
+      where user_id = new.user_id and created_at > now() - v_window
       order by created_at desc limit v_per_window
     ) w;
     raise exception using
       errcode = 'P0001',
-      message = format('All %s listing slots are in use for this window.', v_per_window),
+      message = format('All %s of your listings for the next %s hours are posted.',
+                       v_per_window, v_hours),
       detail  = format('next_slot_at=%s', v_next),
-      hint    = 'A slot frees up three hours after the listing that used it.';
+      hint    = format('A slot comes back %s hours after the listing that used it.', v_hours);
   end if;
 
   select count(*) into v_active

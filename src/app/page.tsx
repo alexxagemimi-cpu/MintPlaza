@@ -127,7 +127,7 @@ const FEATURES = [
   {
     title: "A board worth reading",
     icon: "M10 5.4v4.8l3 1.8M17.5 10a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z",
-    body: "Three listings every three hours, enforced by the database rather than the page. Reposting stops working, so the board stays worth scrolling.",
+    body: "Four listings a day, and a slot only comes back a full day after the listing that used it — enforced by the database rather than the page. Nobody can flood it, so the board stays worth scrolling.",
   },
 ];
 

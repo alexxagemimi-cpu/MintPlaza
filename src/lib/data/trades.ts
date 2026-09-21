@@ -1,4 +1,5 @@
 import { serverSupabase } from "@/lib/supabase/server";
+import { FREE_WINDOW_HOURS } from "@/lib/level-up";
 import { readInventory } from "@/lib/actions/inventory";
 import { holdingsOf, type InventoryRow } from "@/lib/inventory";
 import {
@@ -119,6 +120,13 @@ export interface Allowance {
   nextSlotAt: string | null;
   activeInGame: number;
   activeCap: number;
+  /**
+   * The window this player is actually on, in hours — 24 free, 12 with Level
+   * Up. Read rather than assumed for the same reason `used` is: the page used
+   * to write the window as a constant, and a constant cannot know that the
+   * person reading it pays for a shorter one.
+   */
+  windowHours: number;
 }
 
 /**
@@ -144,7 +152,7 @@ export async function readAllowance(gameSlug: string): Promise<Allowance | null>
 
   const row = data as {
     used: number; remaining: number; next_slot_at: string | null;
-    active_in_game: number; active_cap: number;
+    active_in_game: number; active_cap: number; window_hours: number | null;
   };
   return {
     used: row.used,
@@ -152,5 +160,10 @@ export async function readAllowance(gameSlug: string): Promise<Allowance | null>
     nextSlotAt: row.next_slot_at,
     activeInGame: row.active_in_game,
     activeCap: row.active_cap,
+    // Falls back to the free window only where the column is missing, which
+    // means the database is older than this build. Quoting the free number to
+    // somebody who pays is a smaller wrong than quoting a paid one to somebody
+    // who does not.
+    windowHours: row.window_hours ?? FREE_WINDOW_HOURS,
   };
 }

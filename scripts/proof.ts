@@ -46,7 +46,8 @@ import {
 } from "../src/lib/legal.ts";
 import {
   BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
-  LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME, LISTING_WINDOW_HOURS,
+  FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME,
+  LEVEL_UP_PER_WINDOW, LEVEL_UP_WINDOW_HOURS,
 } from "../src/lib/level-up.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
@@ -933,13 +934,13 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
 
   const perk = (needle: string) => PERKS.find((p) => p.title.includes(needle));
 
-  // ---- 1. ten listings up at once, instead of three ----------------------
+  // ---- 1. ten listings up at once, instead of four -----------------------
   const paidPerGame = paid("max_active_per_game_for", /then\s+(\d+)\s+else/);
   const freePerGame = free("max_active_per_game", /select (\d+)/);
   const p1 = perk("Ten listings");
   assert("the listing count on the page is the one the trigger enforces",
-    paidPerGame === "10" && freePerGame === "3"
-      && Boolean(p1) && p1!.levelUp.includes("10") && p1!.free.includes("3"),
+    paidPerGame === "10" && freePerGame === "4"
+      && Boolean(p1) && p1!.levelUp.includes("10") && p1!.free.includes("4"),
     `sql: ${freePerGame} free / ${paidPerGame} paid · page: "${p1?.free}" -> "${p1?.levelUp}"`);
 
   // ---- 2. three days instead of one --------------------------------------
@@ -961,7 +962,59 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     Number(paidWindow) >= Number(paidPerGame),
     `${paidWindow} per window vs ${paidPerGame} allowed live`);
 
-  // ---- 4. what is NOT sold ------------------------------------------------
+  // ---- 4. the window is long enough to be a limit at all ------------------
+  //
+  // This is the bug the whole rate limit had. It was three listings every
+  // three hours, which reads like a cap and is not one: posting a listing,
+  // finding somebody and closing the trade takes well under an hour, so the
+  // slots came back before a player had any use for them — twenty-four a day
+  // for free, and one person could hold the board on their own.
+  //
+  // What makes a rate limit real is that its window outlasts the behaviour it
+  // is limiting. A free listing already lives 24 hours; a window shorter than
+  // that hands back a slot while the listing that spent it is still on the
+  // board, which is the precise shape of the hole. So: the free window must be
+  // at least a free listing's whole life.
+  const freeWindow = free("listing_window", /interval '(\d+) hours'/);
+  const freePerWindow = free("listings_per_window", /select (\d+)/);
+  const paidWindowHours = paid("listing_window_for", /then\s+interval\s+'(\d+) hours'/);
+
+  assert("a slot cannot come back while the listing that spent it is still up",
+    Number(freeWindow) >= Number(freeLife),
+    `${freeWindow}h window against a ${freeLife}h listing`);
+
+  // And the free daily total is exactly the per-window number, which is only
+  // true because the window is a day. If somebody halves the window, this is
+  // the assertion that says what it actually cost.
+  const freePerDay = Number(freePerWindow) * (24 / Number(freeWindow));
+  assert("four listings a day for a free account means four, not four an hour",
+    freePerDay === Number(freePerWindow) && freePerDay === FREE_PER_WINDOW,
+    `${freePerWindow} every ${freeWindow}h = ${freePerDay} a day`);
+
+  // ---- 5. the per-game cap cannot refuse a listing the rate limit allows --
+  //
+  // A free player's four daily listings all live 24 hours and the window is 24
+  // hours, so all four are up at once by construction. A per-game cap below
+  // the per-window count would refuse the last one every single time — the
+  // site would advertise a listing it always rejected. They were 4 and 3.
+  assert("the per-game cap does not refuse a slot the window just granted",
+    Number(freePerGame) >= Number(freePerWindow),
+    `${freePerWindow} a window against ${freePerGame} live per game`);
+
+  // ---- 6. paying is better on both axes, never worse ----------------------
+  const p3 = perk("twenty a day");
+  assert("Level Up posts more often as well as more at once",
+    Number(paidWindow) > Number(freePerWindow)
+      && Number(paidWindowHours) < Number(freeWindow)
+      && Boolean(p3)
+      && p3!.free.includes(String(FREE_PER_WINDOW))
+      && p3!.free.includes(String(FREE_WINDOW_HOURS))
+      && p3!.levelUp.includes(String(LEVEL_UP_PER_WINDOW))
+      && p3!.levelUp.includes(String(LEVEL_UP_WINDOW_HOURS)),
+    `sql: ${freePerWindow}/${freeWindow}h free, ${paidWindow}/${paidWindowHours}h paid`
+      + ` · page: "${p3?.free}" -> "${p3?.levelUp}"`);
+
+  // ---- 7. what is NOT sold ------------------------------------------------
   //
   // Bumping is the one perk that would take something from everybody else: the
   // board sorts on bumped_at, so a paid bump pushes free listings down. The
@@ -986,7 +1039,7 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     Number.isFinite(cooldownHours) && cooldownHours < Number(freeLife),
     `bump every ${cooldownHours}h against a ${freeLife}h listing`);
 
-  // ---- 5. nothing that could be mistaken for a safety signal -------------
+  // ---- 8. nothing that could be mistaken for a safety signal -------------
   //
   // A mark you can buy is worth more to a scammer than to anybody honest. The
   // page may not sell one, and no component may draw one.
@@ -994,7 +1047,7 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     !PERKS.some((p) => /badge|mark|tick|verif/i.test(`${p.title} ${p.levelUp}`)),
     PERKS.map((p) => p.title).join(" | "));
 
-  // ---- 6. every perk is a real limit, not a vibe -------------------------
+  // ---- 9. every perk is a real limit, not a vibe -------------------------
   const vague = PERKS.filter((p) => !(/\d/.test(p.free) && /\d/.test(p.levelUp)));
   assert("every perk names a number on both sides",
     vague.length === 0, vague.map((p) => p.title).join(", ") || `${PERKS.length} perks`);
@@ -1374,6 +1427,27 @@ line("26. THE TERMS DESCRIBE THE SITE THAT ACTUALLY EXISTS");
   assert("and the real listing lifetime",
     life?.levelUp.includes(`${SUBSCRIPTION.listingDays} days`) === true
       && life?.free.includes(`${SUBSCRIPTION.freeListingHours} hours`) === true);
+
+  // The terms say "the whole of what it gives you", so a perk the sales page
+  // advertises and the terms omit makes that sentence false. Both numbers, and
+  // both windows, have to appear in both places.
+  const rate = PERKS.find((p) => p.title.includes("twenty a day"));
+  assert("and the posting rate, which the terms promise is the whole list",
+    SUBSCRIPTION.listingsPerWindow === LEVEL_UP_PER_WINDOW
+      && SUBSCRIPTION.windowHours === LEVEL_UP_WINDOW_HOURS
+      && SUBSCRIPTION.freeListingsPerWindow === FREE_PER_WINDOW
+      && SUBSCRIPTION.freeWindowHours === FREE_WINDOW_HOURS
+      && Boolean(rate),
+    `terms: ${SUBSCRIPTION.freeListingsPerWindow}/${SUBSCRIPTION.freeWindowHours}h`
+      + ` -> ${SUBSCRIPTION.listingsPerWindow}/${SUBSCRIPTION.windowHours}h`);
+
+  // Every perk on the sales page must be a line on the terms page. Counting
+  // rather than matching text, because the wording differs on purpose and the
+  // failure this catches is an omission, not a rephrasing.
+  const promised = (terms.match(/<li>/g) ?? []).length;
+  assert("the terms list at least as many perks as the page sells",
+    promised >= PERKS.length,
+    `${PERKS.length} perks sold, ${promised} list items in the terms`);
 
   // "It does not renew by itself" is the strongest promise on the money
   // section. Nothing in the codebase may quietly make it recurring.
@@ -1993,8 +2067,14 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
       fn("max_active_per_game", "")), String(FREE_PER_GAME)],
     ["paid listings per game", new RegExp(`then ${LEVEL_UP_PER_GAME}\\s+else`).test(
       fn("max_active_per_game_for", "p_user uuid")), String(LEVEL_UP_PER_GAME)],
-    ["the posting window", fn("listing_window", "").includes(
-      `interval '${LISTING_WINDOW_HOURS} hours'`), `${LISTING_WINDOW_HOURS}h`],
+    ["the free posting window", fn("listing_window", "").includes(
+      `interval '${FREE_WINDOW_HOURS} hours'`), `${FREE_WINDOW_HOURS}h`],
+    ["the paid posting window", fn("listing_window_for", "p_user uuid").includes(
+      `interval '${LEVEL_UP_WINDOW_HOURS} hours'`), `${LEVEL_UP_WINDOW_HOURS}h`],
+    ["free listings per window", new RegExp(`select ${FREE_PER_WINDOW}\\b`).test(
+      fn("listings_per_window", "")), String(FREE_PER_WINDOW)],
+    ["paid listings per window", new RegExp(`then ${LEVEL_UP_PER_WINDOW}\\s+else`).test(
+      fn("listings_per_window_for", "p_user uuid")), String(LEVEL_UP_PER_WINDOW)],
     ["bumps a day", new RegExp(`select ${BUMPS_PER_DAY};`).test(
       fn("bumps_per_day_for", "p_user uuid")), String(BUMPS_PER_DAY)],
   ];
@@ -2025,6 +2105,12 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
       !/seven days|7 days/i.test(src));
     assert(`${name} does not claim one bump a day`,
       !/once a day|one a day/i.test(src));
+    // The window was three hours and was not a limit at anything. A screen may
+    // say how long a slot takes to come back, but it has to read the number —
+    // "3H WINDOW" was typed into the dashboard by hand and stayed there after
+    // the rule changed.
+    assert(`${name} does not retype the old three-hour window`,
+      !/three hours|3\s*h\s*window|3 hours/i.test(src));
   }
 
   // The two screens that state the rules must read them, not retype them.
@@ -2032,6 +2118,21 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
     const src = read(f);
     assert(`${f.split("/").pop()} reads the numbers from level-up.ts`,
       /from "@\/lib\/level-up"/.test(src) && /FREE_LISTING_HOURS/.test(src));
+  }
+
+  // LevelUpCard is the third, and it was the one still typing them. It sat on
+  // the dashboard saying "ten listings instead of three, each lasting three
+  // days instead of one" as prose, so raising the free cap to four left it
+  // quietly advertising a limit that no longer existed. It is the card next to
+  // the slot meter, which shows the real number — two figures side by side,
+  // disagreeing.
+  {
+    const src = stripComments(read("../src/components/LevelUpCard.tsx"));
+    assert("LevelUpCard reads its numbers rather than spelling them out",
+      /from "@\/lib\/level-up"/.test(src)
+        && /LEVEL_UP_PER_GAME/.test(src) && /FREE_PER_GAME/.test(src)
+        && !/instead of three|instead of one\b/i.test(src),
+      "the card beside the slot meter must not disagree with it");
   }
 }
 
@@ -2863,6 +2964,51 @@ line("43. AN ITEM THE CATALOGUE CANNOT READ IS NEVER SILENTLY DROPPED");
   ] as const) {
     assert(`${what} names what it could not show`, read(file).includes(needle),
       "a card that draws fewer items than the listing holds is how two people agree to different trades");
+  }
+}
+
+line("44. A GAME WITH NO ARTWORK DOES NOT BREAK THE PAGE IT IS DRAWN ON");
+{
+  /* ------------------------------------------------------------------------
+   * GAG2 has no cover art, and `art: ""` is a legitimate state — a game added
+   * in the Studio starts that way, and so does one added in code before the
+   * artwork exists. GameArt has guarded that since it was written, and its
+   * own comment says why: an empty src renders as a broken image AND makes the
+   * browser re-request the whole page.
+   *
+   * WantMarquee had its own copy of the markup, so it missed the guard. The
+   * landing page — the first thing anybody sees — threw thirty-two console
+   * errors, one per marquee tile, and asked the browser to fetch the page
+   * again each time. Nothing failed, nothing was red, and the production
+   * build was clean.
+   *
+   * So the rule is that one component owns how a game is drawn.
+   * --------------------------------------------------------------------- */
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+  // A game with no artwork exists, or the guard below is guarding nothing and
+  // this whole section is a comment that takes time to run.
+  const artless = GAMES.filter((g) => !g.art);
+  assert("at least one game really has no artwork",
+    artless.length > 0, artless.map((g) => g.shortName).join(", ") || "none — guard untested");
+
+  assert("GameArt still refuses to render an empty src",
+    /if \(!game\.art\)/.test(read("src/components/GameArt.tsx")),
+    "the fallback the other components depend on");
+
+  // Every other component must go through it rather than reaching for the art
+  // field itself. This is the check that would have caught the marquee.
+  const drawers = [
+    "src/components/WantMarquee.tsx",
+    "src/components/GameSwitcher.tsx",
+    "src/app/page.tsx",
+  ].filter((f) => existsSync(new URL(`../${f}`, import.meta.url)));
+
+  for (const f of drawers) {
+    const src = read(f);
+    assert(`${f.split("/").pop()} does not reach past GameArt for a game's art`,
+      !/src=\{[^}]*\.art\b/.test(src),
+      "an unguarded <Image src={game.art}> is a broken image on every artless game");
   }
 }
 

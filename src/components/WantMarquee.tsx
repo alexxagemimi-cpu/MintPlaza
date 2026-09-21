@@ -1,4 +1,9 @@
-import Image from "next/image";
+// GameArt rather than a raw next/image, because a game may have no artwork —
+// GAG2 has none — and an empty src renders as a broken image AND makes the
+// browser re-request the whole page. This component had its own copy of the
+// markup and so missed the guard the shared one has always had: thirty-two
+// console errors on the landing page, one per marquee tile.
+import { GameArt } from "@/components/GameArt";
 import { allWants, type Want, type WantKind } from "@/lib/games";
 
 /**
@@ -78,13 +83,7 @@ function WantCard({ want }: { want: Row[number] }) {
           </span>
         )}
         <span className="mt-2.5 flex items-center gap-1.5">
-          <Image
-            src={want.game.art}
-            alt=""
-            width={32}
-            height={32}
-            className="h-4 w-4 rounded-[5px] object-cover"
-          />
+          <GameArt game={want.game} size={16} radius={5} />
           <span className="font-mono text-[0.625rem] tracking-[0.06em] text-ink-faint">
             {want.game.shortName.toUpperCase()}
           </span>

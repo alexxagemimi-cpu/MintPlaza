@@ -140,13 +140,13 @@ end $$;
 do $$
 declare i int;
 begin
-  for i in 1..4 loop
+  for i in 1..5 loop
     perform public.post_trade_listing('blox-fruits',
       '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
   end loop;
-  perform pg_temp.ok('the three-per-window limit bites', false);
+  perform pg_temp.ok('the four-per-window limit bites', false);
 exception when sqlstate 'P0001' then
-  perform pg_temp.ok('the three-per-window limit bites', true);
+  perform pg_temp.ok('the four-per-window limit bites', true);
 end $$;
 
 do $$
@@ -246,8 +246,9 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = false);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('and gets the free three slots', r.remaining = 3);
-  perform pg_temp.ok('and the free three-per-game cap', r.active_cap = 3);
+  perform pg_temp.ok('and gets the free four slots', r.remaining = 4);
+  perform pg_temp.ok('and the free four-per-game cap', r.active_cap = 4);
+  perform pg_temp.ok('on the free 24-hour window', r.window_hours = 24);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up says not active', (v->>'active')::boolean = false);
@@ -320,6 +321,10 @@ begin
   select * into r from public.listing_allowance('blox-fruits');
   perform pg_temp.ok('the per-window allowance rises to ten', r.remaining = 10);
   perform pg_temp.ok('and the per-game cap to ten', r.active_cap = 10);
+  -- The window is the other half of the rate limit and a perk in its own
+  -- right. Ten per 24 hours would be ten a day; ten per 12 is twenty, which is
+  -- the number the upgrade page sells.
+  perform pg_temp.ok('and the window halves to twelve hours', r.window_hours = 12);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up reports it active', (v->>'active')::boolean = true);
@@ -328,14 +333,14 @@ end $$;
 
 -- ---- the trigger honours it, not just the read function -------------------
 --
--- listing_allowance only reports. This posts a fourth listing, which the free
+-- listing_allowance only reports. This posts a fifth listing, which the free
 -- tier refuses outright, and proves the enforcement path agrees with what the
 -- screen was told.
 do $$
 declare i int; v_posted boolean := false;
 begin
   begin
-    for i in 1..4 loop
+    for i in 1..5 loop
       perform public.post_trade_listing('blox-fruits',
         '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
     end loop;
@@ -343,7 +348,7 @@ begin
   exception when sqlstate 'P0001' then
     v_posted := false;
   end;
-  perform pg_temp.ok('a Level Up player can post past the free three-listing limit', v_posted);
+  perform pg_temp.ok('a Level Up player can post past the free four-listing limit', v_posted);
 end $$;
 
 -- ---- and still stops at the paid limit ------------------------------------
@@ -429,7 +434,8 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = false);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 3);
+  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 4);
+  perform pg_temp.ok('including the window, which goes back to a day', r.window_hours = 24);
 
   v := public.my_level_up();
   perform pg_temp.ok('and the player is told it lapsed rather than never existed',
