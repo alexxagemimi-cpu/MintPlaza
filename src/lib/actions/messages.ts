@@ -78,12 +78,25 @@ export async function startConversation(
 
 export interface InboxRow {
   id: string;
+  /** 'party' is the group a finalised recruitment deal opened. */
+  kind: "direct" | "party";
+  /** Set on a party, which names itself. Null on a direct message. */
+  title: string | null;
+  member_count: number;
   last_message_at: string;
   listing_id: string | null;
-  other_username: string;
+  /**
+   * The other person, on a DIRECT message only.
+   *
+   * Null for a party, and deliberately so. These used to come from a second
+   * join on "everybody who is not me", which returns one row when a
+   * conversation holds two people and four rows when it holds five — the same
+   * party listed four times in the inbox, once under each member's name.
+   */
+  other_username: string | null;
   other_display_name: string | null;
   other_avatar_url: string | null;
-  other_online: boolean;
+  other_online: boolean | null;
   last_body: string | null;
   last_sender_is_me: boolean | null;
   unread: number;
@@ -110,15 +123,40 @@ export interface ThreadMessage {
   body: string;
   created_at: string;
   mine: boolean;
+  /** 'system' is the site talking — the notice a party opens with. */
+  kind?: "chat" | "system";
+  pinned?: boolean;
+  /**
+   * Who sent it. A direct message has one other person and the header names
+   * them, so this goes unused there. A party has several, and a line nobody is
+   * attributed to in a group of six is the shape every impersonation takes.
+   */
+  sender_username?: string;
+  sender_display_name?: string | null;
+  sender_avatar_url?: string | null;
+}
+
+export interface ThreadMember {
+  username: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  is_me: boolean;
 }
 
 export interface Thread {
+  /** 'party' is the group chat a finalised recruitment deal opens. */
+  kind: "direct" | "party";
+  /** A party names itself. Null on a direct message, which uses `other`. */
+  title: string | null;
   other: {
     username?: string;
     display_name?: string | null;
     avatar_url?: string | null;
     online?: boolean;
   };
+  members: ThreadMember[];
+  /** The notice a party opened with, kept out of the scroll. */
+  pinned: { id: string; body: string; created_at: string } | null;
   messages: ThreadMessage[];
 }
 

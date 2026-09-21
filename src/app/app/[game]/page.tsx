@@ -17,7 +17,7 @@ import { readProfile } from "@/lib/data/profile";
 import { readAllowance, readSuggestions } from "@/lib/data/trades";
 import { PROOFS_WANTED, proofsFor } from "@/lib/profile";
 import {
-  FREE_LISTING_HOURS, LEVEL_UP_LISTING_DAYS, LISTING_WINDOW_HOURS,
+  FREE_LISTING_HOURS, FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_LISTING_DAYS,
 } from "@/lib/level-up";
 
 export function generateStaticParams() {
@@ -96,17 +96,21 @@ function DemoBanner({ showing }: { showing: boolean }) {
 /**
  * Listing slots.
  *
- * Three listings per rolling three-hour window (§6), read from
- * listing_allowance() rather than assumed. It used to be a hardcoded zero, so
- * it told every player all three slots were free however many they had just
- * used — the one number on this screen somebody would plan around, and it was
- * never true. Signed out there is no allowance to read, and it shows the state
- * of a new account, which is what a signed-out visitor would get.
+ * Four listings per rolling 24-hour window, ten per 12 hours with Level Up,
+ * read from listing_allowance() rather than assumed. Two things on this card
+ * have been wrong before and both were read as fact by somebody planning their
+ * day around them: the count used to be a hardcoded zero, so it said every
+ * slot was free however many had just been used, and the window used to be a
+ * compiled-in constant, which cannot know that the reader pays for a shorter
+ * one. Both now come from the database. Signed out there is no allowance to
+ * read, and it shows the state of a new account, which is what a signed-out
+ * visitor would get.
  */
-function SlotMeter({ used, total, nextSlotAt }: {
+function SlotMeter({ used, total, nextSlotAt, windowHours }: {
   used: number;
   total: number;
   nextSlotAt: string | null;
+  windowHours: number;
 }) {
   const left = Math.max(0, total - used);
 
@@ -114,7 +118,9 @@ function SlotMeter({ used, total, nextSlotAt }: {
     <div className="glass rounded-[var(--radius-panel)] p-5 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <p className="label">Listing slots</p>
-        <span className="font-mono text-[0.625rem] tracking-[0.08em] text-ink-faint">3H WINDOW</span>
+        <span className="font-mono text-[0.625rem] tracking-[0.08em] text-ink-faint">
+          {windowHours}H WINDOW
+        </span>
       </div>
 
       <div className="mt-4 flex items-baseline gap-2">
@@ -133,8 +139,8 @@ function SlotMeter({ used, total, nextSlotAt }: {
 
       <p className="mt-4 text-[0.8125rem] leading-relaxed text-ink-mute">
         {left === 0 && nextSlotAt
-          ? `All ${total} are in use. The next frees up ${relative(nextSlotAt)}.`
-          : `Slots free up ${LISTING_WINDOW_HOURS} hours after each listing is posted. `
+          ? `All ${total} are in use. The next comes back ${relative(nextSlotAt)}.`
+          : `Each slot comes back ${windowHours} hours after the listing that used it. `
             + `Listings expire on their own after ${FREE_LISTING_HOURS} hours, `
             + `or ${LEVEL_UP_LISTING_DAYS} days with Level Up.`}
       </p>
@@ -340,8 +346,9 @@ export default async function GameDashboard({
           <GameSwitcher current={game} />
           <SlotMeter
             used={allowance?.used ?? 0}
-            total={allowance ? allowance.used + allowance.remaining : 3}
+            total={allowance ? allowance.used + allowance.remaining : FREE_PER_WINDOW}
             nextSlotAt={allowance?.nextSlotAt ?? null}
+            windowHours={allowance?.windowHours ?? FREE_WINDOW_HOURS}
           />
           {me && proofCount < PROOFS_WANTED && (
             <ProofPrompt game={game} count={proofCount} />

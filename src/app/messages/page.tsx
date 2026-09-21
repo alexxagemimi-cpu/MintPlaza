@@ -26,6 +26,24 @@ export const metadata: Metadata = { title: "Messages" };
  * by what moved last, which for a trading site is the whole of what anybody
  * needs: the conversation you care about is the one that just got a reply.
  */
+/**
+ * The stand-in for a party's avatar.
+ *
+ * A group of five has no one face to show, and borrowing a member's would put
+ * one person's picture on a chat belonging to all of them — which reads, at a
+ * glance in a list, as a direct message from them.
+ */
+function PartyMark({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-mint/30 bg-mint-wash font-mono text-[0.6875rem] font-bold text-mint"
+    >
+      {count}
+    </span>
+  );
+}
+
 export default async function MessagesPage() {
   const profile = await currentProfile();
 
@@ -64,13 +82,25 @@ export default async function MessagesPage() {
                 href={`/messages/${r.id}`}
                 className="glass-quiet flex items-center gap-3 rounded-[var(--radius-panel)] px-3.5 py-3 transition-colors hover:border-line"
               >
-                <Avatar name={r.other_username} />
+                {/* A party names itself and has no single other person to
+                    show, so it gets its own mark rather than one member's
+                    avatar standing in for five. */}
+                {r.kind === "party"
+                  ? <PartyMark count={r.member_count} />
+                  : <Avatar name={r.other_username ?? "?"} />}
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className="min-w-0 truncate text-[0.875rem] font-bold tracking-[-0.015em] text-ink">
-                      {r.other_display_name || r.other_username}
+                      {r.kind === "party"
+                        ? (r.title ?? "Party")
+                        : (r.other_display_name || r.other_username)}
                     </span>
-                    {r.other_online && (
+                    {r.kind === "party" && (
+                      <span className="shrink-0 rounded-full border border-line px-1.5 py-px font-mono text-[0.5625rem] tracking-[0.08em] text-ink-faint">
+                        {r.member_count}
+                      </span>
+                    )}
+                    {r.kind === "direct" && r.other_online && (
                       <span
                         aria-label="Online"
                         title="Online"

@@ -110,20 +110,46 @@ end $$;
 
 revoke all on function mintplaza.add_check(text, text, text) from public, anon, authenticated;
 
+-- How long a used listing slot takes to come back, and how many there are.
+--
+-- ---------------------------------------------------------------------------
+-- Why this window is a day and not three hours
+-- ---------------------------------------------------------------------------
+--
+-- It was three listings every three hours, which sounds like a limit and is
+-- not one. Three hours is shorter than an afternoon, so a free account that
+-- posted, traded and moved on had its slots back before it wanted them: three
+-- an hour of wall-clock patience, twenty-four in a day, and a board that one
+-- determined person could fill on their own for free.
+--
+-- The rate limit has to be slower than the behaviour it is limiting. Posting a
+-- listing, finding a trade and closing it takes well under an hour, so any
+-- window measured in hours refills faster than a player can use it. A day is
+-- the first window that does not: four listings, and the fourth one back
+-- tomorrow.
+--
+-- The window is also what Level Up actually sells now. See
+-- mintplaza.listing_window_for().
 create or replace function mintplaza.listing_window() returns interval
-  language sql immutable as $$ select interval '3 hours' $$;
+  language sql immutable as $$ select interval '24 hours' $$;
 
 create or replace function mintplaza.listings_per_window() returns int
-  language sql immutable as $$ select 3 $$;
+  language sql immutable as $$ select 4 $$;
 
 -- How many listings one account may have LIVE in one game at a time.
 --
 -- This is the number a player actually feels, and the one the upgrade page
--- means by "10 listings instead of 3". The per-window cap above is a rate
+-- means by "10 listings instead of 4". The per-window cap above is a rate
 -- limit — it stops a burst — while this one decides how much of the board any
 -- single person can occupy at once.
+--
+-- It is four rather than three so that it agrees with the window above. A free
+-- listing lives 24 hours and the window is 24 hours, so all four of a free
+-- player's daily listings are live at the same moment by construction. A
+-- per-game cap of three would refuse the fourth one every single time, and the
+-- site would be promising a listing it always refused to take.
 create or replace function mintplaza.max_active_per_game() returns int
-  language sql immutable as $$ select 3 $$;
+  language sql immutable as $$ select 4 $$;
 
 -- A day, and that is deliberately short.
 --
@@ -465,6 +491,21 @@ set search_path = public, pg_catalog as $$
               then 10 else mintplaza.listings_per_window() end;
 $$;
 
+-- How long a slot takes to come back, per player. This is the second half of
+-- the rate limit and it is a perk in its own right: free accounts refill four
+-- slots on a 24-hour window, Level Up refills ten on a 12-hour one.
+--
+-- Both halves have to move together. Ten listings per window against a
+-- 24-hour window would be ten a day, which is a smaller rise than it looks
+-- once a paid listing lives three days; ten against twelve hours is twenty a
+-- day, which is the number the upgrade page sells.
+create or replace function mintplaza.listing_window_for(p_user uuid)
+returns interval language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select case when mintplaza.is_level_up(p_user)
+              then interval '12 hours' else mintplaza.listing_window() end;
+$$;
+
 create or replace function mintplaza.max_active_per_game_for(p_user uuid)
 returns int language sql stable security definer
 set search_path = public, pg_catalog as $$
@@ -499,10 +540,12 @@ set search_path = public, pg_catalog as $$
 $$;
 
 revoke all on function mintplaza.listings_per_window_for(uuid) from public, anon;
+revoke all on function mintplaza.listing_window_for(uuid)      from public, anon;
 revoke all on function mintplaza.max_active_per_game_for(uuid) from public, anon;
 revoke all on function mintplaza.listing_lifetime_for(uuid)    from public, anon;
 revoke all on function mintplaza.bumps_per_day_for(uuid)       from public, anon;
 grant execute on function mintplaza.listings_per_window_for(uuid) to authenticated;
+grant execute on function mintplaza.listing_window_for(uuid)      to authenticated;
 grant execute on function mintplaza.max_active_per_game_for(uuid) to authenticated;
 grant execute on function mintplaza.listing_lifetime_for(uuid)    to authenticated;
 grant execute on function mintplaza.bumps_per_day_for(uuid)       to authenticated;
@@ -703,55 +746,81 @@ create index if not exists listing_sides_listing_idx on public.listing_sides (li
 -- ---------------------------------------------------------------------------
 -- The listing limit
 --
--- A true rolling window: count listings CREATED in the trailing three hours.
+-- A true rolling window: count listings CREATED in the trailing window.
 -- Counting creations rather than live listings is deliberate — it means
 -- cancelling a listing does not hand back a slot, so create/cancel/create
 -- cannot cycle past the limit.
+--
+-- Rolling rather than a bucket that empties at midnight, and that is the whole
+-- reason it survives contact with somebody trying to beat it. A fixed daily
+-- reset can be straddled: four listings at 23:59 and four more at 00:01 is
+-- eight in two minutes, every night, entirely within the rules. A rolling
+-- window has no edge to stand on — each slot comes back exactly a window after
+-- the listing that spent it, so four a day means four in any day you pick.
 -- ---------------------------------------------------------------------------
 
--- The per-window cap depends on who is asking: Level Up raises it. Both the
--- LIMIT and the arithmetic below have to use the same number, so it is bound
--- once in `cap` rather than called four times — a mismatch there would report
--- a slot free while the trigger refused to use it, which is the most annoying
--- bug this screen could possibly have.
+-- Both the cap and the window depend on who is asking: Level Up raises one and
+-- shortens the other. Each is bound once in `cap` rather than called four
+-- times — a mismatch there would report a slot free while the trigger refused
+-- to use it, which is the most annoying bug this screen could possibly have.
+--
+-- Dropped rather than replaced because the returned row gained a column, and
+-- Postgres will not let `create or replace` change a function's return type.
+drop function if exists public.listing_allowance(text);
+
 create or replace function public.listing_allowance(p_game text)
 returns table (
   used           int,
   remaining      int,
   next_slot_at   timestamptz,
   active_in_game int,
-  active_cap     int
+  active_cap     int,
+  -- The window this player is actually on, so a screen can say "slots free up
+  -- 24 hours after posting" without guessing which tier the reader is. It was
+  -- a constant in the page bundle, and a constant cannot know that the person
+  -- reading it pays for a 12-hour one.
+  window_hours   int
 )
 language sql stable security definer set search_path = public, pg_catalog as $$
   with me as (select auth.uid() as uid),
   cap as (
     select mintplaza.listings_per_window_for((select uid from me)) as per_window,
-           mintplaza.max_active_per_game_for((select uid from me)) as per_game
+           mintplaza.max_active_per_game_for((select uid from me)) as per_game,
+           mintplaza.listing_window_for((select uid from me))      as win
   ),
   recent as (
     select created_at
     from public.trade_listings
     where user_id = (select uid from me)
-      and created_at > now() - mintplaza.listing_window()
+      and created_at > now() - (select win from cap)
     order by created_at desc
     limit (select per_window from cap)
   ),
   live as (
+    -- status = 'active' AND not yet expired, because those are two different
+    -- facts and only one of them is kept up to date. expire_listings() is the
+    -- job that turns an elapsed listing into status='expired', and nothing
+    -- schedules it — so a listing whose day is up sits here as 'active'
+    -- forever. Filtering on the timestamp as well means this number is right
+    -- whether or not the sweeper ever runs, which is the only way a count a
+    -- player is blocked by should ever be computed.
     select count(*)::int as n
     from public.trade_listings
     where user_id = (select uid from me)
-      and game_slug = p_game and status = 'active'
+      and game_slug = p_game
+      and status = 'active' and expires_at > now()
   )
   select
     (select count(*)::int from recent),
     greatest((select per_window from cap) - (select count(*)::int from recent), 0),
     case
       when (select count(*) from recent) >= (select per_window from cap)
-      then (select min(created_at) from recent) + mintplaza.listing_window()
+      then (select min(created_at) from recent) + (select win from cap)
       else null
     end,
     (select n from live),
-    (select per_game from cap);
+    (select per_game from cap),
+    (select (extract(epoch from win) / 3600)::int from cap);
 $$;
 
 -- Enforced as a BEFORE INSERT trigger so every path hits it: the app, a direct
@@ -776,6 +845,16 @@ declare
   --   check and the message would report one cap while enforcing another.
   v_per_window int := mintplaza.listings_per_window_for(new.user_id);
   v_per_game   int := mintplaza.max_active_per_game_for(new.user_id);
+  -- Read from the same row and held for the same reasons. The window is a
+  -- Level Up perk too, so it must not be re-read between the count and the
+  -- message: a subscription that lapses in between would count against a
+  -- 12-hour window and then quote a 24-hour one.
+  v_window     interval := mintplaza.listing_window_for(new.user_id);
+  -- Derived from v_window rather than by calling the function a second time,
+  -- which is the whole point: one read, one truth, no way for the two to
+  -- disagree. PL/pgSQL initialises declarations in order, so v_window is
+  -- already set here.
+  v_hours      int      := (extract(epoch from v_window) / 3600)::int;
 begin
   perform 1 from public.profiles where id = new.user_id for update;
 
@@ -790,25 +869,36 @@ begin
   select count(*) into v_recent
   from public.trade_listings
   where user_id = new.user_id
-    and created_at > now() - mintplaza.listing_window();
+    and created_at > now() - v_window;
 
   if v_recent >= v_per_window then
-    select min(created_at) + mintplaza.listing_window() into v_next
+    select min(created_at) + v_window into v_next
     from (
       select created_at from public.trade_listings
-      where user_id = new.user_id and created_at > now() - mintplaza.listing_window()
+      where user_id = new.user_id and created_at > now() - v_window
       order by created_at desc limit v_per_window
     ) w;
     raise exception using
       errcode = 'P0001',
-      message = format('All %s listing slots are in use for this window.', v_per_window),
+      message = format('All %s of your listings for the next %s hours are posted.',
+                       v_per_window, v_hours),
       detail  = format('next_slot_at=%s', v_next),
-      hint    = 'A slot frees up three hours after the listing that used it.';
+      hint    = format('A slot comes back %s hours after the listing that used it.', v_hours);
   end if;
 
+  -- The same two facts as in listing_allowance() above, and this is the half
+  -- that refuses the post rather than just drawing a number.
+  --
+  -- Without `expires_at > now()` a player who used all four of their per-game
+  -- slots was locked out of that game permanently: the next day the rolling
+  -- window handed all four posting slots back, the meter said "4 of 4
+  -- available", and this count still saw four 'active' rows that had expired
+  -- hours earlier and were already invisible on the board. Reproduced against
+  -- a real Postgres before this line existed.
   select count(*) into v_active
   from public.trade_listings
-  where user_id = new.user_id and game_slug = new.game_slug and status = 'active';
+  where user_id = new.user_id and game_slug = new.game_slug
+    and status = 'active' and expires_at > now();
 
   if v_active >= v_per_game then
     raise exception using
@@ -3099,12 +3189,25 @@ create policy service_votes_insert_own on public.service_votes for insert
 
 -- You may take your hand back, but not once you have been picked — the other
 -- side has already started counting on you.
+--
+-- service_votes.listing_id is written out in full, and that is the whole
+-- correctness of this policy rather than a style choice. Postgres resolves an
+-- unqualified column name to the INNERMOST scope that has one, and
+-- service_picks has a listing_id too — so the obvious `p.listing_id =
+-- listing_id` silently means `p.listing_id = p.listing_id`, which is true for
+-- every row.
+--
+-- That turned this into "not exists any pick by me anywhere", so the first
+-- time a player was picked for anything they lost the ability to withdraw a
+-- vote on ANY listing, permanently, with no error and nothing in the logs.
+-- The policy read correctly and did something else.
 drop policy if exists service_votes_delete_own on public.service_votes;
 create policy service_votes_delete_own on public.service_votes for delete
   using (
     user_id = auth.uid()
     and not exists (select 1 from public.service_picks p
-                     where p.listing_id = listing_id and p.user_id = auth.uid())
+                     where p.listing_id = public.service_votes.listing_id
+                       and p.user_id = auth.uid())
   );
 
 drop policy if exists service_picks_read on public.service_picks;
@@ -3133,13 +3236,23 @@ create policy service_comments_read on public.service_comments for select using 
 
 -- The thread is for people going. Voting is the price of posting in it, and the
 -- author is in it by definition.
+--
+-- service_comments.listing_id in full, for the same reason as
+-- service_votes_delete_own above: service_votes also has a listing_id, so an
+-- unqualified `listing_id` here binds to the inner table and the test becomes
+-- `v.listing_id = v.listing_id` — true for every row.
+--
+-- The effect was that voting ONCE, on anything, bought the right to post in
+-- every thread on the site forever, which is exactly the drive-by commenting
+-- this policy exists to prevent.
 drop policy if exists service_comments_insert_voter on public.service_comments;
 create policy service_comments_insert_voter on public.service_comments for insert
   with check (
     author_id = auth.uid()
     and (
       exists (select 1 from public.service_votes v
-               where v.listing_id = listing_id and v.user_id = auth.uid())
+               where v.listing_id = public.service_comments.listing_id
+                 and v.user_id = auth.uid())
       or exists (select 1 from public.service_listings l
                   where l.id = listing_id and l.author_id = auth.uid())
     )
@@ -4384,10 +4497,24 @@ declare v jsonb; v_me uuid := auth.uid();
 begin
   if v_me is null then return '[]'::jsonb; end if;
 
+  -- One row per CONVERSATION.
+  --
+  -- This used to join conversation_participants a second time on
+  -- `user_id <> me` and read the name off it, which is only ever one row while
+  -- every conversation holds exactly two people. A party of five produced four
+  -- rows — the same chat listed four times in the inbox, under a different
+  -- member's name each time, with the same unread badge on all of them.
+  --
+  -- So the other person is now a lateral lookup that cannot multiply the outer
+  -- row, and it is only consulted for a direct message. A party titles itself.
   select coalesce(jsonb_agg(x order by x->>'last_message_at' desc), '[]'::jsonb) into v
   from (
     select jsonb_build_object(
       'id', c.id,
+      'kind', c.kind,
+      'title', c.title,
+      'member_count', (select count(*) from public.conversation_participants p
+                        where p.conversation_id = c.id),
       'last_message_at', c.last_message_at,
       'listing_id', c.listing_id,
       'other_username', o.username,
@@ -4413,9 +4540,14 @@ begin
     from public.conversations c
     join public.conversation_participants me
       on me.conversation_id = c.id and me.user_id = v_me
-    join public.conversation_participants them
-      on them.conversation_id = c.id and them.user_id <> v_me
-    join public.profiles o on o.id = them.user_id
+    left join lateral (
+      select pr.username, pr.display_name, pr.avatar_url,
+             pr.hide_presence, pr.last_seen_at
+      from public.conversation_participants them
+      join public.profiles pr on pr.id = them.user_id
+      where them.conversation_id = c.id and them.user_id <> v_me
+      limit 1
+    ) o on c.kind = 'direct'
     order by c.last_message_at desc
     limit 200
   ) q;
@@ -4428,7 +4560,8 @@ end $$;
 create or replace function public.conversation_thread(p_conversation uuid)
 returns jsonb language plpgsql stable security definer
 set search_path = public, pg_catalog as $$
-declare v jsonb; v_other jsonb; v_me uuid := auth.uid();
+declare v jsonb; v_other jsonb; v_members jsonb; v_pinned jsonb;
+        v_kind text; v_title text; v_me uuid := auth.uid();
 begin
   if v_me is null then
     raise exception 'Sign in first.' using errcode = 'P0001';
@@ -4441,33 +4574,78 @@ begin
     raise exception 'No such conversation.' using errcode = 'P0001';
   end if;
 
-  select jsonb_build_object(
-    'username', o.username,
-    'display_name', o.display_name,
-    'avatar_url', o.avatar_url,
-    'online', (not coalesce(o.hide_presence, false))
-              and o.last_seen_at > now() - interval '5 minutes'
-  ) into v_other
+  -- Who else is here.
+  --
+  -- A direct message has exactly one other person and the screen titles itself
+  -- with their name. A party has several and titles itself with its own, so
+  -- `other` is left empty rather than picking one of five arbitrarily and
+  -- labelling the whole chat with them.
+  select kind, title into v_kind, v_title
+    from public.conversations where id = p_conversation;
+
+  if v_kind = 'direct' then
+    select jsonb_build_object(
+      'username', o.username,
+      'display_name', o.display_name,
+      'avatar_url', o.avatar_url,
+      'online', (not coalesce(o.hide_presence, false))
+                and o.last_seen_at > now() - interval '5 minutes'
+    ) into v_other
+    from public.conversation_participants p
+    join public.profiles o on o.id = p.user_id
+    where p.conversation_id = p_conversation and p.user_id <> v_me
+    limit 1;
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'username', o.username,
+           'display_name', o.display_name,
+           'avatar_url', o.avatar_url,
+           'is_me', o.id = v_me
+         ) order by (o.id = v_me) desc, o.username), '[]'::jsonb)
+    into v_members
   from public.conversation_participants p
   join public.profiles o on o.id = p.user_id
-  where p.conversation_id = p_conversation and p.user_id <> v_me
-  limit 1;
+  where p.conversation_id = p_conversation;
 
+  -- The notice the party opened with, read separately so it can stay at the
+  -- top of the screen once the chat has scrolled past it.
+  select jsonb_build_object('id', m.id, 'body', m.body, 'created_at', m.created_at)
+    into v_pinned
+  from public.messages m
+  where m.conversation_id = p_conversation and m.is_pinned and m.status = 'visible'
+  order by m.created_at limit 1;
+
+  -- Every message carries its sender. In a direct message the screen knows who
+  -- "not me" is; in a party it does not, and an unattributed line in a group of
+  -- six is the shape every impersonation takes.
   select coalesce(jsonb_agg(x order by x->>'created_at'), '[]'::jsonb) into v
   from (
     select jsonb_build_object(
       'id', m.id,
       'body', m.body,
       'created_at', m.created_at,
-      'mine', m.sender_id = v_me
+      'mine', m.sender_id = v_me,
+      'kind', m.kind,
+      'pinned', m.is_pinned,
+      'sender_username', s.username,
+      'sender_display_name', s.display_name,
+      'sender_avatar_url', s.avatar_url
     ) x
     from public.messages m
+    join public.profiles s on s.id = m.sender_id
     where m.conversation_id = p_conversation and m.status = 'visible'
     order by m.created_at desc
     limit 200
   ) q;
 
-  return jsonb_build_object('other', coalesce(v_other, '{}'::jsonb), 'messages', v);
+  return jsonb_build_object(
+    'kind', coalesce(v_kind, 'direct'),
+    'title', v_title,
+    'other', coalesce(v_other, '{}'::jsonb),
+    'members', coalesce(v_members, '[]'::jsonb),
+    'pinned', v_pinned,
+    'messages', v);
 end $$;
 
 
@@ -4819,3 +4997,337 @@ end $$;
 
 revoke all on function public.admin_announcements() from public, anon;
 grant execute on function public.admin_announcements() to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Parties — the group chat a finalised deal opens
+--
+-- ---------------------------------------------------------------------------
+-- Why this is the same table as a direct message
+-- ---------------------------------------------------------------------------
+--
+-- `conversations` + `conversation_participants` was already an N-party model:
+-- a conversation is a row, and everybody in it is a row in the join table.
+-- Nothing about it assumed two people except the functions that READ it, and
+-- those assumed it hard — see my_conversations() below, which joined one row
+-- per other participant and would have listed a party of five in the inbox
+-- four times, each under a different member's name.
+--
+-- So a party is not a new kind of object. It is a conversation with a name, a
+-- known size, and the listing it came out of.
+-- ===========================================================================
+-- ===========================================================================
+
+alter table public.conversations
+  add column if not exists kind  text not null default 'direct',
+  add column if not exists title text,
+  -- Which recruitment post opened it. `listing_id` above is a TRADE listing
+  -- and means something else; a party comes from the service board. Separate
+  -- columns because they point at different tables and a single nullable one
+  -- would have to be read with a second field saying which it meant.
+  add column if not exists service_listing_id uuid;
+
+do $$ begin
+  alter table public.conversations
+    add constraint conversations_party_listing_fk
+    foreign key (service_listing_id) references public.service_listings(id)
+    on delete set null;
+exception when duplicate_object then null; end $$;
+
+select mintplaza.add_check('public.conversations', 'conversations_kind_known',
+  $c$kind in ('direct','party')$c$);
+select mintplaza.add_check('public.conversations', 'conversations_title_length',
+  $c$title is null or char_length(title) between 1 and 120$c$);
+
+-- A party has exactly one of these open at a time, so finalising twice cannot
+-- leave two chats with the same people in them wondering which is live.
+create unique index if not exists conversations_one_party_per_listing
+  on public.conversations (service_listing_id) where kind = 'party';
+
+-- ---------------------------------------------------------------------------
+-- The pinned notice, and why a player must not be able to write one
+-- ---------------------------------------------------------------------------
+--
+-- A party opens with a pinned message at the top. It is posted by the site,
+-- not by a person, and it is the one message in the thread that carries any
+-- authority — which is exactly what makes it worth forging. "MintPlaza says:
+-- send your items first and the host will send back" pinned above a group of
+-- six is the most effective scam this site could host.
+--
+-- The trigger below cannot tell the difference: auth.uid() is the same inside
+-- a SECURITY DEFINER function as outside it. Column privileges can. The
+-- application only ever inserts conversation_id, sender_id and body, so
+-- `authenticated` is granted those three columns and no others — a player
+-- naming `kind` or `is_pinned` in an INSERT is refused by Postgres before any
+-- policy runs, and the defaults stand.
+alter table public.messages
+  add column if not exists kind      text not null default 'chat',
+  add column if not exists is_pinned boolean not null default false;
+
+select mintplaza.add_check('public.messages', 'messages_kind_known',
+  $c$kind in ('chat','system')$c$);
+
+create index if not exists messages_pinned_idx
+  on public.messages (conversation_id) where is_pinned;
+
+-- A system message is the site talking, so it does not spend the poster's
+-- daily allowance. Without this, opening a party would charge the host for a
+-- message they did not write — and a host who had been chatting all day would
+-- have the party open with no notice in it at all.
+create or replace function public.enforce_message_rate()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_minute int; v_day int;
+begin
+  if new.kind = 'system' then
+    new.created_at := now();
+    new.status     := 'visible';
+    new.edited_at  := null;
+    return new;
+  end if;
+
+  select count(*) into v_minute from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '1 minute';
+  if v_minute >= mintplaza.messages_per_minute() then
+    raise exception 'You are sending messages too quickly.'
+      using errcode = 'P0001', hint = 'Wait a moment and try again.';
+  end if;
+
+  select count(*) into v_day from public.messages
+   where sender_id = new.sender_id and created_at > now() - interval '24 hours';
+  if v_day >= mintplaza.messages_per_day() then
+    raise exception 'You have sent as many messages as one day allows.'
+      using errcode = 'P0001';
+  end if;
+
+  -- The server owns the clock and the status. A client that set created_at
+  -- could sit outside its own rate window forever, and one that set status
+  -- could post a message already marked hidden from moderation.
+  new.created_at := now();
+  new.status     := 'visible';
+  new.edited_at  := null;
+  return new;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- What the pinned notice says
+-- ---------------------------------------------------------------------------
+--
+-- In a function rather than written into finalize_deal, so there is one place
+-- to change it and no chance of two parties opening with different text.
+--
+-- It is not a parameter. If the caller passed the text, a player calling the
+-- RPC directly would choose what the site appears to say to five people who
+-- just agreed to trade with them.
+--
+-- The safety line is not padding. Every one of these deals needs a private
+-- server, "free private server" is the single most common bait in Roblox
+-- scams, and the people reading this are thirteen.
+create or replace function mintplaza.party_pinned_message() returns text
+language sql immutable as $$
+  select
+    'Welcome — this chat opened because the deal was finalised. Everyone here said yes to it.' || E'\n\n' ||
+    'Need a private server? Beebom keeps up-to-date lists of free private server links for most Roblox games — search "Beebom free private server" and your game name.' || E'\n\n' ||
+    'Two rules that keep this fun: nobody pays real money or Robux for a private server link, and nobody sends items, passwords or logins first. If somebody in here asks for any of that, use Report and leave.'
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Finalising a deal
+--
+-- One function, because these five things are one event: the stage moves, the
+-- party opens, everybody who agreed is put in it, the notice is pinned, and
+-- the post records that it happened. Half of that having run is not a state
+-- the site has a screen for.
+--
+-- Idempotent on purpose. The finalise button sits behind an ad, and an ad is
+-- the least reliable thing on any page — it times out, it is blocked, the tab
+-- is backgrounded, the player taps twice. Every one of those ends in a retry,
+-- and a retry must land the player in the party that already exists rather
+-- than opening a second one with the same six people in it.
+-- ---------------------------------------------------------------------------
+
+alter table public.service_listings
+  add column if not exists finalized_at       timestamptz,
+  add column if not exists finalize_ad_shown  boolean not null default false;
+
+create or replace function public.finalize_deal(
+  p_listing   uuid,
+  p_ad_shown  boolean default false
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_me      uuid := auth.uid();
+  v_author  uuid;
+  v_game    text;
+  v_short   text;
+  v_conv    uuid;
+  v_agreed  int;
+  v_members int;
+  v_title   text;
+begin
+  if v_me is null then
+    raise exception 'Sign in first.' using errcode = 'P0001';
+  end if;
+
+  select author_id, game_slug into v_author, v_game
+    from public.service_listings where id = p_listing;
+  if v_author is null then
+    raise exception 'That post no longer exists.' using errcode = 'P0001';
+  end if;
+  if v_author <> v_me then
+    raise exception 'Only the player who posted this can finalise it.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Already done. Hand back the same party rather than refusing, because the
+  -- caller retrying is the normal case here, not an error.
+  select id, title into v_conv, v_title from public.conversations
+   where service_listing_id = p_listing and kind = 'party';
+  if v_conv is not null then
+    select count(*) into v_members from public.conversation_participants
+     where conversation_id = v_conv;
+    return jsonb_build_object('conversation_id', v_conv, 'title', v_title,
+                              'member_count', v_members, 'already_open', true);
+  end if;
+
+  select count(*) into v_agreed from public.service_picks
+   where listing_id = p_listing and reply = 'agreed';
+  if v_agreed = 0 then
+    raise exception 'Nobody has said yes yet.'
+      using errcode = 'P0001',
+            hint = 'Wait for the players you picked to agree, then finalise.';
+  end if;
+
+  select short_name into v_short from public.games where slug = v_game;
+  v_title := left(coalesce(v_short, 'MintPlaza') || ' · '
+                  || (v_agreed + 1) || ' players', 120);
+
+  insert into public.conversations (kind, title, service_listing_id)
+  values ('party', v_title, p_listing)
+  returning id into v_conv;
+
+  -- The host and everybody who agreed. The host is in it by definition: a
+  -- party they opened and cannot speak in would be a bug with a screen.
+  insert into public.conversation_participants (conversation_id, user_id)
+  select v_conv, v_me
+  union
+  select v_conv, sp.user_id
+    from public.service_picks sp
+   where sp.listing_id = p_listing and sp.reply = 'agreed'
+  on conflict do nothing;
+
+  insert into public.messages (conversation_id, sender_id, body, kind, is_pinned)
+  values (v_conv, v_me, mintplaza.party_pinned_message(), 'system', true);
+
+  update public.service_listings
+     set stage = 'locked',
+         finalized_at = now(),
+         finalize_ad_shown = coalesce(p_ad_shown, false)
+   where id = p_listing;
+
+  select count(*) into v_members from public.conversation_participants
+   where conversation_id = v_conv;
+
+  return jsonb_build_object('conversation_id', v_conv, 'title', v_title,
+                            'member_count', v_members, 'already_open', false);
+end $$;
+
+revoke all on function public.finalize_deal(uuid, boolean) from public, anon;
+grant execute on function public.finalize_deal(uuid, boolean) to authenticated;
+revoke all on function mintplaza.party_pinned_message() from public, anon;
+grant execute on function mintplaza.party_pinned_message() to authenticated;
+
+
+-- ===========================================================================
+-- ===========================================================================
+-- Table privileges — the layer underneath RLS
+--
+-- ---------------------------------------------------------------------------
+-- Why RLS on its own was not enough
+-- ---------------------------------------------------------------------------
+--
+-- Supabase grants `anon` and `authenticated` full table privileges on
+-- everything in `public` by default, and exposes the whole schema over
+-- PostgREST with a key that ships inside the browser. Row-level security is
+-- therefore the only thing standing between a player and a direct write — and
+-- an RLS policy decides WHICH ROWS you may touch, never WHICH COLUMNS.
+--
+-- Every policy in this file that says `using (user_id = auth.uid())` was read,
+-- correctly, as "you may only change your own things". What it actually says
+-- is "you may change ANYTHING ABOUT your own things", and the difference is
+-- the whole site's rules. Demonstrated against a real Postgres, as an ordinary
+-- signed-in player, with nothing but the public key:
+--
+--   update trade_listings set created_at = now() - interval '48 hours'
+--   -> listing_allowance() went from used=1 back to used=0.
+--
+-- That is the posting limit — four a day, the rule the board depends on —
+-- switched off with one request. The same row also took expires_at =
+-- now() + 10 years (a listing that never dies) and bumped_at in the future
+-- (permanent top of the board, with the six-hour cooldown never consulted).
+--
+--   update profiles set status = 'active'   -> a suspended account un-bans itself,
+--                                              and status='active' is exactly what
+--                                              the posting policies check.
+--   update profiles set username = 'alice'  -> wear a trusted trader's name on a
+--                                              site where strangers hand each other
+--                                              valuable items.
+--   update profiles set roblox_user_id = …  -> the "immutable, one Roblox account is
+--                                              one MintPlaza account" identity, edited.
+--
+-- None of that goes near the application. post_trade_listing(), save_profile()
+-- and set_display_name() validate carefully and were never the way in.
+--
+-- ---------------------------------------------------------------------------
+-- The rule from here
+-- ---------------------------------------------------------------------------
+--
+-- A table the application only ever writes through a SECURITY DEFINER function
+-- gets no write privilege at all. The functions are unaffected — they run as
+-- their owner — and the triggers still fire, because a trigger fires for
+-- whoever writes. Reads are untouched: SELECT stays where it was and RLS keeps
+-- deciding them, which is tested at length in scripts/pg-rls-test.sql.
+--
+-- Column privileges rather than row policies are the right tool here, and they
+-- are checked against the columns named in the statement, so a BEFORE trigger
+-- may still stamp a column the writer may not name.
+-- ===========================================================================
+-- ===========================================================================
+
+-- A signed-out visitor writes nothing, anywhere. SELECT is left alone, so the
+-- public board, profiles and the live announcement still read exactly as
+-- before.
+revoke insert, update, delete, truncate on all tables in schema public from anon;
+
+-- Written only from inside post_trade_listing(), bump_listing(),
+-- cancel_trade_listing(), save_profile(), set_display_name(),
+-- set_hide_presence(), ensure_profile() and delete_my_account(). Verified
+-- against the application: no .from("profiles"), .from("trade_listings") or
+-- .from("listing_sides") anywhere in src/ performs an insert, update or
+-- delete.
+revoke insert, update, delete, truncate on
+  public.profiles,
+  public.trade_listings,
+  public.listing_sides
+from authenticated;
+
+-- The recruitment board is different: the app does write it directly, and
+-- should — posting and deleting a post are ordinary row operations the
+-- policies already judge correctly. The only UPDATE it performs is moving the
+-- post through its stages, so that is the only column it may name. expires_at,
+-- vote_cap and slots are the author's to set when the row is created and not
+-- afterwards.
+revoke update on public.service_listings from authenticated;
+grant update (stage) on public.service_listings to authenticated;
+
+-- Messages: the three columns the application actually sends, and no others.
+--
+-- `kind` and `is_pinned` decide whether a message renders as somebody talking
+-- or as the site talking, pinned above the thread. A player who could name
+-- those in an INSERT could pin "MintPlaza says: send your items first" over a
+-- party of six who have just agreed to trade with them, and it would look
+-- exactly like the real notice. No policy can stop that — a policy picks rows,
+-- not columns — so the privilege does.
+revoke insert on public.messages from authenticated;
+grant insert (conversation_id, sender_id, body) on public.messages to authenticated;

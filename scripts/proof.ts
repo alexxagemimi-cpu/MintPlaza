@@ -44,9 +44,13 @@ import {
 import {
   BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, REFUND_EXCEPTIONS, SUBSCRIPTION,
 } from "../src/lib/legal.ts";
+import { internalPath } from "../src/lib/redirect.ts";
+import { robloxHosted } from "../src/lib/roblox-cdn.ts";
+import { REWARDED_ADS_ON, showRewardedAd } from "../src/lib/ads.ts";
 import {
   BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
-  LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME, LISTING_WINDOW_HOURS,
+  FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME,
+  LEVEL_UP_PER_WINDOW, LEVEL_UP_WINDOW_HOURS,
 } from "../src/lib/level-up.ts";
 
 const it = (id: string, qty = 1, variant?: string) => ({ item: findItem(id)!, quantity: qty, variant });
@@ -876,9 +880,19 @@ line("19. THE SECURITY POSTURE HOLDS");
   assert("every new-tab link carries rel=noopener", leaky.length === 0, leaky.join(", "));
 
   // "//evil.com" is a valid relative-looking URL that is not relative at all.
+  //
+  // This used to assert the PRESENCE of `startsWith("/") && !startsWith("//")`,
+  // which is worse than no check: it held a broken guard in place and would
+  // have failed the build for replacing it with a correct one. `/\evil.com`
+  // walked straight through that pair — a backslash is a slash to the URL
+  // parser — and the assertion said everything was fine.
+  //
+  // What matters is that the decision is delegated, not how it is spelled.
+  // Section 46 exercises internalPath() against the strings that got through.
   const callback = read("../src/app/auth/callback/route.ts");
   assert("the sign-in redirect refuses an off-site destination",
-    /startsWith\("\/"\)/.test(callback) && /startsWith\("\/\/"\)/.test(callback));
+    /internalPath\(/.test(callback) && !/startsWith\("\/\/"\)/.test(callback),
+    "resolved and compared by origin, not read as a string");
 
   // The panel answers 404 rather than 403 — "forbidden" would confirm there is
   // something there — and must never be indexed or previewed.
@@ -933,13 +947,13 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
 
   const perk = (needle: string) => PERKS.find((p) => p.title.includes(needle));
 
-  // ---- 1. ten listings up at once, instead of three ----------------------
+  // ---- 1. ten listings up at once, instead of four -----------------------
   const paidPerGame = paid("max_active_per_game_for", /then\s+(\d+)\s+else/);
   const freePerGame = free("max_active_per_game", /select (\d+)/);
   const p1 = perk("Ten listings");
   assert("the listing count on the page is the one the trigger enforces",
-    paidPerGame === "10" && freePerGame === "3"
-      && Boolean(p1) && p1!.levelUp.includes("10") && p1!.free.includes("3"),
+    paidPerGame === "10" && freePerGame === "4"
+      && Boolean(p1) && p1!.levelUp.includes("10") && p1!.free.includes("4"),
     `sql: ${freePerGame} free / ${paidPerGame} paid · page: "${p1?.free}" -> "${p1?.levelUp}"`);
 
   // ---- 2. three days instead of one --------------------------------------
@@ -961,7 +975,59 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     Number(paidWindow) >= Number(paidPerGame),
     `${paidWindow} per window vs ${paidPerGame} allowed live`);
 
-  // ---- 4. what is NOT sold ------------------------------------------------
+  // ---- 4. the window is long enough to be a limit at all ------------------
+  //
+  // This is the bug the whole rate limit had. It was three listings every
+  // three hours, which reads like a cap and is not one: posting a listing,
+  // finding somebody and closing the trade takes well under an hour, so the
+  // slots came back before a player had any use for them — twenty-four a day
+  // for free, and one person could hold the board on their own.
+  //
+  // What makes a rate limit real is that its window outlasts the behaviour it
+  // is limiting. A free listing already lives 24 hours; a window shorter than
+  // that hands back a slot while the listing that spent it is still on the
+  // board, which is the precise shape of the hole. So: the free window must be
+  // at least a free listing's whole life.
+  const freeWindow = free("listing_window", /interval '(\d+) hours'/);
+  const freePerWindow = free("listings_per_window", /select (\d+)/);
+  const paidWindowHours = paid("listing_window_for", /then\s+interval\s+'(\d+) hours'/);
+
+  assert("a slot cannot come back while the listing that spent it is still up",
+    Number(freeWindow) >= Number(freeLife),
+    `${freeWindow}h window against a ${freeLife}h listing`);
+
+  // And the free daily total is exactly the per-window number, which is only
+  // true because the window is a day. If somebody halves the window, this is
+  // the assertion that says what it actually cost.
+  const freePerDay = Number(freePerWindow) * (24 / Number(freeWindow));
+  assert("four listings a day for a free account means four, not four an hour",
+    freePerDay === Number(freePerWindow) && freePerDay === FREE_PER_WINDOW,
+    `${freePerWindow} every ${freeWindow}h = ${freePerDay} a day`);
+
+  // ---- 5. the per-game cap cannot refuse a listing the rate limit allows --
+  //
+  // A free player's four daily listings all live 24 hours and the window is 24
+  // hours, so all four are up at once by construction. A per-game cap below
+  // the per-window count would refuse the last one every single time — the
+  // site would advertise a listing it always rejected. They were 4 and 3.
+  assert("the per-game cap does not refuse a slot the window just granted",
+    Number(freePerGame) >= Number(freePerWindow),
+    `${freePerWindow} a window against ${freePerGame} live per game`);
+
+  // ---- 6. paying is better on both axes, never worse ----------------------
+  const p3 = perk("twenty a day");
+  assert("Level Up posts more often as well as more at once",
+    Number(paidWindow) > Number(freePerWindow)
+      && Number(paidWindowHours) < Number(freeWindow)
+      && Boolean(p3)
+      && p3!.free.includes(String(FREE_PER_WINDOW))
+      && p3!.free.includes(String(FREE_WINDOW_HOURS))
+      && p3!.levelUp.includes(String(LEVEL_UP_PER_WINDOW))
+      && p3!.levelUp.includes(String(LEVEL_UP_WINDOW_HOURS)),
+    `sql: ${freePerWindow}/${freeWindow}h free, ${paidWindow}/${paidWindowHours}h paid`
+      + ` · page: "${p3?.free}" -> "${p3?.levelUp}"`);
+
+  // ---- 7. what is NOT sold ------------------------------------------------
   //
   // Bumping is the one perk that would take something from everybody else: the
   // board sorts on bumped_at, so a paid bump pushes free listings down. The
@@ -986,7 +1052,7 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     Number.isFinite(cooldownHours) && cooldownHours < Number(freeLife),
     `bump every ${cooldownHours}h against a ${freeLife}h listing`);
 
-  // ---- 5. nothing that could be mistaken for a safety signal -------------
+  // ---- 8. nothing that could be mistaken for a safety signal -------------
   //
   // A mark you can buy is worth more to a scammer than to anybody honest. The
   // page may not sell one, and no component may draw one.
@@ -994,7 +1060,7 @@ line("20. LEVEL UP — the page cannot promise what the database will not give")
     !PERKS.some((p) => /badge|mark|tick|verif/i.test(`${p.title} ${p.levelUp}`)),
     PERKS.map((p) => p.title).join(" | "));
 
-  // ---- 6. every perk is a real limit, not a vibe -------------------------
+  // ---- 9. every perk is a real limit, not a vibe -------------------------
   const vague = PERKS.filter((p) => !(/\d/.test(p.free) && /\d/.test(p.levelUp)));
   assert("every perk names a number on both sides",
     vague.length === 0, vague.map((p) => p.title).join(", ") || `${PERKS.length} perks`);
@@ -1173,10 +1239,30 @@ line("23. THE PAYMENT WEBHOOK — the guards that are not in the red team");
   assert("and nothing compares a signature with ===",
     !/\b(sig|signature|expected|given)\w*\s*===/i.test(safeEqualBody));
 
-  // Signing only the body lets anybody take a captured request, put today's
-  // timestamp on it, and replay it forever.
-  assert("the timestamp is inside the signed material",
-    /\$\{timestamp\}\.\$\{raw\}/.test(route) || route.includes("`${timestamp}.${raw}`"));
+  // Razorpay's scheme, not one of ours.
+  //
+  // The first version signed `${timestamp}.${body}` with the timestamp in its
+  // own header — a good scheme, and not Razorpay's, so it would have rejected
+  // every real delivery while passing a suite written to match it. That is the
+  // most convincing kind of broken: green tests, no money.
+  //
+  // Razorpay signs the raw body only, HMAC-SHA256, hex, in
+  // X-Razorpay-Signature. There is no signed timestamp.
+  assert("the signature is HMAC over the raw body, Razorpay's way",
+    /createHmac\("sha256", secret\)\.update\(raw, "utf8"\)/.test(route)
+      && route.includes("x-razorpay-signature"),
+    "the raw text, never a re-serialised object");
+
+  assert("and nothing signs a header the sender does not sign",
+    !route.includes("x-mintplaza-signature") && !route.includes("${timestamp}.${raw}"),
+    "a header outside the signature is attacker-controlled");
+
+  // Razorpay signs no timestamp, so the only one that cannot be edited freely
+  // is created_at inside the body — and the real replay defence is the unique
+  // payment_ref in the database, which no request can talk its way past.
+  assert("replay is bounded by something inside the signed body",
+    /event\.created_at/.test(route) && /MAX_AGE_SECONDS/.test(route),
+    "the unique payment_ref is the defence that actually holds");
 
   // Fail closed. A webhook that accepted unsigned requests "until the secret is
   // configured" would be a free Level Up for anybody who found the URL, and it
@@ -1374,6 +1460,27 @@ line("26. THE TERMS DESCRIBE THE SITE THAT ACTUALLY EXISTS");
   assert("and the real listing lifetime",
     life?.levelUp.includes(`${SUBSCRIPTION.listingDays} days`) === true
       && life?.free.includes(`${SUBSCRIPTION.freeListingHours} hours`) === true);
+
+  // The terms say "the whole of what it gives you", so a perk the sales page
+  // advertises and the terms omit makes that sentence false. Both numbers, and
+  // both windows, have to appear in both places.
+  const rate = PERKS.find((p) => p.title.includes("twenty a day"));
+  assert("and the posting rate, which the terms promise is the whole list",
+    SUBSCRIPTION.listingsPerWindow === LEVEL_UP_PER_WINDOW
+      && SUBSCRIPTION.windowHours === LEVEL_UP_WINDOW_HOURS
+      && SUBSCRIPTION.freeListingsPerWindow === FREE_PER_WINDOW
+      && SUBSCRIPTION.freeWindowHours === FREE_WINDOW_HOURS
+      && Boolean(rate),
+    `terms: ${SUBSCRIPTION.freeListingsPerWindow}/${SUBSCRIPTION.freeWindowHours}h`
+      + ` -> ${SUBSCRIPTION.listingsPerWindow}/${SUBSCRIPTION.windowHours}h`);
+
+  // Every perk on the sales page must be a line on the terms page. Counting
+  // rather than matching text, because the wording differs on purpose and the
+  // failure this catches is an omission, not a rephrasing.
+  const promised = (terms.match(/<li>/g) ?? []).length;
+  assert("the terms list at least as many perks as the page sells",
+    promised >= PERKS.length,
+    `${PERKS.length} perks sold, ${promised} list items in the terms`);
 
   // "It does not renew by itself" is the strongest promise on the money
   // section. Nothing in the codebase may quietly make it recurring.
@@ -1943,7 +2050,7 @@ line("32. THE GO-LIVE GUIDE TELLS THE TRUTH");
 
   // The webhook contract it prints has to be the one the route enforces.
   const hook = read("../src/app/api/level-up/webhook/route.ts");
-  for (const part of ["x-mintplaza-timestamp", "x-mintplaza-signature", "payment_ref"]) {
+  for (const part of ["x-razorpay-signature", "RAZORPAY_WEBHOOK_SECRET", "payment.captured"]) {
     assert(`the webhook contract names ${part} and the route reads it`,
       doc.includes(part) && hook.includes(part));
   }
@@ -1993,8 +2100,14 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
       fn("max_active_per_game", "")), String(FREE_PER_GAME)],
     ["paid listings per game", new RegExp(`then ${LEVEL_UP_PER_GAME}\\s+else`).test(
       fn("max_active_per_game_for", "p_user uuid")), String(LEVEL_UP_PER_GAME)],
-    ["the posting window", fn("listing_window", "").includes(
-      `interval '${LISTING_WINDOW_HOURS} hours'`), `${LISTING_WINDOW_HOURS}h`],
+    ["the free posting window", fn("listing_window", "").includes(
+      `interval '${FREE_WINDOW_HOURS} hours'`), `${FREE_WINDOW_HOURS}h`],
+    ["the paid posting window", fn("listing_window_for", "p_user uuid").includes(
+      `interval '${LEVEL_UP_WINDOW_HOURS} hours'`), `${LEVEL_UP_WINDOW_HOURS}h`],
+    ["free listings per window", new RegExp(`select ${FREE_PER_WINDOW}\\b`).test(
+      fn("listings_per_window", "")), String(FREE_PER_WINDOW)],
+    ["paid listings per window", new RegExp(`then ${LEVEL_UP_PER_WINDOW}\\s+else`).test(
+      fn("listings_per_window_for", "p_user uuid")), String(LEVEL_UP_PER_WINDOW)],
     ["bumps a day", new RegExp(`select ${BUMPS_PER_DAY};`).test(
       fn("bumps_per_day_for", "p_user uuid")), String(BUMPS_PER_DAY)],
   ];
@@ -2025,6 +2138,12 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
       !/seven days|7 days/i.test(src));
     assert(`${name} does not claim one bump a day`,
       !/once a day|one a day/i.test(src));
+    // The window was three hours and was not a limit at anything. A screen may
+    // say how long a slot takes to come back, but it has to read the number —
+    // "3H WINDOW" was typed into the dashboard by hand and stayed there after
+    // the rule changed.
+    assert(`${name} does not retype the old three-hour window`,
+      !/three hours|3\s*h\s*window|3 hours/i.test(src));
   }
 
   // The two screens that state the rules must read them, not retype them.
@@ -2032,6 +2151,21 @@ line("33. NO SCREEN QUOTES A POSTING RULE THAT IS NOT THE REAL ONE");
     const src = read(f);
     assert(`${f.split("/").pop()} reads the numbers from level-up.ts`,
       /from "@\/lib\/level-up"/.test(src) && /FREE_LISTING_HOURS/.test(src));
+  }
+
+  // LevelUpCard is the third, and it was the one still typing them. It sat on
+  // the dashboard saying "ten listings instead of three, each lasting three
+  // days instead of one" as prose, so raising the free cap to four left it
+  // quietly advertising a limit that no longer existed. It is the card next to
+  // the slot meter, which shows the real number — two figures side by side,
+  // disagreeing.
+  {
+    const src = stripComments(read("../src/components/LevelUpCard.tsx"));
+    assert("LevelUpCard reads its numbers rather than spelling them out",
+      /from "@\/lib\/level-up"/.test(src)
+        && /LEVEL_UP_PER_GAME/.test(src) && /FREE_PER_GAME/.test(src)
+        && !/instead of three|instead of one\b/i.test(src),
+      "the card beside the slot meter must not disagree with it");
   }
 }
 
@@ -2864,6 +2998,326 @@ line("43. AN ITEM THE CATALOGUE CANNOT READ IS NEVER SILENTLY DROPPED");
     assert(`${what} names what it could not show`, read(file).includes(needle),
       "a card that draws fewer items than the listing holds is how two people agree to different trades");
   }
+}
+
+line("44. A GAME WITH NO ARTWORK DOES NOT BREAK THE PAGE IT IS DRAWN ON");
+{
+  /* ------------------------------------------------------------------------
+   * GAG2 has no cover art, and `art: ""` is a legitimate state — a game added
+   * in the Studio starts that way, and so does one added in code before the
+   * artwork exists. GameArt has guarded that since it was written, and its
+   * own comment says why: an empty src renders as a broken image AND makes the
+   * browser re-request the whole page.
+   *
+   * WantMarquee had its own copy of the markup, so it missed the guard. The
+   * landing page — the first thing anybody sees — threw thirty-two console
+   * errors, one per marquee tile, and asked the browser to fetch the page
+   * again each time. Nothing failed, nothing was red, and the production
+   * build was clean.
+   *
+   * So the rule is that one component owns how a game is drawn.
+   * --------------------------------------------------------------------- */
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+  // A game with no artwork exists, or the guard below is guarding nothing and
+  // this whole section is a comment that takes time to run.
+  const artless = GAMES.filter((g) => !g.art);
+  assert("at least one game really has no artwork",
+    artless.length > 0, artless.map((g) => g.shortName).join(", ") || "none — guard untested");
+
+  assert("GameArt still refuses to render an empty src",
+    /if \(!game\.art\)/.test(read("src/components/GameArt.tsx")),
+    "the fallback the other components depend on");
+
+  // Every other component must go through it rather than reaching for the art
+  // field itself. This is the check that would have caught the marquee.
+  const drawers = [
+    "src/components/WantMarquee.tsx",
+    "src/components/GameSwitcher.tsx",
+    "src/app/page.tsx",
+  ].filter((f) => existsSync(new URL(`../${f}`, import.meta.url)));
+
+  for (const f of drawers) {
+    const src = read(f);
+    assert(`${f.split("/").pop()} does not reach past GameArt for a game's art`,
+      !/src=\{[^}]*\.art\b/.test(src),
+      "an unguarded <Image src={game.art}> is a broken image on every artless game");
+  }
+}
+
+line("45. A ROW POLICY IS NOT A COLUMN POLICY");
+{
+  /* ------------------------------------------------------------------------
+   * Table privileges are part of the defence now, and there are two copies of
+   * them.
+   *
+   * An RLS policy chooses which ROWS you may write. It never chooses which
+   * COLUMNS. Every `using (user_id = auth.uid())` in this schema reads as
+   * "you may only change your own things" and means "you may change anything
+   * about your own things" — which, proved against a real Postgres as an
+   * ordinary signed-in player, meant:
+   *
+   *   update trade_listings set created_at = now() - interval '48 hours'
+   *     -> listing_allowance() went from used=1 back to used=0. The posting
+   *        limit, off, in one request.
+   *   update profiles set status = 'active'
+   *     -> a suspended account un-bans itself, and status='active' is exactly
+   *        what the posting policies check.
+   *   update profiles set username = '<somebody else>'
+   *     -> wear a known trader's name.
+   *
+   * The fix is at the tail of supabase/schema.sql. But pg-rls-test.sql opens
+   * by granting `authenticated` everything Supabase grants by default — which
+   * would undo it — so it re-applies the same statements. Two copies of a
+   * security control is a thing that drifts, and the copy that drifts is the
+   * one in the test, which then proves the opposite of what production does.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const squash = (t: string) => t.replace(/\s+/g, " ").trim();
+
+  const HARDENING = "-- Table privileges — the layer underneath RLS";
+  const sql = read("../supabase/schema.sql");
+  assert("schema.sql still carries the table-privilege section",
+    sql.includes(HARDENING), HARDENING);
+
+  const tail = sql.slice(sql.indexOf(HARDENING));
+  const statements = (tail.match(/^(?:revoke|grant)[\s\S]*?;/gm) ?? []).map(squash);
+
+  assert("and it is not empty", statements.length >= 4,
+    `${statements.length} grant/revoke statements`);
+
+  // The three tables the application only ever writes through a function.
+  for (const t of ["public.profiles", "public.trade_listings", "public.listing_sides"]) {
+    assert(`${t} has its write privileges taken away`,
+      statements.some((st) =>
+        st.startsWith("revoke insert, update, delete, truncate on")
+        && st.includes(t) && st.endsWith("from authenticated;")),
+      "an RLS policy alone cannot stop a column being rewritten");
+  }
+
+  assert("and a signed-out visitor may not write anything at all",
+    statements.some((st) =>
+      /^revoke insert, update, delete, truncate on all tables in schema public from anon;$/.test(st)));
+
+  // The one column the recruitment board is allowed to change directly.
+  assert("service_listings may only have its stage changed directly",
+    statements.some((st) => /^revoke update on public\.service_listings from authenticated;$/.test(st))
+      && statements.some((st) => /^grant update \(stage\) on public\.service_listings to authenticated;$/.test(st)),
+    "expires_at and vote_cap are set when the post is made, not afterwards");
+
+  // And the test harness must hold the identical set, or it is testing a
+  // database that does not exist.
+  const rls = squash(read("../scripts/pg-rls-test.sql"));
+  const missing = statements.filter((st) => !rls.includes(st));
+  assert("pg-rls-test.sql re-applies every one of them after its blanket grant",
+    missing.length === 0,
+    missing.length ? missing[0] : `${statements.length} statements, both copies agree`);
+}
+
+line("46. A LINK THAT STARTS HERE ENDS HERE");
+{
+  /* ------------------------------------------------------------------------
+   * The open redirect, and why the obvious check was not one.
+   *
+   * Both auth routes guarded `next` with
+   *   asked.startsWith("/") && !asked.startsWith("//")
+   * written out twice, in two files. It reads as "a path on our own site".
+   * It is not: the WHATWG URL parser treats a backslash as a slash for http
+   * and https, so `/\evil.com` passes the string test with one leading slash
+   * and then resolves to https://evil.com/.
+   *
+   * The terms tell players MintPlaza will never ask for their password, and
+   * the one defence a fourteen-year-old is taught is to check the domain. A
+   * link that genuinely starts on mintplaza.app and lands somewhere else is
+   * worth more to a phisher than anything else on this site.
+   *
+   * internalPath() resolves instead of reading, and compares origins — so a
+   * trick that survives parsing is visible by definition. These cases are the
+   * ones that actually got through, kept as data so they cannot come back.
+   * --------------------------------------------------------------------- */
+  const ORIGIN = "https://mintplaza.app";
+
+  const escapes: string[] = [];
+  for (const attempt of [
+    "//evil.com", "https://evil.com", "http://evil.com",
+    "/\\evil.com", "/\\/evil.com", "\\\\evil.com", "\\/evil.com",
+    "//evil.com/path", "https:evil.com", "//\\evil.com",
+    "/\\\\evil.com", "\u0000//evil.com", "javascript:alert(1)",
+  ]) {
+    const got = internalPath(attempt, ORIGIN, "/safe");
+    let resolved: string;
+    try { resolved = new URL(got, ORIGIN).href; } catch { resolved = "THREW"; }
+    if (!resolved.startsWith(ORIGIN + "/")) escapes.push(`${attempt} -> ${resolved}`);
+  }
+  assert("no redirect target escapes the site's own origin",
+    escapes.length === 0, escapes[0] ?? "13 attempts, all contained");
+
+  // The positive control. A guard that refuses everything would pass the
+  // assertion above and break signing in.
+  const keeps: [string, string][] = [
+    ["/app", "/app"],
+    ["/app/blox-fruits/trades", "/app/blox-fruits/trades"],
+    ["/app?tab=inventory", "/app?tab=inventory"],
+    ["/login#top", "/login#top"],
+  ];
+  const wrong = keeps.filter(([input, want]) => internalPath(input, ORIGIN, "/safe") !== want);
+  assert("and an ordinary path is still honoured",
+    wrong.length === 0, wrong.length ? wrong[0][0] : `${keeps.length} paths kept`);
+
+  assert("a missing next falls back rather than throwing",
+    internalPath(null, ORIGIN, "/app") === "/app"
+      && internalPath(undefined, ORIGIN, "/app") === "/app"
+      && internalPath("", ORIGIN, "/app") === "/app");
+
+  // ---- and neither route may go back to reading the string ----------------
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  for (const f of ["../src/app/auth/callback/route.ts", "../src/app/auth/signout/route.ts"]) {
+    const src = read(f);
+    assert(`${f.split("/").pop()} decides its redirect with internalPath`,
+      /internalPath\(/.test(src) && !/startsWith\("\/\/"\)/.test(src),
+      "the startsWith check is the one that let /\\evil.com through");
+  }
+
+  // ---- the image proxy is a redirect too, to a url we do not write --------
+  //
+  // It reads imageUrl out of another company's JSON and 307s the browser
+  // there, cached for a day. Without a check on where that points, it is an
+  // open redirect on our domain with somebody else choosing the destination.
+  const proxy = read("../src/app/api/item-image/[assetId]/route.ts");
+  assert("the item-image route checks where it is forwarding to",
+    /robloxHosted\(/.test(proxy),
+    "a cached 307 to an arbitrary host is worth closing on its own terms");
+  assert("and still refuses an asset id that is not a number",
+    /\^\\d\{1,20\}\$/.test(proxy));
+
+  // The allowlist itself, exercised rather than grepped. Roblox serves
+  // thumbnails from t0…t7.rbxcdn.com and tr.rbxcdn.com and rotates between
+  // them, so the real risk here is not letting an attacker in — it is being
+  // too strict and turning every item picture on the site into a 404 that
+  // nobody notices, because the tile has a designed fallback.
+  const realCdn = [
+    "https://tr.rbxcdn.com/abc123/420/420/Image/Png",
+    "https://t0.rbxcdn.com/abc", "https://t7.rbxcdn.com/abc",
+    "https://rbxcdn.com/abc",
+  ].filter((u) => !robloxHosted(u));
+  assert("and Roblox's own thumbnail hosts are all accepted",
+    realCdn.length === 0, realCdn[0] ?? "t0-t7, tr and the apex all pass");
+
+  const sneaky = [
+    "https://evil.com/x", "http://tr.rbxcdn.com/x",
+    "https://rbxcdn.com.evil.com/x", "https://evil-rbxcdn.com/x",
+    "https://notrbxcdn.com/x", "javascript:alert(1)", "//tr.rbxcdn.com/x",
+    "https://tr.rbxcdn.com.evil.com/x", "", "not a url",
+  ].filter((u) => robloxHosted(u));
+  assert("while a lookalike host is not",
+    sneaky.length === 0, sneaky[0] ?? "10 impostors rejected");
+}
+
+line("47. FINALISING A DEAL OPENS A PARTY, AND THE AD CANNOT STOP IT");
+{
+  /* ------------------------------------------------------------------------
+   * The end of the recruitment flow, and the one thing in it that must never
+   * be load-bearing.
+   *
+   * Finalising used to move a stage to 'locked' and nothing else. Several
+   * people had just voted, been picked and said yes to a raid, and then had to
+   * go and find each other by username one at a time. finalize_deal() closes
+   * that: it locks the post, opens a party with everybody who agreed, and pins
+   * the notice — as one statement, because half of it having run is not a
+   * state this site has a screen for.
+   *
+   * The ad in front of it is a seam, not a requirement. By the time that
+   * button is pressed five people are waiting on one tap, and an ad script
+   * that is blocked, slow or simply broken must not be what strands them.
+   * These checks are what stop somebody making it mandatory later and
+   * discovering the failure mode in production.
+   * --------------------------------------------------------------------- */
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const ads = read("../src/lib/ads.ts");
+  const card = stripComments(read("../src/components/ServiceListingCard.tsx"));
+  const board = read("../src/lib/actions/board.ts");
+  const sql = read("../supabase/schema.sql");
+
+  // ---- the ad is off until somebody configures it -------------------------
+  assert("no ad runs until a provider is actually configured",
+    REWARDED_ADS_ON === false,
+    "nothing is configured, so the finalise button simply finalises");
+
+  assert("and an unconfigured gate reports that, rather than pretending",
+    (await showRewardedAd()) === "unavailable",
+    "no placeholder countdown standing in for an advert that does not exist");
+
+  // ---- it cannot become a requirement by accident -------------------------
+  //
+  // The whole risk is one edit: someone wraps the finalise call in
+  // `if (outcome === "shown")`. Then a blocked ad script becomes a deal that
+  // cannot be completed, for people who have already committed to it.
+  assert("finalising is not conditional on the ad having played",
+    !/if\s*\(\s*outcome\s*===\s*["']shown["']\s*\)/.test(card)
+      && /finalizeDeal\(listing\.id,\s*outcome === "shown"\)/.test(card),
+    "the outcome is reported, never used as a gate");
+
+  assert("and the gate resolves every path rather than throwing",
+    /REWARDED_AD_TIMEOUT_MS/.test(ads) && /catch/.test(ads)
+      && /"failed"/.test(ads) && /"unavailable"/.test(ads),
+    "a provider that never calls back is a provider that failed");
+
+  // ---- the server is the one that decides anything ------------------------
+  assert("the server action passes the ad outcome as data, not as permission",
+    /p_ad_shown: adShown/.test(board),
+    "recorded on the listing so real impressions can be counted separately");
+
+  const fn = sql.slice(sql.indexOf("create or replace function public.finalize_deal"));
+  assert("finalize_deal never reads the ad flag to decide anything",
+    !/if\s+p_ad_shown/.test(fn.slice(0, fn.indexOf("$$;"))),
+    "it is stored and nothing else");
+
+  // ---- and the pieces that make it one event ------------------------------
+  const body = fn.slice(0, fn.indexOf("$$;"));
+  for (const [what, needle] of [
+    ["checks the caller is the host", "Only the player who posted this"],
+    ["refuses when nobody has agreed", "Nobody has said yes yet"],
+    ["locks the post", "stage = 'locked'"],
+    ["opens the party", "insert into public.conversations"],
+    ["adds everybody who agreed", "reply = 'agreed'"],
+    ["pins the notice", "party_pinned_message()"],
+  ] as const) {
+    assert(`finalize_deal ${what}`, body.includes(needle), needle);
+  }
+
+  // Idempotency is not a nicety here. The button sits behind an ad, and an ad
+  // times out, gets blocked, or is tapped twice — every one of those is a
+  // retry, and a retry must not open a second chat with the same people.
+  assert("and hands back the existing party rather than opening a second one",
+    body.includes("already_open") && body.includes("kind = 'party'"),
+    "a unique index backs this up in the schema");
+  assert("with a unique index so two cannot exist even if it did",
+    /create unique index[\s\S]*?conversations_one_party_per_listing/.test(sql));
+
+  // ---- the pinned notice says the safe thing ------------------------------
+  //
+  // It answers the question every one of these deals raises, and carries the
+  // warning that has to travel with that answer.
+  const pinned = sql.slice(sql.indexOf("function mintplaza.party_pinned_message"));
+  const pinnedBody = pinned.slice(0, pinned.indexOf("$$;"));
+  assert("the pinned notice points somewhere for private servers",
+    /private server/i.test(pinnedBody));
+  assert("and tells nobody to pay for one, or to send anything first",
+    /nobody pays/i.test(pinnedBody) && /password/i.test(pinnedBody),
+    "'free private server' is the most common bait in Roblox scams");
+
+  // ---- the inbox counts a party once --------------------------------------
+  //
+  // my_conversations joined one row per OTHER participant, which is one row
+  // while every conversation holds two people and four rows when it holds
+  // five: the same party listed four times, under a different member's name
+  // each time, with the same unread badge on all of them.
+  const inboxFn = sql.slice(sql.indexOf("create or replace function public.my_conversations"));
+  const inboxBody = inboxFn.slice(0, inboxFn.indexOf("$$;"));
+  assert("the inbox reader cannot multiply a conversation by its members",
+    /left join lateral/.test(inboxBody) && /limit 1/.test(inboxBody)
+      && !/join public\.conversation_participants them/.test(inboxBody),
+    "the other person is a lateral lookup that cannot fan the outer row out");
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the

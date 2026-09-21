@@ -250,6 +250,14 @@ export default function TermsPage() {
             Your listings last {SUBSCRIPTION.listingDays} days each, instead of{" "}
             {SUBSCRIPTION.freeListingHours} hours.
           </li>
+          <li>
+            {SUBSCRIPTION.listingsPerWindow} new listings every{" "}
+            {SUBSCRIPTION.windowHours} hours, instead of{" "}
+            {SUBSCRIPTION.freeListingsPerWindow} every{" "}
+            {SUBSCRIPTION.freeWindowHours}. Each slot comes back that long after
+            the listing that used it, rather than all at once on a fixed daily
+            reset.
+          </li>
         </ul>
         <p className="font-semibold text-ink">What it is not:</p>
         <ul className="ml-4 list-disc space-y-1.5">

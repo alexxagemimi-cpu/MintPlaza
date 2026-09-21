@@ -157,9 +157,19 @@ export const SUBSCRIPTION = {
    * checked against the database functions that enforce them.
    */
   listingsPerGame: 10,
-  freeListingsPerGame: 3,
+  freeListingsPerGame: 4,
   listingDays: 3,
   freeListingHours: 24,
+  /**
+   * How often new listings may be posted, which is a separate limit from how
+   * many may be live. It is here because the terms promise "the whole of what
+   * it gives you", and a perk the sales page advertises but the terms omit is
+   * the half of that sentence that gets argued about.
+   */
+  listingsPerWindow: 10,
+  windowHours: 12,
+  freeListingsPerWindow: 4,
+  freeWindowHours: 24,
 } as const;
 
 /**

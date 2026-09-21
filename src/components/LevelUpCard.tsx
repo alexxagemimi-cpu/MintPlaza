@@ -1,5 +1,9 @@
 import Link from "next/link";
-import type { LevelUpStatus } from "@/lib/level-up";
+import {
+  FREE_LISTING_HOURS, FREE_PER_GAME, FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_DAYS,
+  LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME, LEVEL_UP_PER_WINDOW,
+  LEVEL_UP_WINDOW_HOURS, type LevelUpStatus,
+} from "@/lib/level-up";
 
 /**
  * The Level Up card.
@@ -78,12 +82,20 @@ export function LevelUpCard({
             you are back on the free limits. Starting again picks up from today.
           </>
         ) : compact ? (
-          <>Ten listings up at once instead of three, each lasting three days instead of one.</>
+          <>
+            {LEVEL_UP_PER_GAME} listings up at once instead of {FREE_PER_GAME},
+            {" "}{LEVEL_UP_PER_WINDOW} new ones every {LEVEL_UP_WINDOW_HOURS} hours
+            instead of {FREE_PER_WINDOW} a day, each lasting{" "}
+            {LEVEL_UP_LISTING_DAYS} days instead of {FREE_LISTING_HOURS} hours.
+          </>
         ) : (
           <>
-              60 days of more room on the board: ten listings up at once in a
-            game instead of three, and each one lasting three days instead of a
-            day.
+            {LEVEL_UP_DAYS} days of more room on the board:{" "}
+            {LEVEL_UP_PER_GAME} listings up at once in a game instead of{" "}
+            {FREE_PER_GAME}, {LEVEL_UP_PER_WINDOW} new ones every{" "}
+            {LEVEL_UP_WINDOW_HOURS} hours instead of {FREE_PER_WINDOW} every{" "}
+            {FREE_WINDOW_HOURS}, and each one lasting {LEVEL_UP_LISTING_DAYS}{" "}
+            days instead of {FREE_LISTING_HOURS} hours.
           </>
         )}
       </p>

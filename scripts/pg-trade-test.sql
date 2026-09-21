@@ -140,13 +140,13 @@ end $$;
 do $$
 declare i int;
 begin
-  for i in 1..4 loop
+  for i in 1..5 loop
     perform public.post_trade_listing('blox-fruits',
       '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
   end loop;
-  perform pg_temp.ok('the three-per-window limit bites', false);
+  perform pg_temp.ok('the four-per-window limit bites', false);
 exception when sqlstate 'P0001' then
-  perform pg_temp.ok('the three-per-window limit bites', true);
+  perform pg_temp.ok('the four-per-window limit bites', true);
 end $$;
 
 do $$
@@ -246,8 +246,9 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = false);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('and gets the free three slots', r.remaining = 3);
-  perform pg_temp.ok('and the free three-per-game cap', r.active_cap = 3);
+  perform pg_temp.ok('and gets the free four slots', r.remaining = 4);
+  perform pg_temp.ok('and the free four-per-game cap', r.active_cap = 4);
+  perform pg_temp.ok('on the free 24-hour window', r.window_hours = 24);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up says not active', (v->>'active')::boolean = false);
@@ -320,6 +321,10 @@ begin
   select * into r from public.listing_allowance('blox-fruits');
   perform pg_temp.ok('the per-window allowance rises to ten', r.remaining = 10);
   perform pg_temp.ok('and the per-game cap to ten', r.active_cap = 10);
+  -- The window is the other half of the rate limit and a perk in its own
+  -- right. Ten per 24 hours would be ten a day; ten per 12 is twenty, which is
+  -- the number the upgrade page sells.
+  perform pg_temp.ok('and the window halves to twelve hours', r.window_hours = 12);
 
   v := public.my_level_up();
   perform pg_temp.ok('my_level_up reports it active', (v->>'active')::boolean = true);
@@ -328,14 +333,14 @@ end $$;
 
 -- ---- the trigger honours it, not just the read function -------------------
 --
--- listing_allowance only reports. This posts a fourth listing, which the free
+-- listing_allowance only reports. This posts a fifth listing, which the free
 -- tier refuses outright, and proves the enforcement path agrees with what the
 -- screen was told.
 do $$
 declare i int; v_posted boolean := false;
 begin
   begin
-    for i in 1..4 loop
+    for i in 1..5 loop
       perform public.post_trade_listing('blox-fruits',
         '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
     end loop;
@@ -343,7 +348,7 @@ begin
   exception when sqlstate 'P0001' then
     v_posted := false;
   end;
-  perform pg_temp.ok('a Level Up player can post past the free three-listing limit', v_posted);
+  perform pg_temp.ok('a Level Up player can post past the free four-listing limit', v_posted);
 end $$;
 
 -- ---- and still stops at the paid limit ------------------------------------
@@ -429,7 +434,8 @@ begin
     mintplaza.is_level_up('33333333-3333-3333-3333-333333333333') = false);
 
   select * into r from public.listing_allowance('blox-fruits');
-  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 3);
+  perform pg_temp.ok('and the caps drop straight back to free', r.active_cap = 4);
+  perform pg_temp.ok('including the window, which goes back to a day', r.window_hours = 24);
 
   v := public.my_level_up();
   perform pg_temp.ok('and the player is told it lapsed rather than never existed',
@@ -843,4 +849,91 @@ begin
     mintplaza.has_agreed('44444444-4444-4444-4444-444444444444') = true);
   perform pg_temp.ok('while the application still knows to re-ask them',
     public.has_accepted_terms('2026-09-18') = false);
+end $$;
+
+
+-- ===========================================================================
+-- An expired listing does not keep holding a slot
+--
+-- 'active' and 'not yet expired' are two different facts, and only one of them
+-- is kept up to date. expire_listings() is the job that turns an elapsed
+-- listing into status='expired', and nothing in this codebase schedules it —
+-- no cron, no call from the app. So a listing whose day is up stays 'active'
+-- in the table indefinitely while being invisible everywhere a player looks,
+-- because every read path filters on expires_at.
+--
+-- Every read path except the two that decide whether you may post again.
+--
+-- The effect on a free account was a permanent lockout of a whole game: four
+-- listings in one game, and the next day the rolling window handed all four
+-- posting slots back and the dashboard said "4 of 4 available", while the
+-- per-game count still saw four expired rows and refused every post. Forever,
+-- and worse the more the player used the site.
+-- ===========================================================================
+
+set "request.jwt.claim.sub" = '55555555-5555-5555-5555-555555555555';
+insert into auth.users (id, email) values
+  ('55555555-5555-5555-5555-555555555555', 'sweep@x.test');
+update public.profiles set username = 'sweeper'
+ where id = '55555555-5555-5555-5555-555555555555';
+insert into public.terms_acceptance (user_id, version)
+values ('55555555-5555-5555-5555-555555555555', '2026-09-18');
+
+do $$
+declare r record; i int;
+begin
+  for i in 1..4 loop
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+  end loop;
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok('four listings fill the free per-game cap',
+    r.active_in_game = 4 and r.active_cap = 4);
+end $$;
+
+-- A day passes. The listings elapse; nothing sweeps them.
+update public.trade_listings
+   set expires_at = now() - interval '1 hour',
+       created_at = now() - interval '48 hours'
+ where user_id = '55555555-5555-5555-5555-555555555555';
+
+do $$
+declare r record;
+begin
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok(
+    'an elapsed listing stops counting against the per-game cap',
+    r.active_in_game = 0);
+  perform pg_temp.ok('and the rolling window has handed the slots back',
+    r.remaining = 4);
+end $$;
+
+do $$
+declare v_posted boolean := false;
+begin
+  begin
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    v_posted := true;
+  exception when others then v_posted := false;
+  end;
+  perform pg_temp.ok(
+    'so the player is not locked out of the game they used yesterday',
+    v_posted);
+end $$;
+
+-- The positive control. A count that simply stopped counting would pass every
+-- assertion above and take the per-game cap off the site altogether.
+do $$
+declare v_stopped boolean := false; i int;
+begin
+  begin
+    for i in 1..5 loop
+      perform public.post_trade_listing('blox-fruits',
+        '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    end loop;
+  exception when sqlstate 'P0001' then v_stopped := true;
+  end;
+  perform pg_temp.ok('but listings that really are live still stop them',
+    v_stopped);
 end $$;

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { robloxHosted } from "@/lib/roblox-cdn";
 
 /**
  * Resolves a Roblox asset id to the picture Roblox is currently serving for it.
@@ -70,7 +71,7 @@ export async function GET(
     return new NextResponse(null, { status: 404 });
   }
 
-  if (!imageUrl) return new NextResponse(null, { status: 404 });
+  if (!imageUrl || !robloxHosted(imageUrl)) return new NextResponse(null, { status: 404 });
 
   const response = NextResponse.redirect(imageUrl, 307);
   response.headers.set(

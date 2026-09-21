@@ -776,3 +776,161 @@ begin
 
   perform set_config('request.jwt.claims', '', true);
 end $$;
+
+
+-- ===========================================================================
+-- Finalising a deal opens the party
+--
+-- The end of the recruitment flow: people vote, the host picks, the picked
+-- players agree, and the host finalises. Before this, finalising only moved
+-- the stage to 'locked' — everybody who had just said yes to a raid was left
+-- to go and find each other by username, one at a time.
+--
+-- Five things happen at once and none of them is a state the site has a screen
+-- for on its own, which is why they are one function.
+-- ===========================================================================
+\echo ''
+\echo 'FINALISING A DEAL'
+
+insert into auth.users (id, email) values
+  ('b1000000-0000-0000-0000-000000000001', 'host@party.test'),
+  ('b1000000-0000-0000-0000-000000000002', 'yes1@party.test'),
+  ('b1000000-0000-0000-0000-000000000003', 'yes2@party.test'),
+  ('b1000000-0000-0000-0000-000000000004', 'no1@party.test'),
+  ('b1000000-0000-0000-0000-000000000009', 'outsider@party.test');
+update public.profiles set username = 'partyhost' where id = 'b1000000-0000-0000-0000-000000000001';
+update public.profiles set username = 'yes1'      where id = 'b1000000-0000-0000-0000-000000000002';
+update public.profiles set username = 'yes2'      where id = 'b1000000-0000-0000-0000-000000000003';
+update public.profiles set username = 'no1'       where id = 'b1000000-0000-0000-0000-000000000004';
+update public.profiles set username = 'outsider'  where id = 'b1000000-0000-0000-0000-000000000009';
+insert into public.terms_acceptance (user_id, version)
+select id, '2026-09-18' from public.profiles
+ where id::text like 'b1000000%' on conflict do nothing;
+
+insert into public.service_listings
+  (id, game_slug, author_id, side, service_ids, stage, expires_at)
+values ('b1c00000-0000-0000-0000-0000000000c1', 'blox-fruits',
+        'b1000000-0000-0000-0000-000000000001', 'offer', '{bf-raid}',
+        'requested', now() + interval '90 minutes');
+
+-- A pick can only name somebody who voted — there is a composite foreign key
+-- that says so, and it is the reason this fixture votes first.
+insert into public.service_votes (listing_id, user_id) values
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000002'),
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000003'),
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000004');
+insert into public.service_picks (listing_id, user_id, reply) values
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000002', 'agreed'),
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000003', 'agreed'),
+  ('b1c00000-0000-0000-0000-0000000000c1', 'b1000000-0000-0000-0000-000000000004', 'denied');
+
+-- Only the host finalises. Anybody else finalising somebody's deal would open
+-- a group chat in their name.
+set "request.jwt.claim.sub" = 'b1000000-0000-0000-0000-000000000009';
+do $$
+declare v_got_in boolean := false;
+begin
+  begin
+    perform public.finalize_deal('b1c00000-0000-0000-0000-0000000000c1', false);
+    v_got_in := true;
+  exception when others then v_got_in := false;
+  end;
+  perform pg_temp.ok('only the host can finalise their own deal', not v_got_in);
+end $$;
+
+set "request.jwt.claim.sub" = 'b1000000-0000-0000-0000-000000000001';
+do $$
+declare r jsonb;
+begin
+  r := public.finalize_deal('b1c00000-0000-0000-0000-0000000000c1', true);
+  -- The host plus the two who agreed. The one who said no is not in it.
+  perform pg_temp.ok('the party holds the host and everybody who agreed',
+    (r->>'member_count')::int = 3);
+  perform pg_temp.ok('and it is named after the game and its size',
+    r->>'title' like 'Blox Fruits%3 players');
+  perform pg_temp.ok('and the post is locked',
+    (select stage from public.service_listings
+      where id = 'b1c00000-0000-0000-0000-0000000000c1') = 'locked');
+  perform pg_temp.ok('and whether an ad was shown is recorded',
+    (select finalize_ad_shown from public.service_listings
+      where id = 'b1c00000-0000-0000-0000-0000000000c1'));
+end $$;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from public.conversation_participants p
+   join public.conversations c on c.id = p.conversation_id
+   where c.kind = 'party' and p.user_id = 'b1000000-0000-0000-0000-000000000004';
+  perform pg_temp.ok('a player who said no is not put in the party', n = 0);
+end $$;
+
+-- Idempotent. The finalise button sits behind an ad, and an ad times out, gets
+-- blocked, or is tapped twice — every one of those ends in a retry, and a
+-- retry must not open a second chat with the same people in it.
+do $$
+declare r1 jsonb; r2 jsonb; n int;
+begin
+  r1 := public.finalize_deal('b1c00000-0000-0000-0000-0000000000c1', false);
+  r2 := public.finalize_deal('b1c00000-0000-0000-0000-0000000000c1', false);
+  select count(*) into n from public.conversations
+   where service_listing_id = 'b1c00000-0000-0000-0000-0000000000c1';
+  perform pg_temp.ok('finalising twice returns the same party, not a second one',
+    n = 1 and (r1->>'conversation_id') = (r2->>'conversation_id')
+      and (r2->>'already_open')::boolean);
+end $$;
+
+-- The notice, and the thread the members actually read.
+do $$
+declare t jsonb; v_conv uuid;
+begin
+  select id into v_conv from public.conversations
+   where service_listing_id = 'b1c00000-0000-0000-0000-0000000000c1';
+  t := public.conversation_thread(v_conv);
+  perform pg_temp.ok('the thread knows it is a party and names itself',
+    t->>'kind' = 'party' and t->>'title' is not null);
+  perform pg_temp.ok('and lists every member so nobody speaks unattributed',
+    jsonb_array_length(t->'members') = 3);
+  perform pg_temp.ok('and opens with a pinned notice',
+    (t->'pinned') is not null and length(t->'pinned'->>'body') > 80);
+  -- It answers the question every one of these deals raises — where do we get
+  -- a private server — and it carries the warning that has to travel with that
+  -- answer. "Free private server" is the most common bait in Roblox scams and
+  -- the people reading this are thirteen.
+  perform pg_temp.ok('which points at private servers AND says not to pay for one',
+    t->'pinned'->>'body' ilike '%private server%'
+    and t->'pinned'->>'body' ilike '%nobody pays%'
+    and t->'pinned'->>'body' ilike '%password%');
+end $$;
+
+-- The inbox, which is where the N-participant bug actually showed.
+set "request.jwt.claim.sub" = 'b1000000-0000-0000-0000-000000000002';
+do $$
+declare c jsonb;
+begin
+  c := public.my_conversations();
+  -- Three people in the party. The old reader joined one row per OTHER
+  -- participant, so this was 2 — the same chat listed twice, under a different
+  -- member's name each time, with the same unread badge on both.
+  perform pg_temp.ok('a party appears in the inbox exactly once',
+    jsonb_array_length(c) = 1);
+  perform pg_temp.ok('as a party, with its name and its size',
+    c->0->>'kind' = 'party' and (c->0->>'member_count')::int = 3
+      and c->0->>'title' is not null);
+end $$;
+
+set "request.jwt.claim.sub" = 'b1000000-0000-0000-0000-000000000009';
+do $$
+declare v_read boolean := false; v_conv uuid;
+begin
+  perform pg_temp.ok('somebody not in the party does not see it in their inbox',
+    jsonb_array_length(public.my_conversations()) = 0);
+  select id into v_conv from public.conversations
+   where service_listing_id = 'b1c00000-0000-0000-0000-0000000000c1';
+  begin
+    perform public.conversation_thread(v_conv);
+    v_read := true;
+  exception when others then v_read := false;
+  end;
+  perform pg_temp.ok('nor can they open it by id', not v_read);
+end $$;

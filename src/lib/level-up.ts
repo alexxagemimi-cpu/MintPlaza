@@ -72,11 +72,44 @@ export const LEVEL_UP_DAYS = 60;
  */
 export const FREE_LISTING_HOURS = 24;
 export const LEVEL_UP_LISTING_DAYS = 3;
-export const FREE_PER_GAME = 3;
+export const FREE_PER_GAME = 4;
 export const LEVEL_UP_PER_GAME = 10;
 
-/** A slot frees up this long after the listing that used it. Same for everyone. */
-export const LISTING_WINDOW_HOURS = 3;
+/**
+ * The posting rate: how many new listings, and how long each slot takes to
+ * come back.
+ *
+ * ---------------------------------------------------------------------------
+ * Why the window is a day
+ * ---------------------------------------------------------------------------
+ *
+ * It was three listings every three hours, and that is not a limit. Posting a
+ * listing, finding somebody and closing the trade takes well under an hour, so
+ * a free account had its slots back before it had any use for them — three an
+ * hour of patience, twenty-four in a day, and a board one person could fill on
+ * their own for nothing.
+ *
+ * A rate limit has to be slower than the thing it is limiting. A day is the
+ * first window that is.
+ *
+ * The window is rolling, not a bucket that empties at midnight. A fixed daily
+ * reset has an edge to stand on — four listings at 23:59 and four more at
+ * 00:01 is eight in two minutes, every night, inside the rules. Rolling means
+ * each slot returns exactly a window after the listing that spent it, so four
+ * a day means four in whichever day you measure.
+ *
+ * Both halves are a Level Up perk, and they have to move together: ten per
+ * window on a 24-hour window would be ten a day, which is barely a rise once a
+ * paid listing already lives three days. Ten on twelve hours is twenty.
+ *
+ * These two are the FREE numbers. A signed-in player's real window comes back
+ * from listing_allowance(), because a constant compiled into the page cannot
+ * know whether the person reading it pays.
+ */
+export const FREE_PER_WINDOW = 4;
+export const FREE_WINDOW_HOURS = 24;
+export const LEVEL_UP_PER_WINDOW = 10;
+export const LEVEL_UP_WINDOW_HOURS = 12;
 
 /**
  * Bumps a day, and the cooldown that follows from it. Deliberately the same
@@ -201,11 +234,18 @@ export interface Perk {
 
 export const PERKS: readonly Perk[] = [
   {
-    title: "Ten listings instead of three",
-    free: "3 live per game",
+    title: "Ten listings instead of four",
+    free: "4 live per game",
     levelUp: "10 live per game",
     blurb:
-      "How many of your listings can be up at once in one game. Three is enough to trade with; ten is enough to clear out an inventory.",
+      "How many of your listings can be up at once in one game. Four is enough to trade with; ten is enough to clear out an inventory.",
+  },
+  {
+    title: "Post twenty a day instead of four",
+    free: "4 every 24 hours",
+    levelUp: "10 every 12 hours",
+    blurb:
+      "A slot comes back a window after the listing that used it, so free accounts get four new listings a day and Level Up gets ten twice a day. Nothing resets at midnight — each slot returns on its own clock.",
   },
   {
     title: "Listings last three days instead of one",
