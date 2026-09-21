@@ -850,3 +850,90 @@ begin
   perform pg_temp.ok('while the application still knows to re-ask them',
     public.has_accepted_terms('2026-09-18') = false);
 end $$;
+
+
+-- ===========================================================================
+-- An expired listing does not keep holding a slot
+--
+-- 'active' and 'not yet expired' are two different facts, and only one of them
+-- is kept up to date. expire_listings() is the job that turns an elapsed
+-- listing into status='expired', and nothing in this codebase schedules it —
+-- no cron, no call from the app. So a listing whose day is up stays 'active'
+-- in the table indefinitely while being invisible everywhere a player looks,
+-- because every read path filters on expires_at.
+--
+-- Every read path except the two that decide whether you may post again.
+--
+-- The effect on a free account was a permanent lockout of a whole game: four
+-- listings in one game, and the next day the rolling window handed all four
+-- posting slots back and the dashboard said "4 of 4 available", while the
+-- per-game count still saw four expired rows and refused every post. Forever,
+-- and worse the more the player used the site.
+-- ===========================================================================
+
+set "request.jwt.claim.sub" = '55555555-5555-5555-5555-555555555555';
+insert into auth.users (id, email) values
+  ('55555555-5555-5555-5555-555555555555', 'sweep@x.test');
+update public.profiles set username = 'sweeper'
+ where id = '55555555-5555-5555-5555-555555555555';
+insert into public.terms_acceptance (user_id, version)
+values ('55555555-5555-5555-5555-555555555555', '2026-09-18');
+
+do $$
+declare r record; i int;
+begin
+  for i in 1..4 loop
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+  end loop;
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok('four listings fill the free per-game cap',
+    r.active_in_game = 4 and r.active_cap = 4);
+end $$;
+
+-- A day passes. The listings elapse; nothing sweeps them.
+update public.trade_listings
+   set expires_at = now() - interval '1 hour',
+       created_at = now() - interval '48 hours'
+ where user_id = '55555555-5555-5555-5555-555555555555';
+
+do $$
+declare r record;
+begin
+  select * into r from public.listing_allowance('blox-fruits');
+  perform pg_temp.ok(
+    'an elapsed listing stops counting against the per-game cap',
+    r.active_in_game = 0);
+  perform pg_temp.ok('and the rolling window has handed the slots back',
+    r.remaining = 4);
+end $$;
+
+do $$
+declare v_posted boolean := false;
+begin
+  begin
+    perform public.post_trade_listing('blox-fruits',
+      '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    v_posted := true;
+  exception when others then v_posted := false;
+  end;
+  perform pg_temp.ok(
+    'so the player is not locked out of the game they used yesterday',
+    v_posted);
+end $$;
+
+-- The positive control. A count that simply stopped counting would pass every
+-- assertion above and take the per-game cap off the site altogether.
+do $$
+declare v_stopped boolean := false; i int;
+begin
+  begin
+    for i in 1..5 loop
+      perform public.post_trade_listing('blox-fruits',
+        '[{"itemId":"bf-rocket"}]'::jsonb, '[]'::jsonb, null);
+    end loop;
+  exception when sqlstate 'P0001' then v_stopped := true;
+  end;
+  perform pg_temp.ok('but listings that really are live still stop them',
+    v_stopped);
+end $$;

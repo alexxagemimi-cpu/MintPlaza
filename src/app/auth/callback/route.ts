@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { serverSupabase } from "@/lib/supabase/server";
+import { internalPath } from "@/lib/redirect";
 import { TERMS_COOKIE, TERMS_VERSION } from "@/lib/legal";
 
 /**
@@ -15,9 +16,11 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
 
-  // Only same-origin paths, so the callback cannot be used as an open redirect.
-  const requested = url.searchParams.get("next") ?? "/app";
-  const next = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/app";
+  // Only same-origin paths, so the callback cannot be used as an open
+  // redirect. Resolved and compared by origin rather than read as a string —
+  // see internalPath(), and the `/\evil.com` case that got past the string
+  // version.
+  const next = internalPath(url.searchParams.get("next"), url.origin, "/app");
 
   if (error) {
     return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error)}`, url.origin));

@@ -44,6 +44,8 @@ import {
 import {
   BUILD_CREDIT, GAME_CREDITS, LEGAL_CONTACT, REFUND_EXCEPTIONS, SUBSCRIPTION,
 } from "../src/lib/legal.ts";
+import { internalPath } from "../src/lib/redirect.ts";
+import { robloxHosted } from "../src/lib/roblox-cdn.ts";
 import {
   BUMPS_PER_DAY, BUMP_COOLDOWN_HOURS, FREE_LISTING_HOURS, FREE_PER_GAME,
   FREE_PER_WINDOW, FREE_WINDOW_HOURS, LEVEL_UP_LISTING_DAYS, LEVEL_UP_PER_GAME,
@@ -877,9 +879,19 @@ line("19. THE SECURITY POSTURE HOLDS");
   assert("every new-tab link carries rel=noopener", leaky.length === 0, leaky.join(", "));
 
   // "//evil.com" is a valid relative-looking URL that is not relative at all.
+  //
+  // This used to assert the PRESENCE of `startsWith("/") && !startsWith("//")`,
+  // which is worse than no check: it held a broken guard in place and would
+  // have failed the build for replacing it with a correct one. `/\evil.com`
+  // walked straight through that pair — a backslash is a slash to the URL
+  // parser — and the assertion said everything was fine.
+  //
+  // What matters is that the decision is delegated, not how it is spelled.
+  // Section 46 exercises internalPath() against the strings that got through.
   const callback = read("../src/app/auth/callback/route.ts");
   assert("the sign-in redirect refuses an off-site destination",
-    /startsWith\("\/"\)/.test(callback) && /startsWith\("\/\/"\)/.test(callback));
+    /internalPath\(/.test(callback) && !/startsWith\("\/\/"\)/.test(callback),
+    "resolved and compared by origin, not read as a string");
 
   // The panel answers 404 rather than 403 — "forbidden" would confirm there is
   // something there — and must never be indexed or previewed.
@@ -3079,6 +3091,105 @@ line("45. A ROW POLICY IS NOT A COLUMN POLICY");
   assert("pg-rls-test.sql re-applies every one of them after its blanket grant",
     missing.length === 0,
     missing.length ? missing[0] : `${statements.length} statements, both copies agree`);
+}
+
+line("46. A LINK THAT STARTS HERE ENDS HERE");
+{
+  /* ------------------------------------------------------------------------
+   * The open redirect, and why the obvious check was not one.
+   *
+   * Both auth routes guarded `next` with
+   *   asked.startsWith("/") && !asked.startsWith("//")
+   * written out twice, in two files. It reads as "a path on our own site".
+   * It is not: the WHATWG URL parser treats a backslash as a slash for http
+   * and https, so `/\evil.com` passes the string test with one leading slash
+   * and then resolves to https://evil.com/.
+   *
+   * The terms tell players MintPlaza will never ask for their password, and
+   * the one defence a fourteen-year-old is taught is to check the domain. A
+   * link that genuinely starts on mintplaza.app and lands somewhere else is
+   * worth more to a phisher than anything else on this site.
+   *
+   * internalPath() resolves instead of reading, and compares origins — so a
+   * trick that survives parsing is visible by definition. These cases are the
+   * ones that actually got through, kept as data so they cannot come back.
+   * --------------------------------------------------------------------- */
+  const ORIGIN = "https://mintplaza.app";
+
+  const escapes: string[] = [];
+  for (const attempt of [
+    "//evil.com", "https://evil.com", "http://evil.com",
+    "/\\evil.com", "/\\/evil.com", "\\\\evil.com", "\\/evil.com",
+    "//evil.com/path", "https:evil.com", "//\\evil.com",
+    "/\\\\evil.com", "\u0000//evil.com", "javascript:alert(1)",
+  ]) {
+    const got = internalPath(attempt, ORIGIN, "/safe");
+    let resolved: string;
+    try { resolved = new URL(got, ORIGIN).href; } catch { resolved = "THREW"; }
+    if (!resolved.startsWith(ORIGIN + "/")) escapes.push(`${attempt} -> ${resolved}`);
+  }
+  assert("no redirect target escapes the site's own origin",
+    escapes.length === 0, escapes[0] ?? "13 attempts, all contained");
+
+  // The positive control. A guard that refuses everything would pass the
+  // assertion above and break signing in.
+  const keeps: [string, string][] = [
+    ["/app", "/app"],
+    ["/app/blox-fruits/trades", "/app/blox-fruits/trades"],
+    ["/app?tab=inventory", "/app?tab=inventory"],
+    ["/login#top", "/login#top"],
+  ];
+  const wrong = keeps.filter(([input, want]) => internalPath(input, ORIGIN, "/safe") !== want);
+  assert("and an ordinary path is still honoured",
+    wrong.length === 0, wrong.length ? wrong[0][0] : `${keeps.length} paths kept`);
+
+  assert("a missing next falls back rather than throwing",
+    internalPath(null, ORIGIN, "/app") === "/app"
+      && internalPath(undefined, ORIGIN, "/app") === "/app"
+      && internalPath("", ORIGIN, "/app") === "/app");
+
+  // ---- and neither route may go back to reading the string ----------------
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  for (const f of ["../src/app/auth/callback/route.ts", "../src/app/auth/signout/route.ts"]) {
+    const src = read(f);
+    assert(`${f.split("/").pop()} decides its redirect with internalPath`,
+      /internalPath\(/.test(src) && !/startsWith\("\/\/"\)/.test(src),
+      "the startsWith check is the one that let /\\evil.com through");
+  }
+
+  // ---- the image proxy is a redirect too, to a url we do not write --------
+  //
+  // It reads imageUrl out of another company's JSON and 307s the browser
+  // there, cached for a day. Without a check on where that points, it is an
+  // open redirect on our domain with somebody else choosing the destination.
+  const proxy = read("../src/app/api/item-image/[assetId]/route.ts");
+  assert("the item-image route checks where it is forwarding to",
+    /robloxHosted\(/.test(proxy),
+    "a cached 307 to an arbitrary host is worth closing on its own terms");
+  assert("and still refuses an asset id that is not a number",
+    /\^\\d\{1,20\}\$/.test(proxy));
+
+  // The allowlist itself, exercised rather than grepped. Roblox serves
+  // thumbnails from t0…t7.rbxcdn.com and tr.rbxcdn.com and rotates between
+  // them, so the real risk here is not letting an attacker in — it is being
+  // too strict and turning every item picture on the site into a 404 that
+  // nobody notices, because the tile has a designed fallback.
+  const realCdn = [
+    "https://tr.rbxcdn.com/abc123/420/420/Image/Png",
+    "https://t0.rbxcdn.com/abc", "https://t7.rbxcdn.com/abc",
+    "https://rbxcdn.com/abc",
+  ].filter((u) => !robloxHosted(u));
+  assert("and Roblox's own thumbnail hosts are all accepted",
+    realCdn.length === 0, realCdn[0] ?? "t0-t7, tr and the apex all pass");
+
+  const sneaky = [
+    "https://evil.com/x", "http://tr.rbxcdn.com/x",
+    "https://rbxcdn.com.evil.com/x", "https://evil-rbxcdn.com/x",
+    "https://notrbxcdn.com/x", "javascript:alert(1)", "//tr.rbxcdn.com/x",
+    "https://tr.rbxcdn.com.evil.com/x", "", "not a url",
+  ].filter((u) => robloxHosted(u));
+  assert("while a lookalike host is not",
+    sneaky.length === 0, sneaky[0] ?? "10 impostors rejected");
 }
 
 // Nothing may be appended below the summary. This was not a hypothetical: the

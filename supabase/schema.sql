@@ -797,10 +797,18 @@ language sql stable security definer set search_path = public, pg_catalog as $$
     limit (select per_window from cap)
   ),
   live as (
+    -- status = 'active' AND not yet expired, because those are two different
+    -- facts and only one of them is kept up to date. expire_listings() is the
+    -- job that turns an elapsed listing into status='expired', and nothing
+    -- schedules it — so a listing whose day is up sits here as 'active'
+    -- forever. Filtering on the timestamp as well means this number is right
+    -- whether or not the sweeper ever runs, which is the only way a count a
+    -- player is blocked by should ever be computed.
     select count(*)::int as n
     from public.trade_listings
     where user_id = (select uid from me)
-      and game_slug = p_game and status = 'active'
+      and game_slug = p_game
+      and status = 'active' and expires_at > now()
   )
   select
     (select count(*)::int from recent),
@@ -878,9 +886,19 @@ begin
       hint    = format('A slot comes back %s hours after the listing that used it.', v_hours);
   end if;
 
+  -- The same two facts as in listing_allowance() above, and this is the half
+  -- that refuses the post rather than just drawing a number.
+  --
+  -- Without `expires_at > now()` a player who used all four of their per-game
+  -- slots was locked out of that game permanently: the next day the rolling
+  -- window handed all four posting slots back, the meter said "4 of 4
+  -- available", and this count still saw four 'active' rows that had expired
+  -- hours earlier and were already invisible on the board. Reproduced against
+  -- a real Postgres before this line existed.
   select count(*) into v_active
   from public.trade_listings
-  where user_id = new.user_id and game_slug = new.game_slug and status = 'active';
+  where user_id = new.user_id and game_slug = new.game_slug
+    and status = 'active' and expires_at > now();
 
   if v_active >= v_per_game then
     raise exception using
