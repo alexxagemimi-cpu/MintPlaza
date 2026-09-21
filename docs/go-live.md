@@ -129,7 +129,7 @@ Copy these from `.env.example`, which explains each one.
 | `DEV_PASSWORD` | Leave it out entirely | No |
 | `LEVEL_UP_CHECKOUT_URL_INR` | Part 4 | Later |
 | `LEVEL_UP_CHECKOUT_URL_USD` | Part 4 | Later |
-| `LEVEL_UP_WEBHOOK_SECRET` | Part 4 | Later |
+| `RAZORPAY_WEBHOOK_SECRET` | Part 4 | Later |
 
 Three rules, and the third one is the one that bites people:
 
@@ -137,7 +137,7 @@ Three rules, and the third one is the one that bites people:
   rule in the database. Do not put it in a file you commit, do not paste it in
   a chat, do not put it in a screenshot.
 - **Never put `NEXT_PUBLIC_` in front of it**, or of
-  `LEVEL_UP_WEBHOOK_SECRET`. Anything starting `NEXT_PUBLIC_` is baked into the
+  `RAZORPAY_WEBHOOK_SECRET`. Anything starting `NEXT_PUBLIC_` is baked into the
   JavaScript that every visitor downloads. The proof script fails the build if
   either one is ever prefixed, so you cannot do this by accident.
 - **Leave `NEXT_PUBLIC_DEV_LOGIN` out.** It is the password login used for
@@ -259,42 +259,68 @@ Payment succeeds
         │
         ▼
 Your page POSTs to  https://yoursite.com/api/level-up/webhook
-        │  signed with LEVEL_UP_WEBHOOK_SECRET
+        │  Razorpay signs it with RAZORPAY_WEBHOOK_SECRET
         ▼
 Level Up is on. Player refreshes. Done.
 ```
 
-**The username travels in the link as `u`.** This matters: the webhook grants
-Level Up to a username, so if your checkout page has to *ask* for it, every
-typo is money that arrived with no account to put it on. Prefill it from `u`
-and **show it on the page** — "Upgrading **alx22n**" — so anybody who edited
-the link sees it before paying, not after.
+**The username has to travel with the payment.** The webhook grants Level Up
+to a username, so a payment that arrives without one is money with no account
+to put it on. Razorpay's hosted page has one URL for everybody, so the payment
+itself must carry it.
+
+In the Razorpay dashboard, add a **required field** to the payment page called
+`Roblox username`. Razorpay puts it in `notes` on the payment, and the webhook
+reads it from there. Nothing else needs to change.
 
 Signed-out visitors are sent to sign in first and come back to the same price,
 for the same reason: no username, nothing to grant.
 
-### What your payment page must send
+### What Razorpay sends, and what the route checks
+
+You do not build this request — Razorpay does. This is what arrives:
 
 ```
 POST https://yoursite.com/api/level-up/webhook
-x-mintplaza-timestamp: 1758240000
-x-mintplaza-signature: sha256=<hex HMAC-SHA256 of `${timestamp}.${body}`>
+x-razorpay-signature: <hex HMAC-SHA256 of the RAW BODY>
 Content-Type: application/json
 
-{ "username": "alx22n", "payment_ref": "pay_QxYz123", "country": "IN",
-  "days": 60, "amount": 399, "currency": "INR" }
+{ "event": "payment.captured", "created_at": 1758240000,
+  "payload": { "payment": { "entity": {
+      "id": "pay_QxYz123", "amount": 39900, "currency": "INR",
+      "notes": { "roblox_username": "alx22n" } } } } }
 ```
 
-- `username` — from `u`. Required.
-- `payment_ref` — the gateway's own payment id. Required, and it is what stops
-  a replayed request granting twice: it is unique in the database, so the
-  second attempt is refused by Postgres itself and not by code somebody could
-  forget to write.
-- The signature covers `timestamp` **and** body together. Anything older than
-  five minutes is refused, so a captured request is a five-minute key rather
-  than a permanent one.
+- The signature covers **the raw body and nothing else**. Razorpay signs no
+  timestamp, so there is no header to check for freshness — a header outside
+  the signature is attacker-controlled and proves nothing.
+- `created_at` sits **inside** the signed body, so it cannot be edited without
+  breaking the signature. Anything far older than a real retry window is
+  refused.
+- The payment id becomes `payment_ref`, and it is what stops a replayed
+  request granting twice: it is unique in the database, so the second attempt
+  is refused by Postgres itself and not by code somebody could forget to
+  write. This is the replay defence that actually holds.
+- `amount` arrives in paise. The route divides by 100 before storing it.
+- Events other than `payment.captured`, `order.paid` and `payment_link.paid`
+  are acknowledged with a 200 and ignored, so Razorpay stops retrying them.
+- A genuine payment with no username in `notes` grants **nothing** and is
+  logged loudly with the payment id. Guessing would hand a stranger's
+  subscription to whoever typed a name closest. Grant it by hand from the
+  control panel — that is what the button is for.
 
-Generate the secret once:
+### Setting it up in Razorpay
+
+1. Dashboard → Settings → Webhooks → **Add New Webhook**
+2. URL: `https://yoursite.com/api/level-up/webhook`
+3. Secret: any long random string — **the same one** you put in
+   `RAZORPAY_WEBHOOK_SECRET` on Vercel
+4. Active events: `payment.captured` (add `order.paid` and `payment_link.paid`
+   if you use payment links)
+5. Save, then use Razorpay's **Send test webhook** button. A 200 means the
+   signature check passed.
+
+Generate a secret to paste into both places:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
@@ -349,7 +375,7 @@ hand and check your page is actually calling the webhook. The player is out
 | Panel opens | any search box → `/openadminpanel` → `1927` |
 | Level Up says "not on sale yet" | `/upgrade` |
 
-Run `npm run proof` and `npm run proof:db` any time. 497 checks on the app,
+Run `npm run proof` and `npm run proof:db` any time. 499 checks on the app,
 239 on the database, 17 on installing and re-installing the database, and 14 on
 the payment webhook with `npm run redteam:webhook`. If something is broken they
 say which thing and where.

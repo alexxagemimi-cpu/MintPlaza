@@ -1239,10 +1239,30 @@ line("23. THE PAYMENT WEBHOOK — the guards that are not in the red team");
   assert("and nothing compares a signature with ===",
     !/\b(sig|signature|expected|given)\w*\s*===/i.test(safeEqualBody));
 
-  // Signing only the body lets anybody take a captured request, put today's
-  // timestamp on it, and replay it forever.
-  assert("the timestamp is inside the signed material",
-    /\$\{timestamp\}\.\$\{raw\}/.test(route) || route.includes("`${timestamp}.${raw}`"));
+  // Razorpay's scheme, not one of ours.
+  //
+  // The first version signed `${timestamp}.${body}` with the timestamp in its
+  // own header — a good scheme, and not Razorpay's, so it would have rejected
+  // every real delivery while passing a suite written to match it. That is the
+  // most convincing kind of broken: green tests, no money.
+  //
+  // Razorpay signs the raw body only, HMAC-SHA256, hex, in
+  // X-Razorpay-Signature. There is no signed timestamp.
+  assert("the signature is HMAC over the raw body, Razorpay's way",
+    /createHmac\("sha256", secret\)\.update\(raw, "utf8"\)/.test(route)
+      && route.includes("x-razorpay-signature"),
+    "the raw text, never a re-serialised object");
+
+  assert("and nothing signs a header the sender does not sign",
+    !route.includes("x-mintplaza-signature") && !route.includes("${timestamp}.${raw}"),
+    "a header outside the signature is attacker-controlled");
+
+  // Razorpay signs no timestamp, so the only one that cannot be edited freely
+  // is created_at inside the body — and the real replay defence is the unique
+  // payment_ref in the database, which no request can talk its way past.
+  assert("replay is bounded by something inside the signed body",
+    /event\.created_at/.test(route) && /MAX_AGE_SECONDS/.test(route),
+    "the unique payment_ref is the defence that actually holds");
 
   // Fail closed. A webhook that accepted unsigned requests "until the secret is
   // configured" would be a free Level Up for anybody who found the URL, and it
@@ -2030,7 +2050,7 @@ line("32. THE GO-LIVE GUIDE TELLS THE TRUTH");
 
   // The webhook contract it prints has to be the one the route enforces.
   const hook = read("../src/app/api/level-up/webhook/route.ts");
-  for (const part of ["x-mintplaza-timestamp", "x-mintplaza-signature", "payment_ref"]) {
+  for (const part of ["x-razorpay-signature", "RAZORPAY_WEBHOOK_SECRET", "payment.captured"]) {
     assert(`the webhook contract names ${part} and the route reads it`,
       doc.includes(part) && hook.includes(part));
   }
