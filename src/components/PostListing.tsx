@@ -69,6 +69,13 @@ export function PostListing({
   // buttons that used to be here were the Blox Fruits answers, and on the other
   // five games hosts picked whichever was least wrong and explained themselves
   // in the description instead.
+  // Written instead of picked. Blox Fruits has fifteen crew templates and Fisch
+  // thirteen, so a list works there; Grow a Garden, Creatures of Sonaria, Pet
+  // Simulator 99 and Adopt Me have TWO each — and two templates cannot describe
+  // a game. Players were picking whichever was least wrong, which is how a Grow
+  // a Garden board offers to "Teach night-stealing and defence" to somebody who
+  // wanted help with a greenhouse.
+  const [title, setTitle] = useState("");
   const [wantsSomething, setWantsSomething] = useState(false);
   const [termsText, setTermsText] = useState("");
 
@@ -117,7 +124,7 @@ export function PostListing({
     setError(null);
     start(async () => {
       const result = await postListing({
-        gameSlug, side, serviceIds: picked,
+        gameSlug, side, serviceIds: picked, title: title.trim() || undefined,
         terms: wantsSomething
           ? { kind: "text" as const, text: termsText }
           : { kind: "free" as const },
@@ -173,7 +180,7 @@ export function PostListing({
             </button>
           </div>
 
-          {picked.length > 0 && (
+          {(picked.length > 0 || title.trim().length > 0) && (
             <button type="button" onClick={submit} disabled={busy}
               className="pill pill-mint mt-3 w-full py-2.5 text-[0.875rem] disabled:opacity-50">
               {busy ? "Posting…" : "Post it"}
@@ -208,6 +215,36 @@ export function PostListing({
             {recruiting
               ? "WHAT NEEDS A TEAM?"
               : many ? "WHAT CAN YOU RUN?" : "WHAT ARE YOU STUCK ON?"}
+          </p>
+          {/* Say it yourself, first.
+
+              Above the list rather than below it because on four of the six
+              games the list is two rows long and neither of them is what the
+              player came to post. Picking a template is the shortcut where one
+              fits; this is the answer where none does, and it should not be
+              something you find after scrolling past two wrong options. */}
+          <input
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value.slice(0, 80));
+              // A written post and a picked one are two different posts. Typing
+              // clears the picks rather than silently posting both, which would
+              // put the template's name on the card and the typed one nowhere.
+              if (e.target.value.trim()) { setPicked([]); setRefId(""); }
+            }}
+            placeholder={recruiting ? "What are you putting a crew together for?" : "What do you need?"}
+            aria-label={recruiting ? "What are you putting a crew together for?" : "What do you need?"}
+            className="w-full rounded-[10px] border border-line bg-surface px-3 py-2.5 text-[0.9375rem] text-ink outline-none placeholder:text-ink-faint focus:border-mint"
+          />
+          <p className="mb-3 mt-1 flex items-center justify-between gap-2 text-[0.6875rem] text-ink-faint">
+            <span>In your own words. Add the details below.</span>
+            {title.length > 0 && <span className="font-mono">{title.length}/80</span>}
+          </p>
+
+          {!title.trim() && (
+          <>
+          <p className="mb-2 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
+            OR PICK ONE
           </p>
           <input
             value={query} onChange={(e) => setQuery(e.target.value)}
@@ -256,6 +293,8 @@ export function PostListing({
               );
             })}
           </ul>
+          </>
+          )}
 
           {/* ---- the reference picture ---- */}
           {refs && refs.length > 0 && (

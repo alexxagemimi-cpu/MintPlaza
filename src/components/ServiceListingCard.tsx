@@ -126,20 +126,27 @@ export function ServiceListingCard({
   // something plain: the post still holds one of the author's three live slots
   // and still collects votes, so it has to stay visible and deletable rather
   // than becoming an invisible row only the database knows about.
-  const orphaned = services.length === 0;
+  // A post with no template is only orphaned if it also said nothing. Written
+  // posts name no template on purpose — see NewListing.title.
+  const orphaned = services.length === 0 && !listing.title;
 
   const state = listingState(listing);
   const isOffer = listing.side === "offer";
   // A crew call is not a favour, so it does not get the favour's vocabulary:
   // nobody on the recruitment board is helping anybody, they are turning up.
   const recruiting = services[0]?.section === "recruit";
+  // The host's own words win where they wrote them: a written post has no
+  // template to take a name from, and where both exist the template was what
+  // they picked and the title is what they called it.
   const headline = orphaned
     ? "No longer listed"
-    : isOffer
-      ? services.length === 1
-        ? services[0].name
-        : `${services[0].name} + ${services.length - 1} more`
-      : services[0].name;
+    : services.length === 0
+      ? listing.title!
+      : isOffer
+        ? services.length === 1
+          ? services[0].name
+          : `${services[0].name} + ${services.length - 1} more`
+        : services[0].name;
 
   const termsItem =
     listing.terms.kind === "item" ? findItem(listing.terms.itemId) : undefined;

@@ -1205,6 +1205,8 @@ export interface ServiceListing {
   youVoted: boolean;
   /** Whether the person reading this posted it. */
   yours: boolean;
+  /** The host's own words, where they wrote the post instead of picking one. */
+  title?: string;
 }
 
 /** Everyone the poster picked, whatever they have replied. */

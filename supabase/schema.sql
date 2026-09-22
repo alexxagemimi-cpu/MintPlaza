@@ -1508,7 +1508,10 @@ create table if not exists public.service_listings (
   game_slug     text not null references public.games(slug) on delete cascade,
   author_id     uuid not null references public.profiles(id) on delete cascade,
   side          text not null check (side in ('offer', 'request')),
-  service_ids   text[] not null check (cardinality(service_ids) between 1 and 8),
+  service_ids   text[] not null check (cardinality(service_ids) between 0 and 8),
+  -- What the host calls it, when no template says it for them. See the
+  -- service_listings_says_something check below for why this may be empty.
+  title         text check (char_length(title) <= 80),
   terms_kind    text not null default 'free' check (terms_kind in ('free', 'split', 'item', 'text')),
   terms_item_id uuid references public.game_items(id) on delete set null,
   terms_text    text check (char_length(terms_text) <= 140),
@@ -1716,7 +1719,14 @@ alter table public.service_listings
   -- seeds, a PS99 carry wants gems — and none of them fit either button, so
   -- hosts were picking the closest wrong answer and explaining themselves in
   -- the description. The buttons were making the description do their job.
-  add column if not exists terms_text text;
+  add column if not exists terms_text text,
+  -- A post can now be written rather than picked. Blox Fruits has fifteen crew
+  -- templates and Fisch thirteen, so picking works there; Grow a Garden,
+  -- Creatures of Sonaria, Pet Simulator 99 and Adopt Me have TWO each, and two
+  -- templates cannot describe a game. Players were picking whichever was least
+  -- wrong — which is how a Grow a Garden board ends up offering to "Teach
+  -- night-stealing and defence" to somebody who wanted help with a greenhouse.
+  add column if not exists title      text;
 
 -- Through add_check because this table can already hold posts written before
 -- these rules existed, and one of them must not cost the rest of the file.
@@ -1736,6 +1746,21 @@ select mintplaza.add_check('public.service_listings', 'service_listings_slots_ch
 -- where the host's terms should be.
 select mintplaza.add_check('public.service_listings', 'service_listings_terms_kind_check',
   'terms_kind in (''free'', ''split'', ''item'', ''text'')');
+-- Relaxes the inline one the table was created with. A post may now name no
+-- template at all, as long as it says what it is in the line below.
+select mintplaza.add_check('public.service_listings', 'service_listings_service_ids_check',
+  'cardinality(service_ids) between 0 and 8');
+select mintplaza.add_check('public.service_listings', 'service_listings_title_check',
+  'title is null or char_length(title) <= 80');
+
+-- The one rule that keeps a written post from being a blank card: a listing has
+-- to name a template or say something. Enforced here rather than only in the
+-- action, because a row that satisfies neither renders as an empty headline
+-- with a vote button under it and no way for anybody to know what they are
+-- voting for.
+select mintplaza.add_check('public.service_listings', 'service_listings_says_something',
+  'cardinality(service_ids) > 0 or (title is not null and char_length(btrim(title)) > 0)');
+
 select mintplaza.add_check('public.service_listings', 'service_listings_terms_text_check',
   'terms_text is null or char_length(terms_text) <= 140');
 select mintplaza.add_check('public.service_listings', 'service_listings_terms_text_present',
@@ -3373,6 +3398,7 @@ set search_path = public, pg_catalog as $$
         'game_slug',         l.game_slug,
         'side',              l.side,
         'service_ids',       to_jsonb(l.service_ids),
+        'title',             l.title,
         'terms_kind',        l.terms_kind,
         'terms_item_id',     l.terms_item_id,
         'terms_text',        l.terms_text,

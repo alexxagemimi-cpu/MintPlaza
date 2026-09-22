@@ -193,6 +193,42 @@ do $$ begin
       where id = 'cccccccc-0000-0000-0000-00000000000c') = 'ref-angel');
 end $$;
 
+-- A post written instead of picked.
+--
+-- Four of the six games have TWO crew templates each, which cannot describe a
+-- game — so players were picking whichever was least wrong. A post may now name
+-- no template at all, as long as it says what it is.
+do $$
+declare v_id uuid;
+begin
+  insert into public.service_listings
+    (id, game_slug, author_id, side, service_ids, title, detail, expires_at)
+  values ('eeeeeeee-0000-0000-0000-00000000000e', 'gag2',
+          'aaaaaaaa-0000-0000-0000-00000000000a', 'request', '{}',
+          'Need two for a greenhouse run', 'Bring your own sprinkler.',
+          now() + interval '30 minutes')
+  returning id into v_id;
+  perform pg_temp.ok('a post with no template but a title is allowed',
+    v_id is not null);
+end $$;
+
+do $$ begin
+  insert into public.service_listings
+    (game_slug, author_id, side, service_ids, expires_at)
+  values ('gag2', 'aaaaaaaa-0000-0000-0000-00000000000a', 'request', '{}',
+          now() + interval '30 minutes');
+  perform pg_temp.ok('but one that names nothing and says nothing is refused', false);
+exception when check_violation then
+  perform pg_temp.ok('but one that names nothing and says nothing is refused', true);
+end $$;
+
+do $$ begin
+  perform pg_temp.ok('and the board hands the title to the card',
+    (select (l->>'title') from jsonb_array_elements(public.board_listings('gag2')) l
+      where l->>'id' = 'eeeeeeee-0000-0000-0000-00000000000e')
+    = 'Need two for a greenhouse run');
+end $$;
+
 -- The host is a player on their own hunt, so their vote counts like anybody
 -- else's. Blocking it left the host out of their own team and out of their own
 -- count, which is the bug this assertion used to guarantee.

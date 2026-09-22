@@ -64,6 +64,13 @@ export interface NewListing {
   gameSlug: string;
   side: "offer" | "request";
   serviceIds: string[];
+  /**
+   * What the host calls it, when no template says it for them.
+   *
+   * Empty where a template was picked — the template's own name is the
+   * headline then, and two names on one card is one too many.
+   */
+  title?: string;
   terms:
     | { kind: "free" | "split" }
     | { kind: "item"; itemId: string }
@@ -83,8 +90,14 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
   const a = await actor();
   if (!a) return fail("Sign in first.");
 
-  if (input.serviceIds.length === 0) return fail("Pick at least one thing.");
+  const title = input.title?.trim() ?? "";
+  // A post says what it is by naming a template or by saying it. Neither is a
+  // blank card with a vote button under it.
+  if (input.serviceIds.length === 0 && !title) {
+    return fail("Pick something, or say what you need in a line.");
+  }
   if (input.serviceIds.length > 8) return fail("That is too many for one post.");
+  if (title.length > 80) return fail("Keep the headline under 80 characters.");
   if ((input.detail?.length ?? 0) > 280) return fail("Keep the description under 280 characters.");
 
   // A written answer that is only spaces is a blank card where the host's terms
@@ -117,6 +130,7 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
       author_id: a.profile.id,
       side: input.side,
       service_ids: input.serviceIds,
+      title: title || null,
       terms_kind: input.terms.kind,
       terms_item_id: input.terms.kind === "item" ? input.terms.itemId : null,
       terms_text: input.terms.kind === "text" ? input.terms.text.trim() : null,

@@ -17,6 +17,7 @@ interface Row {
   game_slug: string;
   side: "offer" | "request";
   service_ids: string[];
+  title: string | null;
   terms_kind: "free" | "split" | "item" | "text";
   terms_item_id: string | null;
   terms_text: string | null;
@@ -79,6 +80,7 @@ function toListing(row: Row): ServiceListing {
     authorOnline: row.author_online,
     completed: 0,
     serviceIds: row.service_ids,
+    title: row.title ?? undefined,
     terms:
       row.terms_kind === "item" && row.terms_item_id
         ? { kind: "item", itemId: row.terms_item_id }
