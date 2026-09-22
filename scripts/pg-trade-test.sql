@@ -189,6 +189,46 @@ begin
   perform pg_temp.ok('it is on its owner''s profile', n = 1);
 end $$;
 
+-- Putting your hand up on somebody else's trade.
+--
+-- Before this existed the card carried a Message button on its own, so every
+-- trade started as a private conversation the board never saw: a listing
+-- eleven people wanted looked exactly like one nobody had touched. The count
+-- and the you_voted flag both ride on mintplaza.listing_row, so a reader that
+-- forgets them shows an empty board rather than failing loudly — which is why
+-- they are asserted here against the feed the card actually reads.
+do $$
+declare v_id uuid; n int; r record;
+begin
+  select listing_id into v_id from public.trade_feed('blox-fruits', 30, null) limit 1;
+
+  select vote_count, you_voted into r
+    from public.trade_feed('blox-fruits', 30, null) where listing_id = v_id;
+  perform pg_temp.ok('a fresh listing starts on no votes',
+    r.vote_count = 0 and r.you_voted = false);
+
+  insert into public.trade_votes (listing_id, user_id)
+  values (v_id, '11111111-1111-1111-1111-111111111111');
+
+  select vote_count, you_voted into r
+    from public.trade_feed('blox-fruits', 30, null) where listing_id = v_id;
+  perform pg_temp.ok('the vote is counted, and reported back as yours',
+    r.vote_count = 1 and r.you_voted = true);
+
+  begin
+    insert into public.trade_votes (listing_id, user_id)
+    values (v_id, '11111111-1111-1111-1111-111111111111');
+    perform pg_temp.ok('one person cannot vote twice', false);
+  exception when unique_violation then
+    perform pg_temp.ok('one person cannot vote twice', true);
+  end;
+
+  delete from public.trade_votes
+   where listing_id = v_id and user_id = '11111111-1111-1111-1111-111111111111';
+  select count(*) into n from public.trade_votes where listing_id = v_id;
+  perform pg_temp.ok('and can take it back', n = 0);
+end $$;
+
 -- There is no blocking on this site, on purpose: a scammer's last move is to
 -- block the person they just took an item from, which buries the conversation
 -- and leaves the victim nothing to point at. So the board hides nobody, and the

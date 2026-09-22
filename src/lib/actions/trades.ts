@@ -171,3 +171,47 @@ export async function bumpTradeListing(
   revalidatePath(`/app/${gameSlug}/trades`);
   return { ok: true, value: undefined };
 }
+
+/**
+ * Put your hand up on somebody else's trade, or take it back.
+ *
+ * Interest is public here for the same reason it is on the services board: a
+ * listing that eleven people want should look different from one nobody has
+ * touched, and before this every one of those eleven arrived as a private
+ * message the board never saw.
+ *
+ * The listing must still be open. The RLS policy decides that, not this
+ * function — a vote on a cancelled listing would tell the poster nothing and
+ * put a face on a row nobody can act on.
+ */
+export async function toggleTradeVote(
+  listingId: string,
+): Promise<ActionResult<{ voted: boolean }>> {
+  const supabase = await serverSupabase();
+  if (!supabase) return { ok: false, error: "Not connected to the database." };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Sign in first." };
+
+  const { data: existing } = await supabase
+    .from("trade_votes")
+    .select("user_id")
+    .eq("listing_id", listingId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("trade_votes").delete()
+      .eq("listing_id", listingId).eq("user_id", user.id);
+    if (error) return { ok: false, error: readable(error) };
+    revalidatePath("/app", "layout");
+    return { ok: true, value: { voted: false } };
+  }
+
+  const { error } = await supabase
+    .from("trade_votes").insert({ listing_id: listingId, user_id: user.id });
+  if (error) return { ok: false, error: readable(error) };
+  revalidatePath("/app", "layout");
+  return { ok: true, value: { voted: true } };
+}

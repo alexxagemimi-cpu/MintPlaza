@@ -86,6 +86,16 @@ export interface BoardListing {
   bumpedAt: string;
   expiresAt: string;
   bumpable: boolean;
+  /**
+   * How many people have put their hand up, and whether you are one of them.
+   *
+   * The services board has always had this. Trades did not, so the card showed
+   * a Message button and nothing else — a listing with eleven interested
+   * players looked exactly like one nobody had touched, and every conversation
+   * happened in private where it told the board nothing.
+   */
+  voteCount: number;
+  youVoted: boolean;
   offering: ListingItem[];
   wanting: ListingItem[];
   /**
@@ -167,6 +177,8 @@ export interface ListingRow {
   expires_at: string;
   bumpable: boolean | null;
   sides: RawSide[] | null;
+  vote_count: number | null;
+  you_voted: boolean | null;
 }
 
 export function toBoardListing(row: ListingRow): BoardListing {
@@ -202,6 +214,8 @@ export function toBoardListing(row: ListingRow): BoardListing {
     bumpedAt: row.bumped_at,
     expiresAt: row.expires_at,
     bumpable: row.bumpable ?? false,
+    voteCount: row.vote_count ?? 0,
+    youVoted: row.you_voted ?? false,
     offering,
     wanting,
     unresolved,
@@ -518,6 +532,9 @@ export interface CardListing {
   reason?: ReasonCode;
   /** Absent or false on anything real. Only the generator sets it. */
   isDemo?: boolean;
+  /** How many have put their hand up, and whether the viewer is one of them. */
+  voteCount?: number;
+  youVoted?: boolean;
 }
 
 /**
@@ -556,6 +573,8 @@ export function toCardListing(
       Math.floor((now - new Date(listing.bumpedAt).getTime()) / 3_600_000),
     ),
     unresolved: listing.unresolved.length > 0 ? listing.unresolved : undefined,
+    voteCount: listing.voteCount,
+    youVoted: listing.youVoted,
     reason,
   };
 }

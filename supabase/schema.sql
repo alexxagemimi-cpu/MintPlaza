@@ -727,6 +727,37 @@ create index if not exists listings_user_window_idx
 create index if not exists listings_expiry_idx
   on public.trade_listings (expires_at) where status = 'active';
 
+/**
+ * Putting your hand up on somebody else's trade.
+ *
+ * The services board has had this since it existed: you vote, and voting is
+ * what opens the thread. Trades had a Message button straight on the card, so a
+ * listing collected private messages nobody else could see and the board said
+ * nothing about whether anyone was interested — which is a Discord DM with
+ * extra steps, and every trade site that works this way ends up as one.
+ *
+ * A vote is public and cheap. It tells the poster somebody is there, it tells
+ * everybody else this listing is live rather than abandoned, and it is the
+ * gate the Message button sits behind.
+ *
+ * One person, one listing, one vote: the primary key is the rule, exactly as
+ * it is for service_votes.
+ *
+ * Unlike the services board there is NO self-vote block here and no cap. A
+ * trade is between two people, so the author voting on their own listing is
+ * meaningless rather than harmful — and the card simply does not offer it.
+ * Nothing in the database has to care.
+ */
+create table if not exists public.trade_votes (
+  listing_id uuid not null references public.trade_listings(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (listing_id, user_id)
+);
+
+create index if not exists trade_votes_user_idx
+  on public.trade_votes (user_id, created_at desc);
+
 create table if not exists public.listing_sides (
   id          uuid primary key default gen_random_uuid(),
   listing_id  uuid not null references public.trade_listings(id) on delete cascade,
@@ -1162,6 +1193,7 @@ alter table public.game_items              enable row level security;
 alter table public.inventory_entries       enable row level security;
 alter table public.inventory_proofs        enable row level security;
 alter table public.trade_listings          enable row level security;
+alter table public.trade_votes             enable row level security;
 alter table public.listing_sides           enable row level security;
 alter table public.conversations           enable row level security;
 alter table public.conversation_participants enable row level security;
@@ -1223,6 +1255,32 @@ drop policy if exists listings_update_own on public.trade_listings;
 create policy listings_update_own on public.trade_listings for update
   using (user_id = auth.uid() or public.is_moderator())
   with check (user_id = auth.uid() or public.is_moderator());
+
+-- Votes on a trade are public, like the faces on a services post: the whole
+-- point is that everybody can see somebody is interested. You write and delete
+-- only your own, and only while the listing is still open — putting your hand
+-- up on a cancelled listing would tell the poster nothing and show a face on a
+-- row nobody can act on.
+drop policy if exists trade_votes_read on public.trade_votes;
+create policy trade_votes_read on public.trade_votes for select using (true);
+
+drop policy if exists trade_votes_insert_own on public.trade_votes;
+create policy trade_votes_insert_own on public.trade_votes for insert
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.trade_listings l
+                 where l.id = listing_id
+                   and l.status = 'active'
+                   and l.expires_at > now())
+  );
+
+-- trade_votes.listing_id written in full. An unqualified listing_id here would
+-- bind to the innermost scope that has one — trade_listings does — and the test
+-- would quietly become `l.listing_id = l.listing_id`. The same mistake cost
+-- service_votes_delete_own a silent, permanent bug; see the note there.
+drop policy if exists trade_votes_delete_own on public.trade_votes;
+create policy trade_votes_delete_own on public.trade_votes for delete
+  using (trade_votes.user_id = auth.uid());
 
 drop policy if exists sides_read on public.listing_sides;
 create policy sides_read on public.listing_sides for select
@@ -2599,7 +2657,8 @@ declare
             || 'display_name text, avatar_url text, online boolean, deals integer, '
             || 'note text, created_at timestamp with time zone, '
             || 'bumped_at timestamp with time zone, expires_at timestamp with time zone, '
-            || 'bumpable boolean, sides jsonb';
+            || 'bumpable boolean, sides jsonb, '
+            || 'vote_count integer, you_voted boolean';
   have text;
 begin
   select string_agg(a.attname || ' ' || format_type(a.atttypid, a.atttypmod), ', '
@@ -2617,7 +2676,8 @@ begin
       user_id uuid, username text, display_name text,
       avatar_url text, online boolean, deals int,
       note text, created_at timestamptz, bumped_at timestamptz,
-      expires_at timestamptz, bumpable boolean, sides jsonb
+      expires_at timestamptz, bumpable boolean, sides jsonb,
+      vote_count int, you_voted boolean
     );
   elsif have <> want then
     raise notice 'mintplaza.listing_row has an old shape; replacing it.';
@@ -2627,7 +2687,8 @@ begin
       user_id uuid, username text, display_name text,
       avatar_url text, online boolean, deals int,
       note text, created_at timestamptz, bumped_at timestamptz,
-      expires_at timestamptz, bumpable boolean, sides jsonb
+      expires_at timestamptz, bumpable boolean, sides jsonb,
+      vote_count int, you_voted boolean
     );
   end if;
 end $$;
@@ -2650,7 +2711,10 @@ language sql stable set search_path = public, pg_catalog as $$
                      'customName', s.custom_name, 'quantity', s.quantity,
                      'attributes', s.attributes) order by s.side, s.id)
               from public.listing_sides s where s.listing_id = l.id),
-           '[]'::jsonb)
+           '[]'::jsonb),
+         (select count(*)::int from public.trade_votes v where v.listing_id = l.id),
+         exists (select 1 from public.trade_votes v
+                  where v.listing_id = l.id and v.user_id = auth.uid())
     from public.trade_listings l
     join public.profiles p on p.id = l.user_id
     left join public.profile_stats st on st.user_id = l.user_id

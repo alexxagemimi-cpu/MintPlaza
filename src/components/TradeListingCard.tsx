@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ItemTile } from "./ItemTile";
-import { MessageButton } from "./MessageButton";
+import { TradeVoteGate } from "./TradeVoteGate";
 import { ValuesCard } from "./ValuesCard";
 import { REASON_LABEL, type CardListing } from "@/lib/match";
 import type { ListingItem } from "@/lib/trade";
@@ -342,8 +342,14 @@ export function TradeListingCard({
                 is broken rather than like the row is an example. Also not shown
                 on your own listing — messaging yourself is refused by the
                 database, so offering it would only be a button that errors. */}
-            {!listing.isDemo && !isOwner && (
-              <MessageButton username={listing.username} listingId={listing.id} />
+            {!isOwner && (
+              <TradeVoteGate
+                listingId={listing.id}
+                username={listing.username}
+                voteCount={listing.voteCount ?? 0}
+                youVoted={listing.youVoted ?? false}
+                isDemo={listing.isDemo}
+              />
             )}
           </div>
         </div>
