@@ -454,7 +454,18 @@ export function ServiceListingCard({
               {" · "}
               <span className="text-mint">{agreed.length} IN</span>
             </p>
-            <ul className="grid gap-2">
+            {/* Four rows, then it scrolls.
+
+                A thirty-player crew rendered thirty rows inline, pushing the
+                vote button, the thread and the finalise control off the bottom
+                of a phone — so the fuller the team got, the harder the card was
+                to act on. Four is enough to see who is in without the list
+                becoming the card. */}
+            <ul
+              className={`grid gap-2 ${
+                picked.length > 4 ? "max-h-[10.5rem] overflow-y-auto pr-1" : ""
+              }`}
+            >
               {picked.map((v) => (
                 <li key={v.username} className="flex items-center gap-2.5">
                   <Face voter={v} size={26} />
