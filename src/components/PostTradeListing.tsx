@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { getGame } from "@/lib/games";
 import { useRouter } from "next/navigation";
 import type { InventoryRow } from "@/lib/inventory";
 import { postTradeListing, type DraftSide } from "@/lib/actions/trades";
@@ -48,10 +49,25 @@ export function PostTradeListing({
   const have = inventory.filter((r) => r.kind === "have" && r.itemId);
   const wants = inventory.filter((r) => r.kind === "want" && r.itemId);
 
+  // What the GAME's trade window holds, not what this form feels like allowing.
+  // Blox Fruits takes four a side; a fifth used to go on the listing happily
+  // and fail in the game, with both players already standing there.
+  const cap = getGame(gameSlug)?.maxPerSide ?? 12;
+
   function toggle(set: Set<string>, put: (s: Set<string>) => void, id: string) {
     const next = new Set(set);
     if (next.has(id)) next.delete(id);
-    else next.add(id);
+    else {
+      // Refused rather than silently dropped on submit: the person is looking
+      // at the row they just tapped, and that is the only moment the limit
+      // means anything to them.
+      if (next.size >= cap) {
+        setError(`This game's trade window holds ${cap} items a side. Take one off first.`);
+        return;
+      }
+      next.add(id);
+    }
+    setError(null);
     put(next);
   }
 

@@ -1126,6 +1126,21 @@ export type DealStage = "voting" | "requested" | "locked";
  */
 export const MAX_TEAM = 30;
 
+/**
+ * How many posts one person can have live on one game's boards at once.
+ *
+ * Enforced by enforce_service_listing_limit() in supabase/schema.sql, which is
+ * where it is actually true. This copy exists so the board can SHOW the limit
+ * rather than letting somebody find it by being refused — which is what used to
+ * happen: posting a crew call changed nothing visible, because the only meter
+ * on the screen counts trade slots and a crew call does not spend one. Three
+ * posts later the form failed with an error nobody had been warned about.
+ *
+ * If you change this, change the trigger too. The trigger is the rule; this is
+ * the label on it.
+ */
+export const LIVE_PER_GAME = 3;
+
 export type ListingSide = "offer" | "request";
 
 export interface ServiceListing {

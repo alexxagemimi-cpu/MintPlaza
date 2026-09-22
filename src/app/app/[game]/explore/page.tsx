@@ -116,8 +116,12 @@ function RequestCard({ want, game }: { want: Want; game: Game }) {
         <span className="font-mono text-[0.625rem] tracking-[0.07em] text-ink-faint">
           EXAMPLE
         </span>
+        {/* ?tab=inventory, because the post form lives ONLY on that tab and
+            /trades defaults to Suggested. Without it this button landed people
+            on a page with nothing to post from, which reads as the button
+            bouncing you back to the trades tab over and over. */}
         <Link
-          href={`/app/${game.slug}/trades`}
+          href={`/app/${game.slug}/trades?tab=inventory`}
           className="pill pill-ghost shrink-0 py-2 text-[0.8125rem]"
         >
           Post one like this
@@ -194,6 +198,14 @@ export default async function ExplorePage({
     l.serviceIds.some((id) => recruitIds.has(id));
   const recruitListings = serviceListings.filter(isRecruit);
   const helpListings = serviceListings.filter((l) => !isRecruit(l));
+
+  // Both boards, because the three-post limit is per GAME and not per board —
+  // enforce_service_listing_limit() counts every live row with your author_id
+  // and this game_slug, whichever tab it was posted from. Counting one board
+  // would show "2 left" on a game where the next post is already refused.
+  const liveOwn = serviceListings.filter(
+    (l) => l.yours && listingState(l) === "live",
+  ).length;
   // A listing reads differently to the player who posted it, so the card
   // needs to know which of the two it is drawing.
   const profile = await currentProfile();
@@ -233,7 +245,7 @@ export default async function ExplorePage({
                 Open listings
               </h2>
               <Link
-                href={`/app/${game.slug}/trades`}
+                href={`/app/${game.slug}/trades?tab=inventory`}
                 className="pill pill-mint shrink-0 py-2 text-[0.8125rem]"
               >
                 Post a trade
@@ -314,7 +326,8 @@ export default async function ExplorePage({
               <h2 className="text-[1.0625rem] font-bold tracking-[-0.025em] text-ink">
                 Live right now
               </h2>
-              <PostListingButtons gameSlug={game.slug} gameName={game.shortName} />
+              <PostListingButtons gameSlug={game.slug} gameName={game.shortName}
+                                  liveOwn={liveOwn} />
             </div>
             <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
               Posts stay up for two hours, or until the deal is taken.
@@ -370,7 +383,7 @@ export default async function ExplorePage({
                 Crews forming now
               </h2>
               <PostListingButtons gameSlug={game.slug} gameName={game.shortName}
-                                  section="recruit" />
+                                  section="recruit" liveOwn={liveOwn} />
             </div>
             <p className="mb-4 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-mute">
               Forty minutes, then the post is gone. A crew call still up after an

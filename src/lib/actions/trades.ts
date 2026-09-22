@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { serverSupabase } from "@/lib/supabase/server";
 import { findItem, isKnownVariant } from "@/lib/items";
+import { getGame } from "@/lib/games";
 
 /**
  * Posting, cancelling and bumping trade listings.
@@ -30,7 +31,20 @@ export interface DraftSide {
   quantity?: number;
 }
 
+/**
+ * The site's own ceiling, for games that do not state one.
+ *
+ * It exists to stop a listing nobody can read, not to match any game's trade
+ * window. Where the GAME has a hard limit, games.ts carries it and that wins —
+ * see maxPerSide. Blox Fruits takes four, and a five-item Blox Fruits listing
+ * used to post happily and then fail in the game, with both players already
+ * there.
+ */
 const MAX_PER_SIDE = 12;
+
+function maxPerSide(gameSlug: string): number {
+  return getGame(gameSlug)?.maxPerSide ?? MAX_PER_SIDE;
+}
 
 function clean(
   gameSlug: string,
@@ -101,8 +115,12 @@ export async function postTradeListing(
   if (offering.length === 0) {
     return { ok: false, error: "A listing has to offer something." };
   }
-  if (offering.length > MAX_PER_SIDE || wanting.length > MAX_PER_SIDE) {
-    return { ok: false, error: `${MAX_PER_SIDE} items a side is the most a listing can carry.` };
+  const cap = maxPerSide(gameSlug);
+  if (offering.length > cap || wanting.length > cap) {
+    return {
+      ok: false,
+      error: `${cap} items a side is the most this game's trade window holds.`,
+    };
   }
 
   const offer = clean(gameSlug, offering);

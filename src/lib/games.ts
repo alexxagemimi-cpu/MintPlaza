@@ -88,6 +88,16 @@ export interface Game {
   itemAttributes: readonly ItemAttribute[];
   /** In-game gate on trading at all, where one exists. Shown, not enforced. */
   tradeGate?: string;
+  /**
+   * The most items this game lets one side of a trade carry.
+   *
+   * Absent means the site's own ceiling applies, which is about stopping a
+   * listing nobody can read rather than matching any game. Set it where the
+   * GAME has a hard limit, because a listing offering more than the trade
+   * window can hold is a deal that cannot be completed — both people turn up,
+   * and one of them finds out there.
+   */
+  maxPerSide?: number;
   hue: string;
   art: string;
   /** Where the above came from, and when. Shown in admin, not to players. */
@@ -127,6 +137,10 @@ export const GAMES: readonly Game[] = [
     itemAttributes: [
       { key: "form", label: "Form", options: ["Physical", "Permanent"] },
     ],
+    // Four. The in-game trade window holds four items a side and will not take
+    // a fifth, so a five-item listing is a deal that cannot be completed —
+    // both players turn up and one of them finds out there.
+    maxPerSide: 4,
     hue: "#D9542B",
     art: "/games/blox-fruits.jpg",
     sourceNote:
@@ -171,6 +185,8 @@ export const GAMES: readonly Game[] = [
     ],
     tradeGate:
       "A Trade Licence \u2014 a short in-game test \u2014 is required before you can trade ultra-rare and legendary items. Up to 18 items per trade. Trading for Robux, gift cards or anything outside the game is banned by Adopt Me itself, not just by us.",
+    // The number its own trade gate already states, made true in the form.
+    maxPerSide: 18,
     hue: "#E8B23A",
     art: "/games/adopt-me.jpg",
     sourceNote:
