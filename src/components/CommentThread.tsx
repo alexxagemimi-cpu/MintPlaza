@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import type { ListingComment } from "@/lib/sessions";
 import { ReportButton } from "./ReportButton";
-import { addComment } from "@/lib/actions/board";
+import { addComment, deleteComment } from "@/lib/actions/board";
 
 /**
  * The thread under a listing.
@@ -43,10 +43,13 @@ const ago = (m: number) =>
   m < 1 ? "now" : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
 
 function Comment({
-  comment, onReply,
+  comment, onReply, mine, onDelete,
 }: {
   comment: ListingComment;
   onReply: (author: string) => void;
+  /** Yours, so you may take it back. */
+  mine: boolean;
+  onDelete: (id: string) => void;
 }) {
   return (
     <li className={`flex gap-2.5 ${comment.replyTo ? "ml-8" : ""}`}>
@@ -72,12 +75,28 @@ function Comment({
           >
             Reply
           </button>
-          <ReportButton
-            what="comment"
-            subject={`${comment.author}: “${comment.text}”`}
-            subjectId={comment.id}
-            compact
-          />
+          {/* Your own words, taken back.
+              The action existed and nothing called it, so a thread on a site
+              used by children was append-only: a message sent to the wrong
+              listing, or said in temper, could be reported by somebody else
+              but never withdrawn by the person who wrote it. Reporting your
+              own comment is not the same thing and should not have to be. */}
+          {mine ? (
+            <button
+              type="button"
+              onClick={() => onDelete(comment.id)}
+              className="font-semibold text-ink-faint transition-colors hover:text-bad"
+            >
+              Delete
+            </button>
+          ) : (
+            <ReportButton
+              what="comment"
+              subject={`${comment.author}: “${comment.text}”`}
+              subjectId={comment.id}
+              compact
+            />
+          )}
         </p>
       </div>
     </li>
@@ -139,6 +158,25 @@ export function CommentThread({
     });
   }
 
+  /**
+   * Take one of your own comments back.
+   *
+   * Optimistic like send(), and restored in place if the server refuses — the
+   * row goes back where it was rather than to the end, so a thread does not
+   * silently reorder itself on a failure.
+   */
+  function remove(id: string) {
+    const before = comments;
+    setComments((prev) => prev.filter((c) => c.id !== id));
+    setError(null);
+    if (isDemo) return;
+
+    start(async () => {
+      const result = await deleteComment(id);
+      if (!result.ok) { setComments(before); setError(result.error); }
+    });
+  }
+
   if (!youVoted) {
     return (
       <div className="mt-3 rounded-[12px] border border-dashed border-line bg-fill px-3 py-3 text-center">
@@ -164,7 +202,15 @@ export function CommentThread({
       {comments.length > 0 && (
         <ul className="mb-3 grid gap-3">
           {comments.map((c) => (
-            <Comment key={c.id} comment={c} onReply={setReplyTo} />
+            <Comment
+              key={c.id}
+              comment={c}
+              onReply={setReplyTo}
+              // A pending comment has no row yet, so there is nothing to delete
+              // — offering it would be a button that 404s on your own words.
+              mine={c.author === you && !c.id.startsWith("pending-")}
+              onDelete={remove}
+            />
           ))}
         </ul>
       )}
