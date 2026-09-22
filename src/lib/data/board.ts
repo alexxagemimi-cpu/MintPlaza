@@ -17,8 +17,9 @@ interface Row {
   game_slug: string;
   side: "offer" | "request";
   service_ids: string[];
-  terms_kind: "free" | "split" | "item";
+  terms_kind: "free" | "split" | "item" | "text";
   terms_item_id: string | null;
+  terms_text: string | null;
   detail: string | null;
   ref_id: string | null;
   stage: "voting" | "requested" | "locked";
@@ -81,7 +82,12 @@ function toListing(row: Row): ServiceListing {
     terms:
       row.terms_kind === "item" && row.terms_item_id
         ? { kind: "item", itemId: row.terms_item_id }
-        : { kind: row.terms_kind === "split" ? "split" : "free" },
+        : row.terms_kind === "text" && row.terms_text
+          ? { kind: "text", text: row.terms_text }
+          // A "text" row with no text cannot be written any more — a check
+          // constraint refuses it — but one could already be on the board from
+          // before that rule, and a card is not the place to find out.
+          : { kind: row.terms_kind === "split" ? "split" : "free" },
     detail: row.detail ?? undefined,
     refId: row.ref_id ?? undefined,
     // The card works in minutes-since-posting, measured against whatever window

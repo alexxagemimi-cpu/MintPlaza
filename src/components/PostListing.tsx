@@ -64,7 +64,13 @@ export function PostListing({
   const [picked, setPicked] = useState<string[]>(preselect ? [preselect] : []);
   const [refId, setRefId] = useState<string>("");
   const [detail, setDetail] = useState("");
-  const [terms, setTerms] = useState<"free" | "split">("free");
+  // "free" is the one answer worth a button, because "nothing" is a complete
+  // answer and typing it is busywork. Everything else is written out: the
+  // buttons that used to be here were the Blox Fruits answers, and on the other
+  // five games hosts picked whichever was least wrong and explained themselves
+  // in the description instead.
+  const [wantsSomething, setWantsSomething] = useState(false);
+  const [termsText, setTermsText] = useState("");
 
   // The three limits the poster sets. Defaults are the board's old fixed
   // behaviour, so somebody who changes nothing gets exactly what they got
@@ -112,7 +118,9 @@ export function PostListing({
     start(async () => {
       const result = await postListing({
         gameSlug, side, serviceIds: picked,
-        terms: { kind: terms },
+        terms: wantsSomething
+          ? { kind: "text" as const, text: termsText }
+          : { kind: "free" as const },
         detail: detail.trim() || undefined,
         refId: refId || undefined,
         windowMinutes,
@@ -356,40 +364,92 @@ export function PostListing({
             different when you are taking ten than when you are taking one, and
             people deserve to know which before they wait.
           </p>
-          <div className="mb-1 flex flex-wrap gap-1.5">
-            {([null, 1, 2, 3, 4, 5, 6, 8, 10] as (number | null)[])
-              .filter((n) => n === null || n <= MAX_TEAM)
-              .map((n) => (
-                <button
-                  key={String(n)} type="button" onClick={() => setSlots(n)}
-                  aria-pressed={slots === n}
-                  className={`rounded-full border px-3 py-1.5 text-[0.8125rem] font-semibold transition-colors ${
-                    slots === n
-                      ? "border-mint bg-mint-wash text-ink"
-                      : "border-line bg-surface text-ink-mute"
-                  }`}
-                >
-                  {n === null ? "Not sure yet" : n}
-                </button>
-              ))}
+          {/* Typed, not picked.
+
+              It was a row of buttons — 1, 2, 3, 4, 5, 6, 8, 10 — which covers a
+              Blox Fruits raid and nothing else. A Grow a Garden event wanting
+              fourteen had no button to press, and the gaps (7, 9, and every
+              number above ten) were unreachable rather than unwanted. A box
+              takes any of them in the same amount of tapping. */}
+          <div className="mb-1 flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_TEAM}
+              value={slots ?? ""}
+              placeholder="Not sure yet"
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") { setSlots(null); return; }
+                const n = Math.floor(Number(raw));
+                // Held rather than clamped while they are still typing: somebody
+                // reaching for 12 presses 1 first, and clamping that to MAX
+                // would fight them mid-keystroke. The server clamps on submit,
+                // which is the only moment the number has to be right.
+                if (Number.isFinite(n)) setSlots(n);
+              }}
+              onBlur={() => {
+                setSlots((n) =>
+                  n === null ? null : Math.min(MAX_TEAM, Math.max(1, n)),
+                );
+              }}
+              aria-label={`How many will you pick? Leave empty if you are not sure. At most ${MAX_TEAM}.`}
+              className="w-28 rounded-[12px] border border-line bg-surface px-3 py-2 text-[0.9375rem] font-semibold text-ink placeholder:font-normal placeholder:text-ink-faint focus:border-mint focus:outline-none"
+            />
+            <span className="text-[0.75rem] text-ink-faint">
+              up to {MAX_TEAM} — leave it empty if you have not decided
+            </span>
           </div>
 
           {/* ---- in return ---- */}
           <p className="mb-2 mt-3 font-mono text-[0.5625rem] font-medium tracking-[0.1em] text-ink-faint">
             IN RETURN
           </p>
+          {/* "Nothing" stays a button because it is a complete answer and
+              typing it is busywork. Everything else is written, because the two
+              buttons that used to be here — Nothing and Split the drops — are
+              the Blox Fruits answers. A Fisch guide wants a rod, a Grow a Garden
+              run wants seeds, a PS99 carry wants gems, and none of those fit
+              either button, so hosts picked the closest wrong one and explained
+              themselves in the description. */}
           <div className="grid grid-cols-2 gap-2">
-            {(["free", "split"] as const).map((t) => (
-              <button
-                key={t} type="button" onClick={() => setTerms(t)} aria-pressed={terms === t}
-                className={`rounded-[12px] border px-3 py-2.5 text-[0.8125rem] font-semibold transition-colors ${
-                  terms === t ? "border-mint bg-mint-wash text-ink" : "border-line bg-surface text-ink-mute"
-                }`}
-              >
-                {t === "free" ? "Nothing" : "Split the drops"}
-              </button>
-            ))}
+            <button
+              type="button" onClick={() => { setWantsSomething(false); setTermsText(""); }}
+              aria-pressed={!wantsSomething}
+              className={`rounded-[12px] border px-3 py-2.5 text-[0.8125rem] font-semibold transition-colors ${
+                !wantsSomething ? "border-mint bg-mint-wash text-ink" : "border-line bg-surface text-ink-mute"
+              }`}
+            >
+              Nothing
+            </button>
+            <button
+              type="button" onClick={() => setWantsSomething(true)}
+              aria-pressed={wantsSomething}
+              className={`rounded-[12px] border px-3 py-2.5 text-[0.8125rem] font-semibold transition-colors ${
+                wantsSomething ? "border-mint bg-mint-wash text-ink" : "border-line bg-surface text-ink-mute"
+              }`}
+            >
+              Something
+            </button>
           </div>
+
+          {wantsSomething && (
+            <div className="mt-2">
+              <textarea
+                value={termsText}
+                onChange={(e) => setTermsText(e.target.value.slice(0, 140))}
+                rows={2}
+                autoFocus
+                placeholder="Split the drops · a Carrot seed · 200 gems · whatever you actually want"
+                aria-label="What do you want in return?"
+                className="w-full resize-none rounded-[12px] border border-line bg-surface px-3 py-2 text-[0.875rem] text-ink placeholder:text-ink-faint focus:border-mint focus:outline-none"
+              />
+              <p className="mt-1 text-right font-mono text-[0.625rem] text-ink-faint">
+                {termsText.length}/140
+              </p>
+            </div>
+          )}
           <p className="mt-2 text-[0.6875rem] leading-relaxed text-ink-faint">
             There is no box for real money or account access on purpose. Neither
             is allowed here, and a run done on your account is not a service.

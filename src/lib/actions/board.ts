@@ -64,7 +64,10 @@ export interface NewListing {
   gameSlug: string;
   side: "offer" | "request";
   serviceIds: string[];
-  terms: { kind: "free" | "split" } | { kind: "item"; itemId: string };
+  terms:
+    | { kind: "free" | "split" }
+    | { kind: "item"; itemId: string }
+    | { kind: "text"; text: string };
   detail?: string;
   /** The reference picture they picked, if the service offers a choice. */
   refId?: string;
@@ -83,6 +86,15 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
   if (input.serviceIds.length === 0) return fail("Pick at least one thing.");
   if (input.serviceIds.length > 8) return fail("That is too many for one post.");
   if ((input.detail?.length ?? 0) > 280) return fail("Keep the description under 280 characters.");
+
+  // A written answer that is only spaces is a blank card where the host's terms
+  // should be, and the database refuses it — so say which field, here, rather
+  // than letting a check constraint answer for it.
+  if (input.terms.kind === "text") {
+    const text = input.terms.text.trim();
+    if (!text) return fail("Say what you want in return, or pick Nothing.");
+    if (text.length > 140) return fail("Keep what you want in return under 140 characters.");
+  }
 
   // Clamped rather than rejected: these come from buttons with fixed values, so
   // anything outside the range arrived some other way and the right answer is a
@@ -107,6 +119,7 @@ export async function postListing(input: NewListing): Promise<Result<string>> {
       service_ids: input.serviceIds,
       terms_kind: input.terms.kind,
       terms_item_id: input.terms.kind === "item" ? input.terms.itemId : null,
+      terms_text: input.terms.kind === "text" ? input.terms.text.trim() : null,
       detail: input.detail?.trim() || null,
       ref_id: input.refId ?? null,
       expires_at: expiresAt,
@@ -228,6 +241,38 @@ export async function sendRequest(
   const { error: stageError } = await a.supabase
     .from("service_listings").update({ stage: "requested" }).eq("id", listingId);
   if (stageError) return fail(stageError.message);
+
+  refresh();
+  return { ok: true };
+}
+
+/**
+ * Take somebody back off the team.
+ *
+ * Needed the moment anybody says no. A five-player hunt where one person
+ * denies is a four-player hunt that cannot start, and without this the host's
+ * only move was to delete the post and write it again — losing every other
+ * person who had already said yes.
+ *
+ * The author check is the RLS policy's, not this function's: only rows on a
+ * listing you own are deletable, so a request naming somebody else's listing
+ * removes nothing rather than being refused. Nothing here re-states that, since
+ * a copy of a rule is a copy that can disagree with it.
+ */
+export async function removePick(
+  listingId: string, username: string,
+): Promise<Result> {
+  const a = await actor();
+  if (!a) return fail("Sign in first.");
+
+  const { data: person } = await a.supabase
+    .from("profiles").select("id").eq("username", username).maybeSingle();
+  if (!person) return fail("Could not find that player.");
+
+  const { error } = await a.supabase
+    .from("service_picks").delete()
+    .eq("listing_id", listingId).eq("user_id", person.id);
+  if (error) return fail(error.message);
 
   refresh();
   return { ok: true };

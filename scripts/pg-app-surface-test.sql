@@ -81,10 +81,15 @@ end $$;
 \echo 'SIGN-IN'
 insert into auth.users (id, email) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'owner@x.test'),
-  ('bbbbbbbb-0000-0000-0000-00000000000b', 'player@x.test');
+  ('bbbbbbbb-0000-0000-0000-00000000000b', 'player@x.test'),
+  -- Never votes on anything, and exists only to prove that somebody who has
+  -- not put their hand up cannot be picked. That used to be checked with the
+  -- author, which stopped meaning anything the moment the author could vote.
+  ('dddddddd-0000-0000-0000-00000000000d', 'bystander@x.test');
 
 update public.profiles set username = 'OwnerPerson' where id = 'aaaaaaaa-0000-0000-0000-00000000000a';
 update public.profiles set username = 'SomePlayer'  where id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+update public.profiles set username = 'NeverVoted'  where id = 'dddddddd-0000-0000-0000-00000000000d';
 
 set "request.jwt.claim.sub" = 'aaaaaaaa-0000-0000-0000-00000000000a';
 do $$ begin
@@ -188,12 +193,15 @@ do $$ begin
       where id = 'cccccccc-0000-0000-0000-00000000000c') = 'ref-angel');
 end $$;
 
+-- The host is a player on their own hunt, so their vote counts like anybody
+-- else's. Blocking it left the host out of their own team and out of their own
+-- count, which is the bug this assertion used to guarantee.
 do $$ begin
   insert into public.service_votes (listing_id, user_id)
   values ('cccccccc-0000-0000-0000-00000000000c','aaaaaaaa-0000-0000-0000-00000000000a');
-  perform pg_temp.ok('the author cannot vote on their own post', false);
-exception when sqlstate 'P0001' then
-  perform pg_temp.ok('the author cannot vote on their own post', true);
+  perform pg_temp.ok('the author can vote on their own post — they are on the boat too', true);
+exception when others then
+  perform pg_temp.ok('the author can vote on their own post — they are on the boat too', false);
 end $$;
 
 insert into public.service_votes (listing_id, user_id)
@@ -209,7 +217,7 @@ end $$;
 
 do $$ begin
   insert into public.service_picks (listing_id, user_id)
-  values ('cccccccc-0000-0000-0000-00000000000c','aaaaaaaa-0000-0000-0000-00000000000a');
+  values ('cccccccc-0000-0000-0000-00000000000c','dddddddd-0000-0000-0000-00000000000d');
   perform pg_temp.ok('somebody who never voted cannot be picked', false);
 exception when foreign_key_violation then
   perform pg_temp.ok('somebody who never voted cannot be picked', true);
@@ -267,7 +275,11 @@ begin
 
   perform pg_temp.ok('the window is reported in minutes, not as a timestamp',
     (r->>'window_minutes')::int between 89 and 91);
-  perform pg_temp.ok('the vote is counted', (r->>'vote_count')::int = 1);
+  -- Two: SomePlayer, and the author, who is on the boat like anybody else.
+  -- This read 1 while the author was blocked from voting, and that number was
+  -- the bug in miniature — a post needing five showed four when it was full.
+  perform pg_temp.ok('the vote is counted, the author''s included',
+    (r->>'vote_count')::int = 2);
   perform pg_temp.ok('the author sees it as theirs', (r->>'yours')::boolean);
 end $$;
 

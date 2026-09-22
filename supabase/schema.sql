@@ -1451,8 +1451,9 @@ create table if not exists public.service_listings (
   author_id     uuid not null references public.profiles(id) on delete cascade,
   side          text not null check (side in ('offer', 'request')),
   service_ids   text[] not null check (cardinality(service_ids) between 1 and 8),
-  terms_kind    text not null default 'free' check (terms_kind in ('free', 'split', 'item')),
+  terms_kind    text not null default 'free' check (terms_kind in ('free', 'split', 'item', 'text')),
   terms_item_id uuid references public.game_items(id) on delete set null,
+  terms_text    text check (char_length(terms_text) <= 140),
   detail        text check (char_length(detail) <= 280),
   stage         text not null default 'voting' check (stage in ('voting', 'requested', 'locked')),
   created_at    timestamptz not null default now(),
@@ -1647,8 +1648,17 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Trades get none of this — one person to one person, so there is no voting to
 -- cap and no team to size.
 alter table public.service_listings
-  add column if not exists vote_cap integer,
-  add column if not exists slots    integer;
+  add column if not exists vote_cap   integer,
+  add column if not exists slots      integer,
+  -- What the host wants back, in their own words.
+  --
+  -- It was two buttons, "Nothing" and "Split the drops", and those are the only
+  -- two answers a Blox Fruits raid ever has. Every other game on this site has
+  -- a different one — a Fisch guide wants a rod, a Grow a Garden run wants
+  -- seeds, a PS99 carry wants gems — and none of them fit either button, so
+  -- hosts were picking the closest wrong answer and explaining themselves in
+  -- the description. The buttons were making the description do their job.
+  add column if not exists terms_text text;
 
 -- Through add_check because this table can already hold posts written before
 -- these rules existed, and one of them must not cost the rest of the file.
@@ -1656,8 +1666,22 @@ alter table public.service_listings
 -- longest that can still honestly be called live.
 select mintplaza.add_check('public.service_listings', 'service_listings_vote_cap_check',
   'vote_cap is null or (vote_cap between 1 and 500)');
+-- Thirty rather than eighteen: the cap exists to stop a typo becoming a
+-- thousand-player post, not to tell a host how many people their event takes.
+-- It is typed now rather than picked from buttons, so the ceiling is the only
+-- thing standing between a slipped key and nonsense on the board.
 select mintplaza.add_check('public.service_listings', 'service_listings_slots_check',
-  'slots is null or (slots between 1 and 18)');
+  'slots is null or (slots between 1 and 30)');
+
+-- 'text' is the free-written answer; the other three stay for posts already on
+-- the board. A text post must actually carry text, or the card renders a blank
+-- where the host's terms should be.
+select mintplaza.add_check('public.service_listings', 'service_listings_terms_kind_check',
+  'terms_kind in (''free'', ''split'', ''item'', ''text'')');
+select mintplaza.add_check('public.service_listings', 'service_listings_terms_text_check',
+  'terms_text is null or char_length(terms_text) <= 140');
+select mintplaza.add_check('public.service_listings', 'service_listings_terms_text_present',
+  'terms_kind <> ''text'' or (terms_text is not null and char_length(btrim(terms_text)) > 0)');
 select mintplaza.add_check('public.service_listings', 'service_listings_window_check',
   'expires_at > created_at + interval ''10 minutes''
    and expires_at <= created_at + interval ''4 hours''');
@@ -3082,23 +3106,19 @@ create trigger service_listings_limit
 
 revoke all on function public.enforce_service_listing_limit() from public, anon, authenticated;
 
--- You cannot put your hand up for your own post.
-create or replace function public.block_self_vote()
-returns trigger language plpgsql security definer set search_path = public, pg_catalog as $$
-begin
-  if exists (select 1 from public.service_listings
-              where id = new.listing_id and author_id = new.user_id) then
-    raise exception 'That is your own post.' using errcode = 'P0001';
-  end if;
-  return new;
-end $$;
-
+-- The author votes on their own post like anybody else, and must.
+--
+-- This used to be blocked, on the reasoning that putting your hand up for your
+-- own post is meaningless. That reasoning was wrong, and it broke the feature
+-- it was protecting: a Leviathan hunt needs five players ON THE SAME BOAT and
+-- the host is one of them. Blocked from voting, the host was not in their own
+-- count — a post needing five showed four when the boat was full, and
+-- finalize_deal picked a team that did not include the person who called it.
+--
+-- Dropped rather than deleted from the file, because a database that already
+-- carries the old trigger has to lose it on the next run.
 drop trigger if exists service_votes_no_self on public.service_votes;
-create trigger service_votes_no_self
-  before insert on public.service_votes
-  for each row execute function public.block_self_vote();
-
-revoke all on function public.block_self_vote() from public, anon, authenticated;
+drop function if exists public.block_self_vote();
 
 -- The clock on an answer belongs to the database, not to the person answering.
 create or replace function public.stamp_pick_reply()
@@ -3291,6 +3311,7 @@ set search_path = public, pg_catalog as $$
         'service_ids',       to_jsonb(l.service_ids),
         'terms_kind',        l.terms_kind,
         'terms_item_id',     l.terms_item_id,
+        'terms_text',        l.terms_text,
         'detail',            l.detail,
         'ref_id',            l.ref_id,
         'stage',             l.stage,

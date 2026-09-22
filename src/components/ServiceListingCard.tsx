@@ -16,7 +16,7 @@ import { CommentThread } from "./CommentThread";
 import { ReportButton } from "./ReportButton";
 import { RefTile } from "./RefTile";
 import { ServiceArt } from "./ServiceArt";
-import { toggleVote, sendRequest, finalizeDeal, deleteListing } from "@/lib/actions/board";
+import { toggleVote, sendRequest, removePick, finalizeDeal, deleteListing } from "@/lib/actions/board";
 import { showRewardedAd, REWARDED_ADS_ON } from "@/lib/ads";
 
 /**
@@ -190,6 +190,31 @@ export function ServiceListingCard({
     start(async () => {
       const result = await sendRequest(listing.id, chosen);
       if (!result.ok) { setVoters(before); setStage(listing.stage); setError(result.error); }
+    });
+  }
+
+  /**
+   * Take one person back off the team.
+   *
+   * Optimistic, like the other reversible actions here: the row goes straight
+   * away and comes back if the server refuses. Somebody who said no is the
+   * common case and the host is usually re-picking in the same breath, so
+   * waiting a round trip to see the name disappear reads as a dead button —
+   * which is exactly the bug that made this control necessary.
+   */
+  function onRemovePick(username: string) {
+    setError(null);
+    const before = voters;
+    setVoters((vs) =>
+      vs.map((v) =>
+        v.username === username ? { ...v, reply: "not-picked" as const } : v,
+      ),
+    );
+    if (listing.isDemo) return;
+
+    start(async () => {
+      const result = await removePick(listing.id, username);
+      if (!result.ok) { setVoters(before); setError(result.error); }
     });
   }
 
@@ -411,6 +436,7 @@ export function ServiceListingCard({
             {listing.terms.kind === "free" && "Nothing"}
             {listing.terms.kind === "split" && "Split whatever drops"}
             {listing.terms.kind === "item" && (termsItem?.name ?? "An item")}
+            {listing.terms.kind === "text" && listing.terms.text}
           </span>
         </p>
 
@@ -436,6 +462,22 @@ export function ServiceListingCard({
                     {v.username}
                   </span>
                   <ReplyMark reply={v.reply} />
+                  {/* Only the host, and only while the team can still change.
+                      ReplyMark already draws a cross for somebody who said no,
+                      and that cross is a STATUS — tapping it did nothing, which
+                      read as a broken button. This is the one that acts. */}
+                  {showOwnerControls && stage === "requested" && (
+                    <button
+                      type="button"
+                      onClick={() => onRemovePick(v.username)}
+                      disabled={busy}
+                      aria-label={`Take ${v.username} off the team`}
+                      title={`Take ${v.username} off the team`}
+                      className="rounded-full border border-line px-2 py-1 font-mono text-[0.5625rem] tracking-[0.08em] text-ink-mute transition-colors hover:border-bad hover:text-bad disabled:opacity-40"
+                    >
+                      REMOVE
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

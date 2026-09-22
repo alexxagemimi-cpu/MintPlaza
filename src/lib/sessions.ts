@@ -1043,7 +1043,17 @@ export const PARTIAL_SERVICES: readonly string[] = [
 export type Terms =
   | { kind: "free" }
   | { kind: "split" }
-  | { kind: "item"; itemId: string };
+  | { kind: "item"; itemId: string }
+  /**
+   * What the host wants back, written out.
+   *
+   * The other three are the Blox Fruits answers, and they were the only ones
+   * offered. A Fisch guide wanting a rod, a Grow a Garden run wanting seeds and
+   * a PS99 carry wanting gems all had to pick whichever button was least wrong
+   * and then explain themselves in the description — so the description was
+   * doing the terms' job on four of the six games.
+   */
+  | { kind: "text"; text: string };
 
 /**
  * Somebody who voted on a listing.
@@ -1109,11 +1119,12 @@ export type DealStage = "voting" | "requested" | "locked";
 /**
  * The most people one deal can involve.
  *
- * The board is for help that takes one or two others, so a team of eighteen is
- * far past what any listing here needs — it is a ceiling to stop a runaway
- * selection, not a target.
+ * A ceiling to stop a runaway selection, not a target. Thirty rather than
+ * eighteen because the number is typed now rather than picked off a row of
+ * buttons, and the only thing a ceiling has to stop is a slipped key turning
+ * into a thousand-player post.
  */
-export const MAX_TEAM = 18;
+export const MAX_TEAM = 30;
 
 export type ListingSide = "offer" | "request";
 
