@@ -36,9 +36,18 @@ function clean(value: string | undefined): string | null {
   }
 }
 
+/**
+ * The one public address of the site. Every other host that serves this
+ * project (mintplaza.in, mintplaza.vercel.app, each per-deployment
+ * *.vercel.app URL) is redirected here by src/proxy.ts in production, and
+ * every page names it as canonical, so search engines and AdSense see one site.
+ */
+export const CANONICAL_HOST = "www.mintplaza.in";
+export const CANONICAL_ORIGIN = `https://${CANONICAL_HOST}`;
+
 export const SITE_ORIGIN: string =
   clean(process.env.NEXT_PUBLIC_SITE_URL) ??
-  clean(process.env.VERCEL_PROJECT_PRODUCTION_URL) ??
+  (process.env.VERCEL_ENV === "production" ? CANONICAL_ORIGIN : null) ??
   clean(process.env.VERCEL_URL) ??
   "http://localhost:3000";
 

@@ -1,6 +1,39 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_READY, SUPABASE_URL } from "@/lib/supabase/config";
+import { CANONICAL_HOST, CANONICAL_ORIGIN } from "@/lib/site";
+
+const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+
+/**
+ * One address for the whole site.
+ *
+ * The same production build answers on www.mintplaza.in, mintplaza.in,
+ * mintplaza.vercel.app and a per-deployment *.vercel.app URL. Without this,
+ * search engines and AdSense can file inner pages under a vercel.app host.
+ * In production every other host gets a permanent (308) redirect to the same
+ * path on www.mintplaza.in. Preview deployments are left reachable for testing
+ * but marked noindex so they never compete with the real site.
+ */
+function canonicalRedirect(request: NextRequest): NextResponse | null {
+  const host = (request.headers.get("host") ?? "").toLowerCase();
+  if (!IS_PRODUCTION || !host || host === CANONICAL_HOST) return null;
+  if (host.startsWith("localhost") || host.startsWith("127.")) return null;
+  const target = new URL(request.nextUrl.pathname + request.nextUrl.search, CANONICAL_ORIGIN);
+  return NextResponse.redirect(target, 308);
+}
+
+function finish(request: NextRequest, response: NextResponse): NextResponse {
+  if (IS_PRODUCTION) {
+    response.headers.set(
+      "Link",
+      `<${CANONICAL_ORIGIN}${request.nextUrl.pathname}>; rel="canonical"`,
+    );
+  } else {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  }
+  return response;
+}
 
 /**
  * Keeps the session cookie fresh.
@@ -15,7 +48,10 @@ import { SUPABASE_ANON_KEY, SUPABASE_READY, SUPABASE_URL } from "@/lib/supabase/
  * unchanged — same function, same `config.matcher`.
  */
 export async function proxy(request: NextRequest) {
-  if (!SUPABASE_READY) return NextResponse.next();
+  const redirect = canonicalRedirect(request);
+  if (redirect) return redirect;
+
+  if (!SUPABASE_READY) return finish(request, NextResponse.next());
 
   let response = NextResponse.next({ request });
 
@@ -37,7 +73,7 @@ export async function proxy(request: NextRequest) {
   // Touching the user is what performs the refresh. Do not remove.
   await supabase.auth.getUser();
 
-  return response;
+  return finish(request, response);
 }
 
 export const config = {
